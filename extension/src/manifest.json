@@ -6,7 +6,15 @@
     "default_title": "Tabruh",
     "default_popup": "popup.html"
   },
-  "permissions": ["webNavigation", "storage"],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "tabHide",
+    "history",
+    "bookmarks",
+    "webNavigation",
+    "storage"
+  ],
   "background": {
     "scripts": [ "background.js" ]
   },

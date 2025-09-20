@@ -3,12 +3,18 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir build",
+    "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "dev": "bun x tsx ./src/dev.ts -- firefox"
   },
   "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-typescript": "^12.1.4",
     "@types/bun": "latest",
     "@types/webextension-polyfill": "^0.12.3",
+    "rollup": "^4.52.0",
+    "rollup-plugin-copy": "^3.5.0",
+    "tslib": "^2.8.1",
     "tsx": "^4.20.5",
     "web-ext": "^8.10.0"
   },

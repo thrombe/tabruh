@@ -1,6 +1,7 @@
 import browser from "webextension-polyfill";
 
 async function main() {
+    console.log("lmao man");
     let results = await browser.storage.local.get();
 
     // Initialize the saved stats if not yet initialized.
@@ -17,6 +18,8 @@ async function main() {
         if (evt.frameId !== 0) {
             return;
         }
+
+        console.log("new tab?")
 
         let transitionType = evt.transitionType;
         results.type[transitionType] = results.type[transitionType] || 0;

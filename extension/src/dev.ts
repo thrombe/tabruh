@@ -9,7 +9,7 @@ async function main() {
     const IS_FF = lastArg.includes('irefox') || lastArg.includes('loorp') || lastArg.includes('zen');
     const cliOpts = {
         // target: IS_FF ? 'firefox' : 'chromium',
-        sourceDir: "./src",
+        sourceDir: "./build",
         keepProfileChanges: true,
     };
 
