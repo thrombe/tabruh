@@ -91,7 +91,9 @@
           zls
           gdb
 
+          nodejs
           bun
+          typescript-language-server
         ])
         ++ []
         ++ (custom-commands pkgs);

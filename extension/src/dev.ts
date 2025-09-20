@@ -1,0 +1,28 @@
+import webExt from 'web-ext';
+import fs from 'fs/promises';
+import path from 'path';
+
+async function main() {
+    let lastArg = process.argv[process.argv.length - 1];
+    if (!lastArg || lastArg.startsWith('-')) lastArg = 'firefox';
+
+    const IS_FF = lastArg.includes('irefox') || lastArg.includes('loorp') || lastArg.includes('zen');
+    const cliOpts = {
+        // target: IS_FF ? 'firefox' : 'chromium',
+        sourceDir: "./src",
+        keepProfileChanges: true,
+    };
+
+    if (IS_FF) {
+        cliOpts.firefox = lastArg;
+        cliOpts.firefoxProfile = './build/profile-' + path.basename(lastArg).split(".")[0];
+        await fs.mkdir(cliOpts.firefoxProfile, { recursive: true });
+    } else {
+        cliOpts.chromiumBinary = lastArg;
+        cliOpts.chromiumProfile = './build/profile-' + path.basename(lastArg).split(".")[0];
+        await fs.mkdir(cliOpts.chromiumProfile, { recursive: true });
+    }
+
+    webExt.cmd.run(cliOpts, { shouldExitProgram: true });
+}
+main();
