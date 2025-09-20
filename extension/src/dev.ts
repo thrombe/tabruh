@@ -11,6 +11,7 @@ async function main() {
         // target: IS_FF ? 'firefox' : 'chromium',
         sourceDir: "./build",
         keepProfileChanges: true,
+        devtools: true,
     };
 
     if (IS_FF) {
