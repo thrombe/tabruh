@@ -15,11 +15,11 @@ async function main() {
 
     if (IS_FF) {
         cliOpts.firefox = lastArg;
-        cliOpts.firefoxProfile = './build/profile-' + path.basename(lastArg).split(".")[0];
+        cliOpts.firefoxProfile = './tmp/profile-' + path.basename(lastArg).split(".")[0];
         await fs.mkdir(cliOpts.firefoxProfile, { recursive: true });
     } else {
         cliOpts.chromiumBinary = lastArg;
-        cliOpts.chromiumProfile = './build/profile-' + path.basename(lastArg).split(".")[0];
+        cliOpts.chromiumProfile = './tmp/profile-' + path.basename(lastArg).split(".")[0];
         await fs.mkdir(cliOpts.chromiumProfile, { recursive: true });
     }
 
