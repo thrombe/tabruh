@@ -34,15 +34,12 @@ const config: RollupOptions = {
             // Optionally override some TS compiler options
             // e.g. target, module etc
         }),
-        // Copy static files like manifest.json, icons, popup HTML
         copy({
             targets: [
                 { src: 'src/manifest.json', dest: distDir },
                 { src: 'src/popup.html', dest: distDir }
             ],
-            // flatten or preserve structure options
-            // copy once at start
-            hook: 'buildStart'
+            hook: 'buildEnd',
         })
     ],
     // If your extension code uses browser APIs, you may need to externalize certain modules

@@ -1,32 +1,49 @@
 import browser from "webextension-polyfill";
 
 async function main() {
-    console.log("lmao man");
-    let results = await browser.storage.local.get();
+    console.log("tabruh loaded");
 
-    // Initialize the saved stats if not yet initialized.
-    if (!results.stats) {
-        results = {
-            host: {},
-            type: {}
-        };
-    }
+    browser.tabs.onActivated.addListener(async tab => {
+        // console.log("tab activated");
+        // console.log(tab);
+        // console.log(await browser.windows.get(tab.windowId));
+        // console.log(await browser.tabs.get(tab.previousTabId ?? 0));
+        // console.log(await browser.tabs.get(tab.tabId));
+
+        // console.log(await browser.tabs.update(tab.tabId, { active: true }));
+        // console.log(await browser.tabs.discard(tab.previousTabId ?? 0));
+    });
+    browser.tabs.onCreated.addListener(async tab => {
+        // console.log("tab created");
+        // console.log(tab);
+        // console.log(await browser.tabs.get(tab.openerTabId ?? 0));
+    });
+    browser.tabs.onUpdated.addListener(async id => {
+        let tab = await browser.tabs.get(id);
+        console.log("tab updated ", id, tab.status);
+        console.log(tab);
+        if (tab.status == "complete" && !tab.discarded && !tab.active) {
+            console.log("switch to " + tab.id);
+            console.log(await browser.tabs.update(tab.id, { active: true }));
+
+            if (tab.openerTabId) {
+                console.log("discard " + tab.openerTabId);
+                await browser.tabs.discard(tab.openerTabId);
+            }
+        }
+    });
 
     // Monitor completed navigation events and update
     // stats accordingly.
-    browser.webNavigation.onCommitted.addListener((evt) => {
+    browser.webNavigation.onCommitted.addListener(async (evt) => {
         if (evt.frameId !== 0) {
             return;
         }
+        // console.log(await browser.tabs.query({ currentWindow: true }));
 
-        console.log("new tab?")
+        // console.log("new tab?")
 
         let transitionType = evt.transitionType;
-        results.type[transitionType] = results.type[transitionType] || 0;
-        results.type[transitionType]++;
-
-        // Persist the updated stats.
-        browser.storage.local.set(results);
     });
 
     browser.webNavigation.onCompleted.addListener(evt => {
@@ -36,12 +53,7 @@ async function main() {
         }
 
         const url = new URL(evt.url);
-
-        results.host[url.hostname] = results.host[url.hostname] || 0;
-        results.host[url.hostname]++;
-
-        // Persist the updated stats.
-        browser.storage.local.set(results);
+        console.log(url);
     }, {
         url: [{ schemes: ["http", "https"] }]
     });
