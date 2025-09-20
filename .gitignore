@@ -1,0 +1,10 @@
+
+/.direnv
+/.zig-cache
+/.cache
+/compile_commands.json
+/zig-out
+/tmp
+/result
+
+/notes.md
