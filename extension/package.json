@@ -8,10 +8,14 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/webextension-polyfill": "^0.12.3",
     "tsx": "^4.20.5",
     "web-ext": "^8.10.0"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "webextension-polyfill": "^0.12.0"
   }
 }
