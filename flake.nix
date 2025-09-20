@@ -91,8 +91,7 @@
           zls
           gdb
 
-          ghostty
-          kitty
+          bun
         ])
         ++ []
         ++ (custom-commands pkgs);

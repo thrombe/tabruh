@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "tabruh",
+  "version": "0.1.0",
+  "browser_action": {
+    "default_title": "Tabruh",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["webNavigation", "storage"],
+  "background": {
+    "scripts": [ "background.js" ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "strict_min_version": "50.0"
+    }
+  }
+}
