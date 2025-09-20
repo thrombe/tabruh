@@ -1,10 +1,10 @@
 {
-  "name": "extension",
+  "name": "tabruh",
   "module": "index.ts",
   "type": "module",
-  "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "web-ext": "^8.10.0"
   },
   "peerDependencies": {
     "typescript": "^5"
