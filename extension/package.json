@@ -1,7 +1,5 @@
 {
   "name": "tabruh",
-  "module": "index.ts",
-  "type": "module",
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "dev": "bun x tsx ./src/dev.ts -- firefox"
