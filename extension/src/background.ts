@@ -16,7 +16,44 @@ class TabTracker {
     private tabTrees: { [windowId: number]: WindowTabTree } = {};
 
     constructor() {
+        this.initialize();
+    }
+
+    private async initialize(): Promise<void> {
+        await this.initializeState();
         this.initListeners();
+        console.log(this.tabTrees);
+    }
+
+    private async initializeState(): Promise<void> {
+        const windows = await browser.windows.getAll({ populate: true });
+
+        for (const window of windows) {
+            if (window.id === undefined || !window.tabs) continue;
+
+            const windowTree = this.getWindowTree(window.id);
+
+            for (const tab of window.tabs) {
+                if (tab.id === undefined) continue;
+
+                windowTree[tab.id] = {
+                    id: tab.id,
+                    url: tab.url ?? "",
+                    title: tab.title,
+                    children: [],
+                    parentId: tab.openerTabId,
+                };
+            }
+
+            for (const tabId in windowTree) {
+                const node = windowTree[tabId];
+                if (node.parentId !== undefined && windowTree[node.parentId]) {
+                    windowTree[node.parentId]!.children.push(node.id);
+                }
+            }
+        }
+        console.log("Initial state loaded");
+        console.log(this.tabTrees);
     }
 
     private initListeners(): void {
