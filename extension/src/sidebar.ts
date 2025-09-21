@@ -1,3 +1,4 @@
+import './sidebar.css';
 import browser from 'webextension-polyfill';
 
 type TabNode = {

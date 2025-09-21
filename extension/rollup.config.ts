@@ -5,6 +5,9 @@ import typescript from '@rollup/plugin-typescript';
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import copy from 'rollup-plugin-copy';
+import postcss from 'rollup-plugin-postcss';
+import tailwindcss from '@tailwindcss/postcss';
+import autoprefixer from 'autoprefixer';
 import { globSync } from 'glob';
 import url from 'url';
 
@@ -49,11 +52,20 @@ const config: RollupOptions = {
         dir: distDir,
         format: 'es',
         sourcemap: true,
-        // for content scripts etc, might want individual files
-        entryFileNames: '[name].js'
+        entryFileNames: '[name].js',
+        assetFileNames: '[name].[extname]',
     },
     plugins: [
         watchStaticAssets(),
+        postcss(
+            {
+                plugins: [
+                    tailwindcss(),
+                    autoprefixer(),
+                ],
+                extract: false,
+            }
+        ),
         resolve({
             browser: true,
             preferBuiltins: false
