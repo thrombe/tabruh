@@ -1,12 +1,42 @@
 import path from 'path';
-import { type RollupOptions } from 'rollup';
+import { type RollupOptions, type Plugin } from 'rollup';
 import typescript from '@rollup/plugin-typescript';
 // import json from '@rollup/plugin-json';
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import copy from 'rollup-plugin-copy';
+import { globSync } from 'glob';
+import url from 'url';
 
 const distDir = 'build';
+
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+
+const staticAssetPatterns = [
+    'src/**/*.html',
+    'src/**/*.json',
+    'src/**/*.css',
+];
+
+
+/**
+ * A custom Rollup plugin that finds all static assets via glob patterns
+ * and adds them to Rollup's watch list.
+ */
+function watchStaticAssets(): Plugin {
+    return {
+        name: 'watch-static-assets',
+        buildStart() {
+            // Use globSync to find all files that match the patterns.
+            const files = globSync(staticAssetPatterns);
+
+            // Add each found file to Rollup's watch list.
+            for (const file of files) {
+                this.addWatchFile(path.resolve(__dirname, file));
+            }
+        }
+    };
+}
 
 const config: RollupOptions = {
     // multiple entry points: background, content script, popup etc.
@@ -23,6 +53,7 @@ const config: RollupOptions = {
         entryFileNames: '[name].js'
     },
     plugins: [
+        watchStaticAssets(),
         resolve({
             browser: true,
             preferBuiltins: false
