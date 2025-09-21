@@ -79,20 +79,23 @@ class TabTreeSidebar {
         this.container.innerHTML = '';
         this.tree = nodes;
 
-        if (rootIds.length === 0) {
-            this.container.textContent = 'No tabs found.';
-            return;
-        }
-
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
 
-        for (const rootId of rootIds) {
-            const nodeElement = this.renderNode(rootId, nodes);
-            rootContainer.appendChild(nodeElement);
+        if (tabs.length === 0) {
+            const noTabsMessage = document.createElement('div');
+            noTabsMessage.textContent = 'No tabs to display.';
+            noTabsMessage.className = 'p-2 text-center text-gray-400';
+            rootContainer.appendChild(noTabsMessage);
+        } else {
+            for (const rootId of rootIds) {
+                const nodeElement = this.renderNode(rootId, nodes);
+                rootContainer.appendChild(nodeElement);
+            }
         }
 
         this.container.appendChild(rootContainer);
+        this.container.appendChild(this.renderAddButton());
     }
 
     private buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: number[] } {
@@ -188,6 +191,9 @@ class TabTreeSidebar {
             this.moveTab(draggedTabId, node.id);
         });
 
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'tree-node-content';
+
         const icon = document.createElement('img');
         icon.src = node.favIconUrl || DEFAULT_FAVICON_URL;
         icon.alt = 'favicon';
@@ -197,8 +203,19 @@ class TabTreeSidebar {
         title.className = 'tree-node-title';
         title.textContent = node.title;
 
-        nodeElement.appendChild(icon);
-        nodeElement.appendChild(title);
+        contentWrapper.appendChild(icon);
+        contentWrapper.appendChild(title);
+
+        const closeButton = document.createElement('button');
+        closeButton.className = 'close-tab-button';
+        closeButton.textContent = '⨯';
+        closeButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.closeTab(node.id);
+        });
+
+        nodeElement.appendChild(contentWrapper);
+        nodeElement.appendChild(closeButton);
         nodeWrapper.appendChild(nodeElement);
 
         if (node.children.length > 0) {
@@ -213,6 +230,43 @@ class TabTreeSidebar {
 
         return nodeWrapper;
     }
+
+    private renderAddButton(): HTMLDivElement {
+        const button = document.createElement('div');
+        button.className = 'add-tab-button';
+        button.textContent = '+';
+
+        button.addEventListener('click', () => {
+            browser.tabs.create({});
+        });
+
+        button.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            const draggedId = event.dataTransfer?.getData('text/plain');
+            if (draggedId) {
+                event.dataTransfer!.dropEffect = 'move';
+                button.classList.add('drag-over-target');
+            }
+        });
+
+        button.addEventListener('dragleave', () => {
+            button.classList.remove('drag-over-target');
+        });
+
+        button.addEventListener('drop', (event) => {
+            event.preventDefault();
+            button.classList.remove('drag-over-target');
+
+            const draggedTabIdStr = event.dataTransfer?.getData('text/plain');
+            if (!draggedTabIdStr) return;
+
+            const draggedTabId = parseInt(draggedTabIdStr, 10);
+            this.moveTabToRoot(draggedTabId);
+        });
+
+        return button;
+    }
+
 
     private async focusTab(tabId: number) {
         try {
@@ -235,9 +289,25 @@ class TabTreeSidebar {
             console.error('Failed to move tab:', e);
         }
     }
+
+    private async closeTab(tabId: number) {
+        try {
+            await browser.tabs.remove(tabId);
+        } catch (e) {
+            console.error(`Could not close tab ${tabId}:`, e);
+        }
+    }
+
+    private async moveTabToRoot(tabId: number) {
+        try {
+            this.parent_map.delete(tabId);
+            await browser.tabs.move(tabId, { index: -1 });
+        } catch (e) {
+            console.error('Failed to move tab to root:', e);
+        }
+    }
 }
 
-// Initialize after DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     new TabTreeSidebar('tree-container');
 });

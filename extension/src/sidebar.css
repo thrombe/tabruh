@@ -21,12 +21,16 @@ body {
 }
 
 .tree-node {
-  @apply flex items-center p-1 rounded-md cursor-pointer select-none;
+  @apply flex items-center p-1 rounded-md cursor-pointer select-none justify-between;
   background-color: transparent;
 }
 
 .tree-node:hover {
   background-color: var(--gruvbox-hover);
+}
+
+.tree-node-content {
+  @apply flex items-center min-w-0;
 }
 
 .tree-node-icon {
@@ -49,4 +53,40 @@ body {
 .drag-over-target {
   border-top-width: 2px;
   border-color: var(--gruvbox-blue);
+}
+
+.add-tab-button.drag-over-target {
+  border-top-width: 0;
+  border: 2px solid var(--gruvbox-blue);
+  background-color: var(--gruvbox-hover-accent);
+}
+
+.close-tab-button {
+  @apply w-5 h-5 flex-shrink-0 rounded-md flex items-center justify-center ml-2 text-lg;
+  opacity: 0;
+  background-color: transparent;
+  border: none;
+  color: var(--gruvbox-fg);
+  cursor: pointer;
+  transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
+  line-height: 1;
+}
+
+.tree-node:hover .close-tab-button {
+  opacity: 1;
+}
+
+.close-tab-button:hover {
+  background-color: var(--gruvbox-hover-accent);
+}
+
+.add-tab-button {
+  @apply flex items-center justify-center mt-2 rounded-md cursor-pointer select-none text-center text-lg;
+  border: 2px dashed var(--gruvbox-border);
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.add-tab-button:hover {
+  background-color: var(--gruvbox-hover);
+  border-color: var(--gruvbox-fg);
 }
