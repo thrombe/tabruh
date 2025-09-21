@@ -21,7 +21,7 @@ body {
 }
 
 .tree-node {
-  @apply flex items-center p-1 rounded-md cursor-pointer select-none justify-between;
+  @apply flex items-center p-1 rounded-md cursor-pointer select-none relative;
   background-color: transparent;
 }
 
@@ -30,7 +30,7 @@ body {
 }
 
 .tree-node-content {
-  @apply flex items-center min-w-0;
+  @apply flex items-center min-w-0 w-full;
 }
 
 .tree-node-icon {
@@ -62,9 +62,9 @@ body {
 }
 
 .close-tab-button {
-  @apply w-5 h-5 flex-shrink-0 rounded-md flex items-center justify-center ml-2 text-lg;
+  @apply w-8 h-8 rounded-md flex items-center justify-center text-lg absolute right-0 top-1/2 -translate-y-1/2;
   opacity: 0;
-  background-color: transparent;
+  background-color: var(--gruvbox-hover);
   border: none;
   color: var(--gruvbox-fg);
   cursor: pointer;
