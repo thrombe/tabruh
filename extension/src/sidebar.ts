@@ -16,7 +16,8 @@ const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" heig
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
 
 class TabTreeSidebar {
-    private container: HTMLElement;
+    container: HTMLElement;
+    parent_map: Map<number, number>;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -24,6 +25,7 @@ class TabTreeSidebar {
             throw new Error(`Sidebar container #${containerId} not found.`);
         }
         this.container = el;
+        this.parent_map = new Map();
 
         this.init();
     }
@@ -46,6 +48,19 @@ class TabTreeSidebar {
         browser.tabs.onMoved.addListener(refresh);
         browser.tabs.onAttached.addListener(refresh);
         browser.tabs.onDetached.addListener(refresh);
+    }
+
+    getParent(tab: browser.Tabs.Tab): number | undefined {
+        if (tab.id === undefined) return undefined;
+        const parent = this.parent_map.get(tab.id);
+        if (parent === undefined) {
+            return tab.openerTabId;
+        }
+        return parent;
+    }
+
+    setParent(id: number, parent: number) {
+        this.parent_map.set(id, parent);
     }
 
     private async render() {
@@ -90,14 +105,14 @@ class TabTreeSidebar {
                 title: tab.title ?? 'Untitled',
                 url: tab.url ?? '',
                 favIconUrl: tab.favIconUrl,
-                parentId: tab.openerTabId,
+                parentId: this.getParent(tab),
                 children: [],
             });
         }
 
         for (const node of nodes.values()) {
             const tab = tabsById.get(node.id)!;
-            const parentId = tab.openerTabId;
+            const parentId = this.getParent(tab);
 
             if (parentId !== undefined && nodes.has(parentId)) {
                 nodes.get(parentId)!.children.push(node.id);
@@ -200,6 +215,7 @@ class TabTreeSidebar {
     private async moveTab(draggedTabId: number, targetTabId: number) {
         try {
             const targetTab = await browser.tabs.get(targetTabId);
+            this.setParent(draggedTabId, targetTabId);
             await browser.tabs.move(draggedTabId, { index: targetTab.index });
         } catch (e) {
             console.error('Failed to move tab:', e);
