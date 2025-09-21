@@ -3,31 +3,50 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --gruvbox-bg: #282828;
+    --gruvbox-fg: #ebdbb2;
+    --gruvbox-border: #a89984;
+    --gruvbox-hover: #3c3836;
+    --gruvbox-hover-accent: #504945;
+    --gruvbox-blue: #83a598;
+  }
+}
+
 body {
-  @apply font-sans text-sm m-0 p-2 bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+  @apply font-sans text-sm m-0 p-2;
+  background-color: var(--gruvbox-bg);
+  color: var(--gruvbox-fg);
 }
 
 .tree-node {
   @apply flex items-center p-1 rounded-md cursor-pointer select-none;
-  @apply hover:bg-gray-200 dark:hover:bg-gray-800;
+  background-color: transparent;
+}
+
+.tree-node:hover {
+  background-color: var(--gruvbox-hover);
 }
 
 .tree-node-icon {
-  @apply w-4 h-4 mr-2 flex-shrink-0;
+  @apply w-5 h-5 mr-2 flex-shrink-0;
 }
 
 .tree-node-title {
-  @apply truncate text-sm;
+  @apply truncate text-base;
 }
 
 .children-container {
-    @apply ml-4 pl-2 border-l border-gray-300 dark:border-gray-700;
+  @apply ml-1 pl-1 border-l-4;
+  border-color: var(--gruvbox-border);
 }
 
 .dragging {
-    @apply opacity-50;
+  @apply opacity-70;
 }
 
 .drag-over-target {
-    @apply border-t-2 border-blue-500;
+  border-top-width: 2px;
+  border-color: var(--gruvbox-blue);
 }

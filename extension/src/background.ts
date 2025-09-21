@@ -28,12 +28,12 @@ class TabTracker {
     private async initializeState(): Promise<void> {
         const windows = await browser.windows.getAll({ populate: true });
 
-        for (const window of windows) {
-            if (window.id === undefined || !window.tabs) continue;
+        for (const w of windows) {
+            if (w.id === undefined || !w.tabs) continue;
 
-            const windowTree = this.getWindowTree(window.id);
+            const windowTree = this.getWindowTree(w.id);
 
-            for (const tab of window.tabs) {
+            for (const tab of w.tabs) {
                 if (tab.id === undefined) continue;
 
                 windowTree[tab.id] = {
@@ -46,14 +46,13 @@ class TabTracker {
             }
 
             for (const tabId in windowTree) {
-                const node = windowTree[tabId];
+                const node = windowTree[tabId]!;
                 if (node.parentId !== undefined && windowTree[node.parentId]) {
                     windowTree[node.parentId]!.children.push(node.id);
                 }
             }
         }
         console.log("Initial state loaded");
-        console.log(this.tabTrees);
     }
 
     private initListeners(): void {
@@ -91,8 +90,6 @@ class TabTracker {
         }
 
         console.log(`[Tab Created] Tab ${tab.id} in Window ${tab.windowId}`);
-
-        console.log(this.tabTrees);
     }
 
     private handleTabUpdated(
