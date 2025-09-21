@@ -17,6 +17,7 @@ const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`
 
 class TabTreeSidebar {
     container: HTMLElement;
+    tree: TabTree;
     parent_map: Map<number, number>;
 
     constructor(containerId: string) {
@@ -26,6 +27,7 @@ class TabTreeSidebar {
         }
         this.container = el;
         this.parent_map = new Map();
+        this.tree = new Map();
 
         this.init();
     }
@@ -63,11 +65,19 @@ class TabTreeSidebar {
         this.parent_map.set(id, parent);
     }
 
+    isDescendant(elim: number, maybe_child: number): boolean {
+        const parent = this.tree.get(maybe_child)?.parentId;
+        if (parent === elim) return true;
+        if (parent === undefined) return false;
+        return this.isDescendant(elim, parent);
+    }
+
     private async render() {
         const tabs = await browser.tabs.query({ currentWindow: true });
         const { nodes, rootIds } = this.buildTabTree(tabs);
 
         this.container.innerHTML = '';
+        this.tree = nodes;
 
         if (rootIds.length === 0) {
             this.container.textContent = 'No tabs found.';
@@ -129,23 +139,23 @@ class TabTreeSidebar {
 
         const nodeWrapper = document.createElement('div');
         nodeWrapper.dataset.tabId = String(node.id);
-        nodeWrapper.draggable = true;
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
+        nodeElement.draggable = true; // ✅ only drag the visual node
 
         nodeElement.addEventListener('click', () => this.focusTab(node.id));
 
-        nodeWrapper.addEventListener('dragstart', (event) => {
+        nodeElement.addEventListener('dragstart', (event) => {
             event.dataTransfer!.setData('text/plain', String(node.id));
             event.dataTransfer!.effectAllowed = 'move';
             setTimeout(() => {
-                nodeWrapper.classList.add('dragging');
+                nodeElement.classList.add('dragging');
             }, 0);
         });
 
-        nodeWrapper.addEventListener('dragend', () => {
-            nodeWrapper.classList.remove('dragging');
+        nodeElement.addEventListener('dragend', () => {
+            nodeElement.classList.remove('dragging');
         });
 
         nodeElement.addEventListener('dragover', (event) => {
@@ -169,9 +179,13 @@ class TabTreeSidebar {
             if (!draggedTabIdStr) return;
 
             const draggedTabId = parseInt(draggedTabIdStr, 10);
-            if (draggedTabId !== node.id) {
-                this.moveTab(draggedTabId, node.id);
+            if (draggedTabId === node.id) {
+                return;
             }
+            if (this.isDescendant(draggedTabId, node.id)) {
+                return;
+            }
+            this.moveTab(draggedTabId, node.id);
         });
 
         const icon = document.createElement('img');
