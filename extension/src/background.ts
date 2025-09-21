@@ -178,6 +178,8 @@ async function main() {
         //         await browser.tabs.discard(tab.openerTabId);
         //     }
         // }
+
+        await browser.sidebarAction.open();
     });
 
     // Monitor completed navigation events and update

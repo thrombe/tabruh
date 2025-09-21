@@ -12,6 +12,7 @@ const config: RollupOptions = {
     // multiple entry points: background, content script, popup etc.
     input: {
         background: 'src/background.ts',
+        sidebar: 'src/sidebar.ts',
         popup: 'src/popup.ts'
     },
     output: {
@@ -37,7 +38,8 @@ const config: RollupOptions = {
         copy({
             targets: [
                 { src: 'src/manifest.json', dest: distDir },
-                { src: 'src/popup.html', dest: distDir }
+                { src: 'src/sidebar.html', dest: distDir },
+                { src: 'src/popup.html', dest: distDir },
             ],
             hook: 'buildEnd',
         })
