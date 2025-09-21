@@ -103,22 +103,27 @@ body {
 }
 
 .collapse-container {
-  @apply w-6 h-6 flex items-center justify-center flex-shrink-0 absolute left-0;
-  opacity: 0;
+  @apply w-6 h-6 flex items-center justify-center flex-shrink-0;
 }
 
 .collapse-button {
-  @apply w-full h-full p-1 rounded-md flex items-center justify-center;
+  @apply w-full h-full p-1 rounded-md flex items-center justify-center relative;
   background-color: transparent;
   border: none;
   color: var(--gruvbox-fg);
   cursor: pointer;
+  opacity: 0;
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
 }
 
-.collapse-container:hover {
+.collapse-button.collapsed {
+  opacity: 0.3;
+}
+
+.tree-node:hover .collapse-button {
   opacity: 1;
 }
+
 .collapse-button:hover {
   background-color: var(--gruvbox-hover-accent);
 }
@@ -129,4 +134,13 @@ body {
 
 .collapse-button.collapsed .arrow-svg {
   transform: rotate(-90deg);
+}
+
+.collapsed-count {
+  @apply absolute text-xs font-bold;
+  right: 2px;
+  bottom: 2px;
+  line-height: 1;
+  color: var(--gruvbox-border);
+  pointer-events: none;
 }

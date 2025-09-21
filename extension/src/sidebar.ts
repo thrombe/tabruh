@@ -134,6 +134,23 @@ class TabTreeSidebar {
         return { nodes, rootIds, tabsById };
     }
 
+    private countAllDescendants(nodeId: number): number {
+        const node = this.tree.get(nodeId);
+        if (!node) return 0;
+
+        let count = 0;
+        const queue = [...node.children];
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            count++;
+            const currentNode = this.tree.get(currentId);
+            if (currentNode && currentNode.children.length > 0) {
+                queue.push(...currentNode.children);
+            }
+        }
+        return count;
+    }
+
     private renderNode(nodeId: number, nodes: TabTree): HTMLDivElement {
         const node = nodes.get(nodeId)!;
 
@@ -236,6 +253,13 @@ class TabTreeSidebar {
 
             if (this.collapsedNodes.has(nodeId)) {
                 collapseButton.classList.add('collapsed');
+                const descendantCount = this.countAllDescendants(nodeId);
+                if (descendantCount > 0) {
+                    const countSpan = document.createElement('span');
+                    countSpan.className = 'collapsed-count';
+                    countSpan.textContent = String(descendantCount);
+                    collapseButton.appendChild(countSpan);
+                }
             }
             collapseContainer.appendChild(collapseButton);
         }
@@ -430,16 +454,30 @@ class TabTreeSidebar {
         if (!nodeWrapper) return;
 
         const childrenContainer = nodeWrapper.querySelector('.children-container');
-        const collapseButton = nodeWrapper.querySelector('.collapse-button');
+        const collapseButton = nodeWrapper.querySelector<HTMLButtonElement>('.collapse-button');
+        if (!collapseButton) return;
+
+        const existingCount = collapseButton.querySelector('.collapsed-count');
+        if (existingCount) {
+            existingCount.remove();
+        }
 
         if (this.collapsedNodes.has(nodeId)) {
             this.collapsedNodes.delete(nodeId);
             childrenContainer?.classList.remove('hidden');
-            collapseButton?.classList.remove('collapsed');
+            collapseButton.classList.remove('collapsed');
         } else {
             this.collapsedNodes.add(nodeId);
             childrenContainer?.classList.add('hidden');
-            collapseButton?.classList.add('collapsed');
+            collapseButton.classList.add('collapsed');
+
+            const descendantCount = this.countAllDescendants(nodeId);
+            if (descendantCount > 0) {
+                const countSpan = document.createElement('span');
+                countSpan.className = 'collapsed-count';
+                countSpan.textContent = String(descendantCount);
+                collapseButton.appendChild(countSpan);
+            }
         }
     }
 }
