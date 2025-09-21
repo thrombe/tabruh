@@ -435,10 +435,17 @@ class TabTreeSidebar {
 
     private async moveTabBelow(draggedTabId: number, targetTabId: number) {
         try {
+            const targetTab = this.tabsById.get(targetTabId);
+            if (!targetTab) return;
             const targetNode = this.tree.get(targetTabId);
-            const index = this.findLastDescendantIndexInFlatList(targetTabId) + 1;
+            if (!targetNode) return;
+            let index = this.findLastDescendantIndexInFlatList(targetTabId);
 
-            if (targetNode?.parentId) {
+            if (targetTab.index < this.tabsById.get(draggedTabId)!.index && !this.isDescendant(index, draggedTabId)) {
+                index += 1;
+            }
+
+            if (targetNode.parentId) {
                 this.setParent(draggedTabId, targetNode.parentId);
             } else {
                 this.parent_map.set(draggedTabId, -1);
