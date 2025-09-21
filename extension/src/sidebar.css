@@ -103,7 +103,7 @@ body {
 }
 
 .collapse-container {
-  @apply w-6 h-6 flex items-center justify-center flex-shrink-0;
+  @apply w-6 h-6 flex items-center justify-center flex-shrink-0 absolute left-0;
 }
 
 .collapse-button {
@@ -113,19 +113,16 @@ body {
   color: var(--gruvbox-fg);
   cursor: pointer;
   opacity: 0;
+  background-color: var(--gruvbox-hover-accent);
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
 }
 
 .collapse-button.collapsed {
-  opacity: 0.3;
-}
-
-.tree-node:hover .collapse-button {
-  opacity: 1;
+  opacity: 0.8;
 }
 
 .collapse-button:hover {
-  background-color: var(--gruvbox-hover-accent);
+  opacity: 1;
 }
 
 .collapse-button .arrow-svg {
