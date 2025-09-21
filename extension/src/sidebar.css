@@ -4,34 +4,30 @@
 @tailwind utilities;
 
 body {
-  @apply font-sans text-sm m-0 p-2 bg-[#f0f2f5] text-[#1c1e21];
-}
-
-header {
-  @apply pb-2 mb-2 border-b border-gray-300;
-}
-
-h1 {
-  @apply text-base m-0;
-}
-
-#tree-container ul {
-  @apply list-none pl-4 m-0;
-}
-
-#tree-container li {
-  @apply py-1;
+  @apply font-sans text-sm m-0 p-2 bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
 }
 
 .tree-node {
-  @apply flex items-center cursor-pointer rounded px-1 py-0.5 hover:bg-[#e4e6eb];
+  @apply flex items-center p-1 rounded-md cursor-pointer select-none;
+  @apply hover:bg-gray-200 dark:hover:bg-gray-800;
 }
 
-.tree-node img {
-  @apply w-4 h-4 mr-2 shrink-0;
+.tree-node-icon {
+  @apply w-4 h-4 mr-2 flex-shrink-0;
 }
 
-.tree-node .title {
-  @apply whitespace-nowrap overflow-hidden text-ellipsis;
+.tree-node-title {
+  @apply truncate text-sm;
 }
 
+.children-container {
+    @apply ml-4 pl-2 border-l border-gray-300 dark:border-gray-700;
+}
+
+.dragging {
+    @apply opacity-50;
+}
+
+.drag-over-target {
+    @apply border-t-2 border-blue-500;
+}
