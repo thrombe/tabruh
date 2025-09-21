@@ -10,23 +10,15 @@ type TabNode = {
     children: number[];
 };
 
-// A Map is more efficient for lookups than an object.
 type TabTree = Map<number, TabNode>;
 
-const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
+const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
 
-
-/**
- * Takes a flat array of tabs and organizes them into a tree structure.
- * @param tabs - The array of Tab objects from browser.tabs.query.
- * @returns An object containing the tree as a Map and an array of root node IDs.
- */
 function buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: number[] } {
     const nodes: TabTree = new Map();
     const rootIds: number[] = [];
 
-    // First pass: Create a node for every tab and add it to the map.
     for (const tab of tabs) {
         if (tab.id === undefined) continue;
         nodes.set(tab.id, {
@@ -39,14 +31,11 @@ function buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: numb
         });
     }
 
-    // Second pass: Link children to their parents.
     for (const node of nodes.values()) {
         if (node.parentId !== undefined && nodes.has(node.parentId)) {
-            // This is a child of another tab in the current window.
             const parent = nodes.get(node.parentId)!;
             parent.children.push(node.id);
         } else {
-            // This is a root node (no parent or parent is not in this window).
             rootIds.push(node.id);
         }
     }
@@ -54,54 +43,42 @@ function buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: numb
     return { nodes, rootIds };
 }
 
-/**
- * Recursively renders a single node and its children.
- * @param nodeId - The ID of the node to render.
- * @param nodes - The full map of all nodes in the tree.
- * @returns An HTMLLIElement representing the node and its descendants.
- */
-function renderNode(nodeId: number, nodes: TabTree): HTMLLIElement {
+function renderNode(nodeId: number, nodes: TabTree): HTMLDivElement {
     const node = nodes.get(nodeId)!;
 
-    const li = document.createElement('li');
-    li.dataset.tabId = String(node.id);
+    const nodeWrapper = document.createElement('div');
+    nodeWrapper.dataset.tabId = String(node.id);
 
-    const nodeDiv = document.createElement('div');
-    nodeDiv.className = 'tree-node';
+    const nodeElement = document.createElement('div');
+    nodeElement.className = 'flex items-center p-1 rounded-md hover:bg-gray-800 cursor-pointer';
 
     const icon = document.createElement('img');
     icon.src = node.favIconUrl || DEFAULT_FAVICON_URL;
     icon.alt = 'favicon';
+    icon.className = 'w-4 h-4 mr-2 flex-shrink-0';
 
     const title = document.createElement('span');
-    title.className = 'title';
+    title.className = 'truncate text-sm';
     title.textContent = node.title;
 
-    nodeDiv.appendChild(icon);
-    nodeDiv.appendChild(title);
-    li.appendChild(nodeDiv);
+    nodeElement.appendChild(icon);
+    nodeElement.appendChild(title);
+    nodeWrapper.appendChild(nodeElement);
 
-    // If the node has children, create a nested list and recurse.
     if (node.children.length > 0) {
-        const ul = document.createElement('ul');
+        const childrenContainer = document.createElement('div');
+        childrenContainer.className = 'ml-4 pl-2 border-l border-gray-700';
         for (const childId of node.children) {
-            const childLi = renderNode(childId, nodes);
-            ul.appendChild(childLi);
+            const childElement = renderNode(childId, nodes);
+            childrenContainer.appendChild(childElement);
         }
-        li.appendChild(ul);
+        nodeWrapper.appendChild(childrenContainer);
     }
 
-    return li;
+    return nodeWrapper;
 }
 
-/**
- * Renders the entire tab tree into the DOM.
- * @param nodes - The full map of all nodes in the tree.
- * @param rootIds - An array of IDs for the top-level nodes.
- * @param container - The DOM element to render the tree into.
- */
 function renderTree(nodes: TabTree, rootIds: number[], container: HTMLElement) {
-    // Clear any existing content
     container.innerHTML = '';
 
     if (rootIds.length === 0) {
@@ -109,18 +86,17 @@ function renderTree(nodes: TabTree, rootIds: number[], container: HTMLElement) {
         return;
     }
 
-    const rootUl = document.createElement('ul');
+    const rootContainer = document.createElement('div');
+    rootContainer.className = 'flex flex-col space-y-1';
+
     for (const rootId of rootIds) {
-        const nodeLi = renderNode(rootId, nodes);
-        rootUl.appendChild(nodeLi);
+        const nodeElement = renderNode(rootId, nodes);
+        rootContainer.appendChild(nodeElement);
     }
 
-    container.appendChild(rootUl);
+    container.appendChild(rootContainer);
 }
 
-/**
- * Main function to initialize the sidebar.
- */
 async function main() {
     const container = document.getElementById('tree-container');
     if (!container) {
@@ -128,15 +104,24 @@ async function main() {
         return;
     }
 
-    // Get all tabs in the current window.
     const tabs = await browser.tabs.query({ currentWindow: true });
-
-    // Build the tree structure from the tabs.
     const { nodes, rootIds } = buildTabTree(tabs);
-
-    // Render the final tree.
     renderTree(nodes, rootIds, container);
 }
 
-// Run the main function once the DOM is ready.
 document.addEventListener('DOMContentLoaded', main);
+
+const updateSidebar = () => {
+    main();
+};
+
+browser.tabs.onCreated.addListener(updateSidebar);
+browser.tabs.onRemoved.addListener(updateSidebar);
+browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.url || changeInfo.title || changeInfo.favIconUrl) {
+        updateSidebar();
+    }
+});
+browser.tabs.onMoved.addListener(updateSidebar);
+browser.tabs.onAttached.addListener(updateSidebar);
+browser.tabs.onDetached.addListener(updateSidebar);
