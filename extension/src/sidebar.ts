@@ -18,6 +18,7 @@ const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`
 class TabTreeSidebar {
     container: HTMLElement;
     tree: TabTree;
+    tabsById: Map<number, browser.Tabs.Tab>;
     parent_map: Map<number, number>;
 
     constructor(containerId: string) {
@@ -28,6 +29,7 @@ class TabTreeSidebar {
         this.container = el;
         this.parent_map = new Map();
         this.tree = new Map();
+        this.tabsById = new Map();
 
         this.init();
     }
@@ -74,10 +76,11 @@ class TabTreeSidebar {
 
     private async render() {
         const tabs = await browser.tabs.query({ currentWindow: true });
-        const { nodes, rootIds } = this.buildTabTree(tabs);
+        const { nodes, rootIds, tabsById } = this.buildTabTree(tabs);
 
         this.container.innerHTML = '';
         this.tree = nodes;
+        this.tabsById = tabsById;
 
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
@@ -98,7 +101,7 @@ class TabTreeSidebar {
         this.container.appendChild(this.renderAddButton());
     }
 
-    private buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: number[] } {
+    private buildTabTree(tabs: browser.Tabs.Tab[]): { nodes: TabTree, rootIds: number[], tabsById: Map<number, browser.Tabs.Tab> } {
         const nodes: TabTree = new Map();
         const rootIds: number[] = [];
 
@@ -134,7 +137,7 @@ class TabTreeSidebar {
             }
         }
 
-        return { nodes, rootIds };
+        return { nodes, rootIds, tabsById };
     }
 
     private renderNode(nodeId: number, nodes: TabTree): HTMLDivElement {
@@ -163,32 +166,64 @@ class TabTreeSidebar {
 
         nodeElement.addEventListener('dragover', (event) => {
             event.preventDefault();
-            const draggedId = event.dataTransfer?.getData('text/plain');
-            if (draggedId && draggedId !== String(node.id)) {
-                event.dataTransfer!.dropEffect = 'move';
-                nodeElement.classList.add('drag-over-target');
+            const draggedIdStr = event.dataTransfer?.getData('text/plain');
+            if (!draggedIdStr) return;
+            const draggedId = parseInt(draggedIdStr, 10);
+            if (draggedId === node.id || this.isDescendant(draggedId, node.id)) {
+                return;
             }
+
+            const rect = nodeElement.getBoundingClientRect();
+            const y = event.clientY - rect.top;
+            const height = rect.height;
+
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+
+            if (y < height * 0.33) {
+                nodeElement.classList.add('drag-over-above');
+                nodeElement.dataset.dropAction = 'above';
+            } else if (y > height * 0.66) {
+                nodeElement.classList.add('drag-over-below');
+                nodeElement.dataset.dropAction = 'below';
+            } else {
+                nodeElement.classList.add('drag-over-inside');
+                nodeElement.dataset.dropAction = 'inside';
+            }
+            event.dataTransfer!.dropEffect = 'move';
         });
 
         nodeElement.addEventListener('dragleave', () => {
-            nodeElement.classList.remove('drag-over-target');
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+            delete nodeElement.dataset.dropAction;
         });
 
         nodeElement.addEventListener('drop', (event) => {
             event.preventDefault();
-            nodeElement.classList.remove('drag-over-target');
-
             const draggedTabIdStr = event.dataTransfer?.getData('text/plain');
             if (!draggedTabIdStr) return;
-
             const draggedTabId = parseInt(draggedTabIdStr, 10);
-            if (draggedTabId === node.id) {
+            const targetTabId = node.id;
+
+            if (draggedTabId === targetTabId || this.isDescendant(draggedTabId, targetTabId)) {
                 return;
             }
-            if (this.isDescendant(draggedTabId, node.id)) {
-                return;
+
+            const action = nodeElement.dataset.dropAction;
+            switch (action) {
+                case 'above':
+                    this.moveTabAbove(draggedTabId, targetTabId);
+                    break;
+                case 'below':
+                    this.moveTabBelow(draggedTabId, targetTabId);
+                    break;
+                case 'inside':
+                default:
+                    this.makeTabChild(draggedTabId, targetTabId);
+                    break;
             }
-            this.moveTab(draggedTabId, node.id);
+
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+            delete nodeElement.dataset.dropAction;
         });
 
         const contentWrapper = document.createElement('div');
@@ -280,16 +315,6 @@ class TabTreeSidebar {
         }
     }
 
-    private async moveTab(draggedTabId: number, targetTabId: number) {
-        try {
-            const targetTab = await browser.tabs.get(targetTabId);
-            this.setParent(draggedTabId, targetTabId);
-            await browser.tabs.move(draggedTabId, { index: targetTab.index });
-        } catch (e) {
-            console.error('Failed to move tab:', e);
-        }
-    }
-
     private async closeTab(tabId: number) {
         try {
             await browser.tabs.remove(tabId);
@@ -304,6 +329,79 @@ class TabTreeSidebar {
             await browser.tabs.move(tabId, { index: -1 });
         } catch (e) {
             console.error('Failed to move tab to root:', e);
+        }
+    }
+
+    private findLastDescendantIndexInFlatList(startNodeId: number): number {
+        const startTab = this.tabsById.get(startNodeId);
+        if (!startTab) {
+            throw new Error(`Tab ${startNodeId} not found in cache.`);
+        }
+
+        let maxIndex = startTab.index;
+        const searchQueue: number[] = [startNodeId];
+        const visited: Set<number> = new Set();
+
+        while (searchQueue.length > 0) {
+            const currentId = searchQueue.pop()!;
+            if (visited.has(currentId)) continue;
+            visited.add(currentId);
+
+            const currentNode = this.tree.get(currentId);
+            if (!currentNode) continue;
+
+            const currentTab = this.tabsById.get(currentId);
+            if (currentTab && currentTab.index > maxIndex) {
+                maxIndex = currentTab.index;
+            }
+
+            for (const childId of currentNode.children) {
+                searchQueue.push(childId);
+            }
+        }
+        return maxIndex;
+    }
+
+    private async makeTabChild(draggedTabId: number, targetTabId: number) {
+        try {
+            const index = this.findLastDescendantIndexInFlatList(targetTabId) + 1;
+            this.setParent(draggedTabId, targetTabId);
+            await browser.tabs.move(draggedTabId, { index });
+        } catch (e) {
+            console.error('Failed to make tab a child:', e);
+        }
+    }
+
+    private async moveTabAbove(draggedTabId: number, targetTabId: number) {
+        try {
+            const targetTab = this.tabsById.get(targetTabId);
+            if (!targetTab) return;
+
+            const targetNode = this.tree.get(targetTabId);
+            if (targetNode?.parentId) {
+                this.setParent(draggedTabId, targetNode.parentId);
+            } else {
+                this.parent_map.delete(draggedTabId);
+            }
+            await browser.tabs.move(draggedTabId, { index: targetTab.index });
+        } catch (e) {
+            console.error('Failed to move tab above:', e);
+        }
+    }
+
+    private async moveTabBelow(draggedTabId: number, targetTabId: number) {
+        try {
+            const targetNode = this.tree.get(targetTabId);
+            const index = this.findLastDescendantIndexInFlatList(targetTabId) + 1;
+
+            if (targetNode?.parentId) {
+                this.setParent(draggedTabId, targetNode.parentId);
+            } else {
+                this.parent_map.delete(draggedTabId);
+            }
+            await browser.tabs.move(draggedTabId, { index });
+        } catch (e) {
+            console.error('Failed to move tab below:', e);
         }
     }
 }

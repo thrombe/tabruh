@@ -50,9 +50,16 @@ body {
   @apply opacity-70;
 }
 
-.drag-over-target {
-  border-top-width: 2px;
-  border-color: var(--gruvbox-blue);
+.drag-over-above {
+  border-top: 2px solid var(--gruvbox-blue);
+}
+
+.drag-over-below {
+  border-bottom: 2px solid var(--gruvbox-blue);
+}
+
+.drag-over-inside {
+  background-color: var(--gruvbox-hover-accent);
 }
 
 .add-tab-button.drag-over-target {
