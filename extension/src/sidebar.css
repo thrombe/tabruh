@@ -63,7 +63,6 @@ body {
 }
 
 .add-tab-button.drag-over-target {
-  border-top-width: 0;
   border: 2px solid var(--gruvbox-blue);
   background-color: var(--gruvbox-hover-accent);
 }

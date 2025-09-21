@@ -57,9 +57,8 @@ class TabTreeSidebar {
     getParent(tab: browser.Tabs.Tab): number | undefined {
         if (tab.id === undefined) return undefined;
         const parent = this.parent_map.get(tab.id);
-        if (parent === undefined) {
-            return tab.openerTabId;
-        }
+        if (parent === -1) return undefined;
+        if (parent === undefined) return tab.openerTabId;
         return parent;
     }
 
