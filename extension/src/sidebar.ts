@@ -20,6 +20,7 @@ class TabTreeSidebar {
     tree: TabTree;
     tabsById: Map<number, browser.Tabs.Tab>;
     parent_map: Map<number, number>;
+    private collapsedNodes: Set<number>;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -30,6 +31,7 @@ class TabTreeSidebar {
         this.parent_map = new Map();
         this.tree = new Map();
         this.tabsById = new Map();
+        this.collapsedNodes = new Set();
 
         this.init();
     }
@@ -220,6 +222,24 @@ class TabTreeSidebar {
             this.render();
         });
 
+        const collapseContainer = document.createElement('div');
+        collapseContainer.className = 'collapse-container';
+
+        if (node.children.length > 0) {
+            const collapseButton = document.createElement('button');
+            collapseButton.className = 'collapse-button';
+            collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+            collapseButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                this.toggleCollapse(node.id);
+            });
+
+            if (this.collapsedNodes.has(nodeId)) {
+                collapseButton.classList.add('collapsed');
+            }
+            collapseContainer.appendChild(collapseButton);
+        }
+
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'tree-node-content';
 
@@ -243,6 +263,7 @@ class TabTreeSidebar {
             this.closeTab(node.id);
         });
 
+        nodeElement.appendChild(collapseContainer);
         nodeElement.appendChild(contentWrapper);
         nodeElement.appendChild(closeButton);
         nodeWrapper.appendChild(nodeElement);
@@ -250,6 +271,9 @@ class TabTreeSidebar {
         if (node.children.length > 0) {
             const childrenContainer = document.createElement('div');
             childrenContainer.className = 'children-container';
+            if (this.collapsedNodes.has(nodeId)) {
+                childrenContainer.classList.add('hidden');
+            }
             for (const childId of node.children) {
                 const childElement = this.renderNode(childId, nodes);
                 childrenContainer.appendChild(childElement);
@@ -398,6 +422,24 @@ class TabTreeSidebar {
             await browser.tabs.move(draggedTabId, { index });
         } catch (e) {
             console.error('Failed to move tab below:', e);
+        }
+    }
+
+    private toggleCollapse(nodeId: number) {
+        const nodeWrapper = this.container.querySelector(`[data-tab-id='${nodeId}']`);
+        if (!nodeWrapper) return;
+
+        const childrenContainer = nodeWrapper.querySelector('.children-container');
+        const collapseButton = nodeWrapper.querySelector('.collapse-button');
+
+        if (this.collapsedNodes.has(nodeId)) {
+            this.collapsedNodes.delete(nodeId);
+            childrenContainer?.classList.remove('hidden');
+            collapseButton?.classList.remove('collapsed');
+        } else {
+            this.collapsedNodes.add(nodeId);
+            childrenContainer?.classList.add('hidden');
+            collapseButton?.classList.add('collapsed');
         }
     }
 }
