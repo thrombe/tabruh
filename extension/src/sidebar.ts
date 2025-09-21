@@ -84,16 +84,9 @@ class TabTreeSidebar {
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
 
-        if (tabs.length === 0) {
-            const noTabsMessage = document.createElement('div');
-            noTabsMessage.textContent = 'No tabs to display.';
-            noTabsMessage.className = 'p-2 text-center text-gray-400';
-            rootContainer.appendChild(noTabsMessage);
-        } else {
-            for (const rootId of rootIds) {
-                const nodeElement = this.renderNode(rootId, nodes);
-                rootContainer.appendChild(nodeElement);
-            }
+        for (const rootId of rootIds) {
+            const nodeElement = this.renderNode(rootId, nodes);
+            rootContainer.appendChild(nodeElement);
         }
 
         this.container.appendChild(rootContainer);
@@ -178,10 +171,10 @@ class TabTreeSidebar {
 
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
 
-            if (y < height * 0.33) {
+            if (y < height * 0.25) {
                 nodeElement.classList.add('drag-over-above');
                 nodeElement.dataset.dropAction = 'above';
-            } else if (y > height * 0.66) {
+            } else if (y > height * 0.75) {
                 nodeElement.classList.add('drag-over-below');
                 nodeElement.dataset.dropAction = 'below';
             } else {
@@ -223,6 +216,8 @@ class TabTreeSidebar {
 
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
             delete nodeElement.dataset.dropAction;
+
+            this.render();
         });
 
         const contentWrapper = document.createElement('div');
@@ -296,6 +291,8 @@ class TabTreeSidebar {
 
             const draggedTabId = parseInt(draggedTabIdStr, 10);
             this.moveTabToRoot(draggedTabId);
+
+            this.render();
         });
 
         return button;
@@ -324,7 +321,7 @@ class TabTreeSidebar {
 
     private async moveTabToRoot(tabId: number) {
         try {
-            this.parent_map.delete(tabId);
+            this.parent_map.set(tabId, -1);
             await browser.tabs.move(tabId, { index: -1 });
         } catch (e) {
             console.error('Failed to move tab to root:', e);
@@ -380,7 +377,7 @@ class TabTreeSidebar {
             if (targetNode?.parentId) {
                 this.setParent(draggedTabId, targetNode.parentId);
             } else {
-                this.parent_map.delete(draggedTabId);
+                this.parent_map.set(draggedTabId, -1);
             }
             await browser.tabs.move(draggedTabId, { index: targetTab.index });
         } catch (e) {
@@ -396,7 +393,7 @@ class TabTreeSidebar {
             if (targetNode?.parentId) {
                 this.setParent(draggedTabId, targetNode.parentId);
             } else {
-                this.parent_map.delete(draggedTabId);
+                this.parent_map.set(draggedTabId, -1);
             }
             await browser.tabs.move(draggedTabId, { index });
         } catch (e) {

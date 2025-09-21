@@ -8,6 +8,7 @@
     --gruvbox-bg: #282828;
     --gruvbox-fg: #ebdbb2;
     --gruvbox-border: #a89984;
+    --gruvbox-border-2: #7e7165;
     --gruvbox-hover: #3c3836;
     --gruvbox-hover-accent: #504945;
     --gruvbox-blue: #83a598;
@@ -21,7 +22,7 @@ body {
 }
 
 .tree-node {
-  @apply flex items-center p-1 rounded-md cursor-pointer select-none relative;
+  @apply flex items-center p-1 cursor-pointer select-none relative;
   background-color: transparent;
 }
 
@@ -42,8 +43,8 @@ body {
 }
 
 .children-container {
-  @apply ml-1 pl-1 border-l-4;
-  border-color: var(--gruvbox-border);
+  @apply ml-1 pl-1 border-l-3;
+  border-color: var(--gruvbox-border-2);
 }
 
 .dragging {
@@ -51,11 +52,11 @@ body {
 }
 
 .drag-over-above {
-  border-top: 2px solid var(--gruvbox-blue);
+  border-top: 2px solid var(--gruvbox-border);
 }
 
 .drag-over-below {
-  border-bottom: 2px solid var(--gruvbox-blue);
+  border-bottom: 2px solid var(--gruvbox-border);
 }
 
 .drag-over-inside {
