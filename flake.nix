@@ -94,6 +94,8 @@
           nodejs
           bun
           typescript-language-server
+
+          gemini-cli
         ])
         ++ []
         ++ (custom-commands pkgs);
