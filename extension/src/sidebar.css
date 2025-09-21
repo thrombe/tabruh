@@ -103,7 +103,8 @@ body {
 }
 
 .collapse-container {
-  @apply w-6 h-6 flex items-center justify-center flex-shrink-0;
+  @apply w-6 h-6 flex items-center justify-center flex-shrink-0 absolute left-0;
+  opacity: 0;
 }
 
 .collapse-button {
@@ -112,14 +113,12 @@ body {
   border: none;
   color: var(--gruvbox-fg);
   cursor: pointer;
-  opacity: 0;
   transition: opacity 0.15s ease-in-out, background-color 0.15s ease-in-out;
 }
 
-.tree-node:hover .collapse-button {
+.collapse-container:hover {
   opacity: 1;
 }
-
 .collapse-button:hover {
   background-color: var(--gruvbox-hover-accent);
 }
