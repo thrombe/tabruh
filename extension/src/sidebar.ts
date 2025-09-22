@@ -327,6 +327,11 @@ class TabTreeSidebar {
                         this.parent_map.set(Number(childId), parentId);
                     }
                 }
+                if (dragData.movedTabIds) {
+                    for (const id of dragData.movedTabIds) {
+                        this.collapsedNodes.delete(id);
+                    }
+                }
                 if (dragData.collapsed) {
                     for (const id of dragData.collapsed) {
                         this.collapsedNodes.add(id);
