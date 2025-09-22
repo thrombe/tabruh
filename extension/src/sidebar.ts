@@ -15,6 +15,7 @@ type DragData = {
     sourceWindowId: number;
     movedTabIds: number[];
     parentMapSnapshot: Record<number, number | undefined>;
+    collapsed: number[];
 };
 
 
@@ -240,6 +241,7 @@ class TabTreeSidebar {
                     parentMapSnapshot[id] = this.getParent(tab);
                 }
             }
+            const collapsedInSubtree = movedTabIds.filter(id => this.collapsedNodes.has(id));
 
             const draggedTab = this.tabsById.get(node.id);
             if (!draggedTab || draggedTab.windowId === undefined) {
@@ -252,7 +254,8 @@ class TabTreeSidebar {
                 draggedTabId: node.id,
                 sourceWindowId: draggedTab.windowId,
                 movedTabIds,
-                parentMapSnapshot
+                parentMapSnapshot,
+                collapsed: collapsedInSubtree
             };
             this.currentDragData = dragData;
 
@@ -322,6 +325,11 @@ class TabTreeSidebar {
                 for (const [childId, parentId] of Object.entries(dragData.parentMapSnapshot)) {
                     if (parentId !== undefined && parentId !== null) {
                         this.parent_map.set(Number(childId), parentId);
+                    }
+                }
+                if (dragData.collapsed) {
+                    for (const id of dragData.collapsed) {
+                        this.collapsedNodes.add(id);
                     }
                 }
             }
