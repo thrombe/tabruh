@@ -21,11 +21,6 @@ const staticAssetPatterns = [
     'src/**/*.css',
 ];
 
-
-/**
- * A custom Rollup plugin that finds all static assets via glob patterns
- * and adds them to Rollup's watch list.
- */
 function watchStaticAssets(): Plugin {
     return {
         name: 'watch-static-assets',
@@ -42,11 +37,9 @@ function watchStaticAssets(): Plugin {
 }
 
 const config: RollupOptions = {
-    // multiple entry points: background, content script, popup etc.
     input: {
         background: 'src/background.ts',
         sidebar: 'src/sidebar.ts',
-        popup: 'src/popup.ts'
     },
     output: {
         dir: distDir,
@@ -75,14 +68,11 @@ const config: RollupOptions = {
         typescript({
             tsconfig: './tsconfig.json',
             sourceMap: true,
-            // Optionally override some TS compiler options
-            // e.g. target, module etc
         }),
         copy({
             targets: [
                 { src: 'src/manifest.json', dest: distDir },
                 { src: 'src/sidebar.html', dest: distDir },
-                { src: 'src/popup.html', dest: distDir },
             ],
             hook: 'buildEnd',
         })
