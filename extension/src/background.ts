@@ -1,150 +1,401 @@
-import browser from "webextension-polyfill";
+import browser from 'webextension-polyfill';
+import type { BackgroundRequest, DragData, TabNode, TabTree, WindowState } from './types';
 
-type TabNode = {
-    id: number;
-    url: string;
-    title?: string;
-    children: number[];
-    parentId?: number;
-};
-
-type WindowTabTree = {
-    [tabId: number]: TabNode;
-};
-
-class TabTracker {
-    private tabTrees: { [windowId: number]: WindowTabTree } = {};
+class StateManager {
+    private state: Map<number, WindowState> = new Map();
+    private ports: Map<number, browser.Runtime.Port[]> = new Map();
 
     constructor() {
-        this.initialize();
+        this.init();
     }
 
-    private async initialize(): Promise<void> {
-        await this.initializeState();
-        this.initListeners();
+    private async init() {
+        browser.runtime.onConnect.addListener((port) => this.handleNewConnection(port));
+        this.attachTabListeners();
+        await this.initializeStateForAllwindows();
     }
 
-    private async initializeState(): Promise<void> {
-        const windows = await browser.windows.getAll({ populate: true });
+    private handleNewConnection(port: browser.Runtime.Port) {
+        const windowId = port.sender?.tab?.windowId;
+        if (!windowId) {
+            console.error('Connection from unknown window, disconnecting.');
+            port.disconnect();
+            return;
+        }
 
-        for (const w of windows) {
-            if (w.id === undefined || !w.tabs) continue;
+        const windowPorts = this.ports.get(windowId) || [];
+        windowPorts.push(port);
+        this.ports.set(windowId, windowPorts);
 
-            const windowTree = this.getWindowTree(w.id);
-
-            for (const tab of w.tabs) {
-                if (tab.id === undefined) continue;
-
-                windowTree[tab.id] = {
-                    id: tab.id,
-                    url: tab.url ?? "",
-                    title: tab.title,
-                    children: [],
-                    parentId: tab.openerTabId,
-                };
+        port.onMessage.addListener((message: BackgroundRequest) => this.handleMessage(message, port));
+        port.onDisconnect.addListener(() => {
+            const updatedPorts = (this.ports.get(windowId) || []).filter(p => p !== port);
+            if (updatedPorts.length > 0) {
+                this.ports.set(windowId, updatedPorts);
+            } else {
+                this.ports.delete(windowId);
             }
+        });
 
-            for (const tabId in windowTree) {
-                const node = windowTree[tabId]!;
-                if (node.parentId !== undefined && windowTree[node.parentId]) {
-                    windowTree[node.parentId]!.children.push(node.id);
+        this.sendStateUpdate(windowId);
+    }
+
+    private handleMessage(message: BackgroundRequest, port: browser.Runtime.Port) {
+        const windowId = message.payload.windowId ?? port.sender?.tab?.windowId;
+        if (!windowId) return;
+
+        switch (message.type) {
+            case 'GET_STATE':
+                this.sendStateUpdate(windowId);
+                break;
+            case 'TOGGLE_COLLAPSE':
+                this.toggleCollapse(windowId, message.payload.nodeId);
+                this.sendStateUpdate(windowId);
+                break;
+            case 'HANDLE_DROP':
+                this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.windowId);
+                break;
+            case 'FOCUS_TAB': this.focusTab(message.payload.tabId); break;
+            case 'CLOSE_TAB': this.closeTab(message.payload.tabId); break;
+            case 'DUPLICATE_TAB': browser.tabs.duplicate(message.payload.tabId); break;
+            case 'UNLOAD_TAB': browser.tabs.discard(message.payload.tabId); break;
+            case 'UNLOAD_TREE': this.unloadTree(message.payload.tabId); break;
+            case 'COPY_URL': this.copyUrl(message.payload.tabId); break;
+            case 'MOVE_SUBTREE_TO_NEW_WINDOW': this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
+            case 'CREATE_TAB': browser.tabs.create({ windowId: message.payload.windowId }); break;
+            case 'APPLY_PENDING_DATA': this.applyPendingData(message.payload.dragData, message.payload.windowId); break;
+        }
+    }
+
+    private getParent(tab: browser.Tabs.Tab, windowId: number): number | undefined {
+        const windowState = this.state.get(windowId);
+        if (!windowState || tab.id === undefined) return undefined;
+
+        const parent = windowState.parentMap.get(tab.id);
+        if (parent === -1) return undefined;
+        if (parent === undefined) return tab.openerTabId;
+        return parent;
+    }
+
+    private buildTabTreeForWindow(windowId: number) {
+        const windowState = this.state.get(windowId);
+        if (!windowState) return;
+
+        const nodes: TabTree = new Map();
+        const rootIds: number[] = [];
+        const tabsById = new Map<number, browser.Tabs.Tab>();
+
+        for (const tab of windowState.tabs) {
+            if (tab.id !== undefined) {
+                tabsById.set(tab.id, tab);
+            }
+        }
+
+        const sortedTabs = [...tabsById.values()].sort((a, b) => a.index - b.index);
+
+        for (const tab of sortedTabs) {
+            if (tab.id === undefined) continue;
+            nodes.set(tab.id, {
+                id: tab.id,
+                title: tab.title ?? 'Untitled',
+                url: tab.url ?? '',
+                favIconUrl: tab.favIconUrl,
+                parentId: this.getParent(tab, windowId),
+                children: [],
+            });
+        }
+
+        for (const node of nodes.values()) {
+            const parentId = node.parentId;
+            if (parentId !== undefined && nodes.has(parentId)) {
+                nodes.get(parentId)!.children.push(node.id);
+            } else {
+                rootIds.push(node.id);
+            }
+        }
+
+        windowState.tree = nodes;
+        windowState.tabsById = tabsById;
+        windowState.rootIds = rootIds;
+    }
+
+    private async updateWindowState(windowId: number) {
+        const tabs = await browser.tabs.query({ windowId });
+        const windowState = this.state.get(windowId);
+        if (windowState) {
+            windowState.tabs = tabs;
+            this.buildTabTreeForWindow(windowId);
+        } else {
+            this.state.set(windowId, {
+                parentMap: new Map(),
+                collapsedNodes: new Set(),
+                tabs,
+                tree: new Map(),
+                tabsById: new Map(),
+                rootIds: [],
+            });
+            this.buildTabTreeForWindow(windowId);
+        }
+    }
+
+    private async initializeStateForAllwindows() {
+        const windows = await browser.windows.getAll({ populate: true });
+        for (const win of windows) {
+            if (win.id && win.tabs) {
+                await this.updateWindowState(win.id);
+            }
+        }
+    }
+
+    private attachTabListeners() {
+        const handler = async (tabId: number | browser.Tabs.Tab, removeInfo?: { windowId: number, isWindowClosing: boolean }) => {
+            const allWindows = await browser.windows.getAll();
+            for (const win of allWindows) {
+                if (win.id) {
+                    await this.updateWindowState(win.id);
+                    this.broadcastRender(win.id);
                 }
             }
-        }
-        console.log("Initial state loaded");
-    }
-
-    private initListeners(): void {
-        browser.tabs.onCreated.addListener(this.handleTabCreated.bind(this));
-        browser.tabs.onUpdated.addListener(this.handleTabUpdated.bind(this));
-        browser.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
-        browser.windows.onRemoved.addListener(this.handleWindowRemoved.bind(this));
-        browser.runtime.onMessage.addListener(this.handleMessage.bind(this));
-    }
-
-    private getWindowTree(windowId: number): WindowTabTree {
-        if (!this.tabTrees[windowId]) {
-            this.tabTrees[windowId] = {};
-        }
-        return this.tabTrees[windowId];
-    }
-
-    private handleTabCreated(tab: browser.Tabs.Tab): void {
-        if (tab.id === undefined || tab.windowId === undefined) return;
-
-        const windowTree = this.getWindowTree(tab.windowId);
-
-        const newNode: TabNode = {
-            id: tab.id,
-            url: tab.url ?? "",
-            title: tab.title,
-            children: [],
-            parentId: tab.openerTabId,
         };
 
-        windowTree[tab.id] = newNode;
+        browser.tabs.onCreated.addListener(handler);
+        browser.tabs.onRemoved.addListener(handler);
+        browser.tabs.onUpdated.addListener(handler);
+        browser.tabs.onMoved.addListener(handler);
+        browser.tabs.onAttached.addListener(handler);
+        browser.tabs.onDetached.addListener(handler);
+        browser.windows.onCreated.addListener(async (win) => {
+            if (win.id) await this.updateWindowState(win.id);
+        });
+        browser.windows.onRemoved.addListener((windowId) => {
+            this.state.delete(windowId);
+            this.ports.delete(windowId);
+        });
+    }
 
-        if (tab.openerTabId !== undefined && windowTree[tab.openerTabId]) {
-            windowTree[tab.openerTabId]!.children.push(tab.id);
+    private broadcastRender(windowId: number) {
+        const windowPorts = this.ports.get(windowId);
+        if (windowPorts) {
+            windowPorts.forEach(port => port.postMessage({ type: 'RENDER', payload: { windowId } }));
         }
-
-        console.log(`[Tab Created] Tab ${tab.id} in Window ${tab.windowId}`);
     }
 
-    private handleTabUpdated(
-        tabId: number,
-        changeInfo: browser.Tabs.OnUpdatedChangeInfoType,
-        tab: browser.Tabs.Tab
-    ): void {
-        const windowTree = this.tabTrees[tab.windowId!];
-        if (!windowTree) return;
+    private sendStateUpdate(windowId: number) {
+        const windowState = this.state.get(windowId);
+        if (!windowState) return;
 
-        const node = windowTree[tabId];
-        if (!node) return;
-
-        if (changeInfo.url) node.url = changeInfo.url;
-        if (changeInfo.title) node.title = changeInfo.title;
-    }
-
-    private handleTabRemoved(tabId: number, removeInfo: browser.Tabs.OnRemovedRemoveInfoType): void {
-        const windowTree = this.tabTrees[removeInfo.windowId];
-        if (!windowTree) return;
-
-        const removedTab = windowTree[tabId];
-        if (!removedTab) return;
-
-        if (removedTab.parentId !== undefined && windowTree[removedTab.parentId]) {
-            const siblings = windowTree[removedTab.parentId]!.children;
-            windowTree[removedTab.parentId]!.children = siblings.filter(id => id !== tabId);
+        const windowPorts = this.ports.get(windowId);
+        if (windowPorts) {
+            windowPorts.forEach(port => port.postMessage({
+                type: 'STATE_UPDATE',
+                payload: {
+                    state: {
+                        tree: windowState.tree,
+                        tabsById: windowState.tabsById,
+                        rootIds: windowState.rootIds,
+                        collapsedNodes: windowState.collapsedNodes,
+                    }
+                }
+            }));
         }
-
-        delete windowTree[tabId];
-
-        console.log(`[Tab Removed] Tab ${tabId} from Window ${removeInfo.windowId}`);
     }
 
-    private handleWindowRemoved(windowId: number): void {
-        delete this.tabTrees[windowId];
-        console.log(`[Window Removed] Window ${windowId}`);
-    }
-
-    private async handleMessage(
-        message: unknown,
-        _sender: browser.Runtime.MessageSender
-    ): Promise<any> {
-        if (message === "printTree") {
-            console.log("Current tabTrees:", JSON.parse(JSON.stringify(this.tabTrees)));
-            return { status: "ok", tabTrees: this.tabTrees };
+    private getTabSubtreeIds(rootId: number, windowId: number): number[] {
+        const windowState = this.state.get(windowId);
+        if (!windowState) return [];
+        const subtreeIds: number[] = [];
+        const queue = [rootId];
+        const visited = new Set<number>();
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            if (visited.has(currentId)) continue;
+            visited.add(currentId);
+            subtreeIds.push(currentId);
+            const node = windowState.tree.get(currentId);
+            if (node) {
+                queue.push(...node.children);
+            }
         }
+        return subtreeIds;
+    }
 
-        return { status: "unknown_command" };
+    private async focusTab(tabId: number) {
+        try {
+            const tab = await browser.tabs.get(tabId);
+            if (!tab.discarded) {
+                if (tab.windowId) {
+                    await browser.windows.update(tab.windowId, { focused: true });
+                }
+                await browser.tabs.update(tabId, { active: true });
+            } else {
+                await browser.tabs.update(tabId, { active: true });
+            }
+        } catch (e) { console.error(`Could not focus tab ${tabId}:`, e); }
+    }
+
+    private async closeTab(tabId: number) {
+        try {
+            const tab = await browser.tabs.get(tabId);
+            if (!tab.windowId) return;
+            const idsToClose = this.getTabSubtreeIds(tabId, tab.windowId);
+            await browser.tabs.remove(idsToClose);
+        } catch (e) { console.error(`Could not close tab ${tabId}`, e); }
+    }
+
+    private toggleCollapse(windowId: number, nodeId: number) {
+        const windowState = this.state.get(windowId);
+        if (!windowState) return;
+        if (windowState.collapsedNodes.has(nodeId)) {
+            windowState.collapsedNodes.delete(nodeId);
+        } else {
+            windowState.collapsedNodes.add(nodeId);
+        }
+    }
+
+    private async unloadTree(tabId: number) {
+        try {
+            const tab = await browser.tabs.get(tabId);
+            if (!tab.windowId) return;
+            const idsToDiscard = this.getTabSubtreeIds(tabId, tab.windowId);
+            await browser.tabs.discard(idsToDiscard);
+        } catch (e) { console.error(`Could not unload tree for tab ${tabId}:`, e); }
+    }
+
+    private async copyUrl(tabId: number) {
+        try {
+            const tab = await browser.tabs.get(tabId);
+            if (tab.url) {
+                await browser.scripting.executeScript({
+                    target: { tabId },
+                    func: (urlToCopy: string) => {
+                        navigator.clipboard.writeText(urlToCopy);
+                    },
+                    args: [tab.url],
+                });
+            }
+        } catch (e) { console.error('Failed to copy URL:', e); }
+    }
+
+    private async moveSubtreeToNewWindow(rootTabId: number) {
+        try {
+            const tab = await browser.tabs.get(rootTabId);
+            const sourceWindowId = tab.windowId;
+            if (!sourceWindowId) return;
+
+            const movedTabIds = this.getTabSubtreeIds(rootTabId, sourceWindowId);
+            if (movedTabIds.length === 0) return;
+
+            const newWindow = await browser.windows.create({ tabId: rootTabId });
+            const otherTabIds = movedTabIds.filter(id => id !== rootTabId);
+            if (otherTabIds.length > 0) {
+                await browser.tabs.move(otherTabIds, { windowId: newWindow.id, index: -1 });
+            }
+
+            const sourceState = this.state.get(sourceWindowId);
+            if (!sourceState || !newWindow.id) return;
+            const newWindowState = this.state.get(newWindow.id) ?? {
+                parentMap: new Map(), collapsedNodes: new Set(), tabs: [], tree: new Map(), tabsById: new Map(), rootIds: []
+            };
+            this.state.set(newWindow.id, newWindowState);
+
+            for (const id of movedTabIds) {
+                if (sourceState.parentMap.has(id)) {
+                    newWindowState.parentMap.set(id, sourceState.parentMap.get(id)!);
+                    sourceState.parentMap.delete(id);
+                }
+                if (sourceState.collapsedNodes.has(id)) {
+                    newWindowState.collapsedNodes.add(id);
+                    sourceState.collapsedNodes.delete(id);
+                }
+            }
+        } catch (e) { console.error('Failed to move subtree to new window:', e); }
+    }
+
+    private applyPendingData(dragData: DragData, windowId: number) {
+        const windowState = this.state.get(windowId);
+        if (!windowState) return;
+
+        for (const [childId, parentId] of Object.entries(dragData.parentMapSnapshot)) {
+            if (parentId !== undefined && parentId !== null) {
+                windowState.parentMap.set(Number(childId), parentId);
+            }
+        }
+        for (const id of dragData.collapsed) {
+            windowState.collapsedNodes.add(id);
+        }
+        for (const id of dragData.movedTabIds) {
+            const sourceState = this.state.get(dragData.sourceWindowId);
+            sourceState?.collapsedNodes.delete(id);
+        }
+    }
+
+    private findLastDescendantIndexInFlatList(startNodeId: number, windowId: number): number {
+        const windowState = this.state.get(windowId);
+        const startTab = windowState?.tabsById.get(startNodeId);
+        if (!windowState || !startTab) throw new Error(`Tab ${startNodeId} not found.`);
+
+        let maxIndex = startTab.index;
+        const subtreeIds = this.getTabSubtreeIds(startNodeId, windowId);
+        for (const id of subtreeIds) {
+            const tab = windowState.tabsById.get(id);
+            if (tab && tab.index > maxIndex) maxIndex = tab.index;
+        }
+        return maxIndex;
+    }
+
+    private async handleDrop(dragData: DragData, targetTabId: number, action: string, windowId: number) {
+        const targetState = this.state.get(windowId);
+        if (!targetState) return;
+
+        try {
+            let index: number;
+            let newParentId: number | undefined | null = null;
+
+            switch (action) {
+                case 'above': {
+                    const targetTab = targetState.tabsById.get(targetTabId);
+                    if (!targetTab) return;
+                    index = targetTab.index;
+                    newParentId = targetState.tree.get(targetTabId)?.parentId;
+                    break;
+                }
+                case 'below': {
+                    index = this.findLastDescendantIndexInFlatList(targetTabId, windowId) + 1;
+                    newParentId = targetState.tree.get(targetTabId)?.parentId;
+                    break;
+                }
+                case 'root': {
+                    index = -1;
+                    newParentId = -1;
+                    break;
+                }
+                case 'inside':
+                default: {
+                    index = this.findLastDescendantIndexInFlatList(targetTabId, windowId) + 1;
+                    newParentId = targetTabId;
+                    break;
+                }
+            }
+
+            if (newParentId === null) {
+                // Do nothing, parent stays as is
+            } else if (newParentId === -1 || newParentId === undefined) {
+                targetState.parentMap.set(dragData.draggedTabId, -1);
+            } else {
+                targetState.parentMap.set(dragData.draggedTabId, newParentId);
+            }
+
+            await browser.tabs.move(dragData.movedTabIds, { index, windowId });
+        } catch (e) {
+            console.error('Failed to handle drop:', e);
+        }
     }
 }
 
 async function main() {
     console.log("tabruh loaded");
 
-    let tabruh = new TabTracker();
+    let state = new StateManager();
 
     browser.runtime.onInstalled.addListener(() => {
         browser.menus.create({

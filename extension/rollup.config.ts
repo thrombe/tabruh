@@ -40,7 +40,7 @@ const config: RollupOptions = {
     input: {
         background: 'src/background.ts',
         sidebar: 'src/sidebar.ts',
-        overview: 'src/overview.ts',
+        // overview: 'src/overview.ts',
     },
     output: {
         dir: distDir,
@@ -74,7 +74,7 @@ const config: RollupOptions = {
             targets: [
                 { src: 'src/manifest.json', dest: distDir },
                 { src: 'src/sidebar.html', dest: distDir },
-                { src: 'src/overview.html', dest: distDir },
+                // { src: 'src/overview.html', dest: distDir },
             ],
             hook: 'buildEnd',
         })
