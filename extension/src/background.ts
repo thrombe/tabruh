@@ -1,9 +1,9 @@
 import browser from 'webextension-polyfill';
-import type { BackgroundRequest, DragData, TabNode, TabTree, WindowState } from './types';
+import type { BackgroundRequest, DragData, WindowState, TabTree } from './types';
 
 class StateManager {
     private state: Map<number, WindowState> = new Map();
-    private ports: Map<number, browser.Runtime.Port[]> = new Map();
+    private ports: Set<browser.Runtime.Port> = new Set();
 
     constructor() {
         this.init();
@@ -11,46 +11,26 @@ class StateManager {
 
     private async init() {
         browser.runtime.onConnect.addListener((port) => this.handleNewConnection(port));
-        this.attachTabListeners();
+        this.attachListeners();
         await this.initializeStateForAllwindows();
     }
 
     private handleNewConnection(port: browser.Runtime.Port) {
-        const windowId = port.sender?.tab?.windowId;
-        if (!windowId) {
-            console.error('Connection from unknown window, disconnecting.');
-            port.disconnect();
-            return;
-        }
-
-        const windowPorts = this.ports.get(windowId) || [];
-        windowPorts.push(port);
-        this.ports.set(windowId, windowPorts);
-
+        this.ports.add(port);
         port.onMessage.addListener((message: BackgroundRequest) => this.handleMessage(message, port));
         port.onDisconnect.addListener(() => {
-            const updatedPorts = (this.ports.get(windowId) || []).filter(p => p !== port);
-            if (updatedPorts.length > 0) {
-                this.ports.set(windowId, updatedPorts);
-            } else {
-                this.ports.delete(windowId);
-            }
+            this.ports.delete(port);
         });
-
-        this.sendStateUpdate(windowId);
     }
 
     private handleMessage(message: BackgroundRequest, port: browser.Runtime.Port) {
-        const windowId = message.payload.windowId ?? port.sender?.tab?.windowId;
-        if (!windowId) return;
-
         switch (message.type) {
             case 'GET_STATE':
-                this.sendStateUpdate(windowId);
+                this.sendStateUpdate(message.payload.windowId, port);
                 break;
             case 'TOGGLE_COLLAPSE':
-                this.toggleCollapse(windowId, message.payload.nodeId);
-                this.sendStateUpdate(windowId);
+                this.toggleCollapse(message.payload.windowId, message.payload.nodeId);
+                this.sendStateUpdate(message.payload.windowId, port);
                 break;
             case 'HANDLE_DROP':
                 this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.windowId);
@@ -120,73 +100,75 @@ class StateManager {
     }
 
     private async updateWindowState(windowId: number) {
-        const tabs = await browser.tabs.query({ windowId });
-        const windowState = this.state.get(windowId);
-        if (windowState) {
-            windowState.tabs = tabs;
-            this.buildTabTreeForWindow(windowId);
-        } else {
-            this.state.set(windowId, {
-                parentMap: new Map(),
-                collapsedNodes: new Set(),
-                tabs,
-                tree: new Map(),
-                tabsById: new Map(),
-                rootIds: [],
-            });
-            this.buildTabTreeForWindow(windowId);
+        try {
+            const tabs = await browser.tabs.query({ windowId });
+            const windowState = this.state.get(windowId);
+            if (windowState) {
+                windowState.tabs = tabs;
+                this.buildTabTreeForWindow(windowId);
+            } else {
+                this.state.set(windowId, {
+                    parentMap: new Map(),
+                    collapsedNodes: new Set(),
+                    tabs,
+                    tree: new Map(),
+                    tabsById: new Map(),
+                    rootIds: [],
+                });
+                this.buildTabTreeForWindow(windowId);
+            }
+        } catch (e) {
+            console.error(`Could not update state for window ${windowId}:`, e);
+            this.state.delete(windowId);
         }
     }
 
     private async initializeStateForAllwindows() {
-        const windows = await browser.windows.getAll({ populate: true });
+        const windows = await browser.windows.getAll();
         for (const win of windows) {
-            if (win.id && win.tabs) {
+            if (win.id && win.type === 'normal') {
                 await this.updateWindowState(win.id);
             }
         }
     }
 
-    private attachTabListeners() {
-        const handler = async (tabId: number | browser.Tabs.Tab, removeInfo?: { windowId: number, isWindowClosing: boolean }) => {
+    private attachListeners() {
+        const fullUpdate = async () => {
             const allWindows = await browser.windows.getAll();
             for (const win of allWindows) {
-                if (win.id) {
+                if (win.id && win.type === 'normal') {
                     await this.updateWindowState(win.id);
                     this.broadcastRender(win.id);
                 }
             }
         };
 
-        browser.tabs.onCreated.addListener(handler);
-        browser.tabs.onRemoved.addListener(handler);
-        browser.tabs.onUpdated.addListener(handler);
-        browser.tabs.onMoved.addListener(handler);
-        browser.tabs.onAttached.addListener(handler);
-        browser.tabs.onDetached.addListener(handler);
+        browser.tabs.onCreated.addListener(fullUpdate);
+        browser.tabs.onRemoved.addListener(fullUpdate);
+        browser.tabs.onUpdated.addListener(fullUpdate);
+        browser.tabs.onMoved.addListener(fullUpdate);
+        browser.tabs.onAttached.addListener(fullUpdate);
+        browser.tabs.onDetached.addListener(fullUpdate);
         browser.windows.onCreated.addListener(async (win) => {
-            if (win.id) await this.updateWindowState(win.id);
+            if (win.id && win.type === 'normal') await this.updateWindowState(win.id);
         });
         browser.windows.onRemoved.addListener((windowId) => {
             this.state.delete(windowId);
-            this.ports.delete(windowId);
         });
     }
 
     private broadcastRender(windowId: number) {
-        const windowPorts = this.ports.get(windowId);
-        if (windowPorts) {
-            windowPorts.forEach(port => port.postMessage({ type: 'RENDER', payload: { windowId } }));
+        for (const port of this.ports) {
+            port.postMessage({ type: 'RENDER', payload: { windowId } });
         }
     }
 
-    private sendStateUpdate(windowId: number) {
+    private sendStateUpdate(windowId: number, port: browser.Runtime.Port) {
         const windowState = this.state.get(windowId);
         if (!windowState) return;
 
-        const windowPorts = this.ports.get(windowId);
-        if (windowPorts) {
-            windowPorts.forEach(port => port.postMessage({
+        try {
+            port.postMessage({
                 type: 'STATE_UPDATE',
                 payload: {
                     state: {
@@ -196,7 +178,10 @@ class StateManager {
                         collapsedNodes: windowState.collapsedNodes,
                     }
                 }
-            }));
+            });
+        } catch (e) {
+            console.error("Failed to send state update, port might be disconnected.", e);
+            this.ports.delete(port);
         }
     }
 
@@ -222,14 +207,10 @@ class StateManager {
     private async focusTab(tabId: number) {
         try {
             const tab = await browser.tabs.get(tabId);
-            if (!tab.discarded) {
-                if (tab.windowId) {
-                    await browser.windows.update(tab.windowId, { focused: true });
-                }
-                await browser.tabs.update(tabId, { active: true });
-            } else {
-                await browser.tabs.update(tabId, { active: true });
+            if (tab.windowId) {
+                await browser.windows.update(tab.windowId, { focused: true });
             }
+            await browser.tabs.update(tabId, { active: true });
         } catch (e) { console.error(`Could not focus tab ${tabId}:`, e); }
     }
 
@@ -265,13 +246,19 @@ class StateManager {
         try {
             const tab = await browser.tabs.get(tabId);
             if (tab.url) {
-                await browser.scripting.executeScript({
-                    target: { tabId },
-                    func: (urlToCopy: string) => {
-                        navigator.clipboard.writeText(urlToCopy);
-                    },
-                    args: [tab.url],
-                });
+                // Background scripts cannot access the clipboard API directly.
+                // A workaround is to inject a script into the active tab to do it.
+                // This is a security feature of browsers.
+                const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
+                if (activeTab && activeTab.id) {
+                    await browser.scripting.executeScript({
+                        target: { tabId: activeTab.id },
+                        func: (urlToCopy: string) => {
+                            navigator.clipboard.writeText(urlToCopy).catch(console.error);
+                        },
+                        args: [tab.url],
+                    });
+                }
             }
         } catch (e) { console.error('Failed to copy URL:', e); }
     }
@@ -287,16 +274,15 @@ class StateManager {
 
             const newWindow = await browser.windows.create({ tabId: rootTabId });
             const otherTabIds = movedTabIds.filter(id => id !== rootTabId);
-            if (otherTabIds.length > 0) {
+            if (otherTabIds.length > 0 && newWindow.id) {
                 await browser.tabs.move(otherTabIds, { windowId: newWindow.id, index: -1 });
             }
 
             const sourceState = this.state.get(sourceWindowId);
             if (!sourceState || !newWindow.id) return;
-            const newWindowState = this.state.get(newWindow.id) ?? {
-                parentMap: new Map(), collapsedNodes: new Set(), tabs: [], tree: new Map(), tabsById: new Map(), rootIds: []
-            };
-            this.state.set(newWindow.id, newWindowState);
+
+            await this.updateWindowState(newWindow.id); // Ensure new window state is created
+            const newWindowState = this.state.get(newWindow.id)!;
 
             for (const id of movedTabIds) {
                 if (sourceState.parentMap.has(id)) {
@@ -323,9 +309,11 @@ class StateManager {
         for (const id of dragData.collapsed) {
             windowState.collapsedNodes.add(id);
         }
-        for (const id of dragData.movedTabIds) {
-            const sourceState = this.state.get(dragData.sourceWindowId);
-            sourceState?.collapsedNodes.delete(id);
+        const sourceState = this.state.get(dragData.sourceWindowId);
+        if (sourceState) {
+            for (const id of dragData.movedTabIds) {
+                sourceState.collapsedNodes.delete(id);
+            }
         }
     }
 
@@ -378,7 +366,7 @@ class StateManager {
             }
 
             if (newParentId === null) {
-                // Do nothing, parent stays as is
+                // This means keep original parent, just reorder
             } else if (newParentId === -1 || newParentId === undefined) {
                 targetState.parentMap.set(dragData.draggedTabId, -1);
             } else {

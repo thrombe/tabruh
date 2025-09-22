@@ -41,15 +41,15 @@ type ActionPayloads = {
     'GET_STATE': { windowId: number };
     'FOCUS_TAB': { tabId: number };
     'CLOSE_TAB': { tabId: number };
-    'TOGGLE_COLLAPSE': { nodeId: number };
-    'HANDLE_DROP': { dragData: DragData, targetTabId: number, action: DropAction, windowId: number };
+    'TOGGLE_COLLAPSE': { nodeId: number; windowId: number };
+    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; windowId: number };
     'DUPLICATE_TAB': { tabId: number };
     'UNLOAD_TAB': { tabId: number };
     'UNLOAD_TREE': { tabId: number };
     'COPY_URL': { tabId: number };
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
-    'APPLY_PENDING_DATA': { dragData: DragData, windowId: number };
+    'APPLY_PENDING_DATA': { dragData: DragData; windowId: number };
 };
 
 export type Message<T extends keyof ActionPayloads> = {
@@ -78,5 +78,5 @@ type ResponsePayloads = {
 };
 
 export type BackgroundResponse =
-    | { type: 'STATE_UPDATE', payload: ResponsePayloads['STATE_UPDATE'] }
-    | { type: 'RENDER', payload: ResponsePayloads['RENDER'] };
+    | { type: 'STATE_UPDATE'; payload: ResponsePayloads['STATE_UPDATE'] }
+    | { type: 'RENDER'; payload: ResponsePayloads['RENDER'] };

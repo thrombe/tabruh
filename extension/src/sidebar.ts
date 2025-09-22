@@ -1,7 +1,6 @@
 import './sidebar.css';
 import browser from 'webextension-polyfill';
-
-import type { DragData, TabNode, TabTree, BackgroundRequest, BackgroundResponse, UiStateForRender, DropAction } from './types';
+import type { DragData, TabTree, BackgroundRequest, BackgroundResponse, UiStateForRender, DropAction } from './types';
 
 const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0-0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
@@ -28,11 +27,17 @@ class TabTreeSidebar {
         this.port.onMessage.addListener((message: BackgroundResponse) => this.handleMessage(message));
         this.port.onDisconnect.addListener(() => console.error("Sidebar disconnected from background script."));
 
-        this.sendMessage({ type: 'GET_STATE', payload: { windowId: this.windowId! } });
+        if (this.windowId) {
+            this.sendMessage({ type: 'GET_STATE', payload: { windowId: this.windowId } });
+        }
     }
 
     private sendMessage(message: BackgroundRequest) {
-        this.port.postMessage(message);
+        try {
+            this.port.postMessage(message);
+        } catch (e) {
+            console.error("Could not send message to background script.", e);
+        }
     }
 
     private handleMessage(message: BackgroundResponse) {
@@ -137,9 +142,9 @@ class TabTreeSidebar {
             setTimeout(() => nodeElement.classList.add('dragging'), 0);
         });
 
-        nodeElement.addEventListener('dragend', () => {
+        nodeElement.addEventListener('dragend', (event) => {
             nodeElement.classList.remove('dragging');
-            if (this.currentDragData) {
+            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData) {
                 this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: this.currentDragData.draggedTabId } });
             }
             this.currentDragData = null;
