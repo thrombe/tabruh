@@ -146,6 +146,21 @@ async function main() {
 
     let tabruh = new TabTracker();
 
+    browser.runtime.onInstalled.addListener(() => {
+        browser.menus.create({
+            id: "open-overview",
+            title: "Overview Page",
+            contexts: ["browser_action"],
+        })
+    });
+    browser.menus.onClicked.addListener((info, tab) => {
+        if (info.menuItemId === "open-overview") {
+            browser.tabs.create({
+                url: browser.runtime.getURL("overview.html"),
+            });
+        }
+    });
+
     browser.browserAction.onClicked.addListener(async (tab, info) => {
         await browser.sidebarAction.toggle();
     });

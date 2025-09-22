@@ -11,6 +11,7 @@
     "webNavigation",
     "sidePanel",
     "<all_urls>",
+    "menus",
     "storage"
   ],
   "background": {
