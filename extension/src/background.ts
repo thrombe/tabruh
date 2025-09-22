@@ -147,7 +147,7 @@ async function main() {
     let tabruh = new TabTracker();
 
     browser.browserAction.onClicked.addListener(async (tab, info) => {
-        await browser.sidebarAction.open();
+        await browser.sidebarAction.toggle();
     });
 
     browser.tabs.onActivated.addListener(async tab => {
