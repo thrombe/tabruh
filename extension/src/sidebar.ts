@@ -633,10 +633,18 @@ class TabTreeSidebar {
         const options = [
             { label: 'Duplicate Tab', action: () => this.duplicateTab(tabId) },
             { label: 'Unload Tab', action: () => this.unloadTab(tabId) },
-            { label: 'Unload Tree', action: () => this.unloadTree(tabId) },
+        ];
+
+        const node = this.tree.get(tabId);
+        if (node && node.children.length > 0) {
+            options.push({ label: 'Unload Tree', action: () => this.unloadTree(tabId) });
+        }
+
+        options.push(
             { label: 'Copy URL', action: () => this.copyUrl(tabId) },
             { label: 'Move to New Window', action: () => this.moveSubtreeToNewWindow(tabId) }
-        ];
+        );
+
 
         options.forEach(opt => {
             const item = document.createElement('div');
