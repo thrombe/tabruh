@@ -22,7 +22,6 @@ class TabTracker {
     private async initialize(): Promise<void> {
         await this.initializeState();
         this.initListeners();
-        console.log(this.tabTrees);
     }
 
     private async initializeState(): Promise<void> {
@@ -147,6 +146,10 @@ async function main() {
 
     let tabruh = new TabTracker();
 
+    browser.browserAction.onClicked.addListener(async (tab, info) => {
+        await browser.sidebarAction.open();
+    });
+
     browser.tabs.onActivated.addListener(async tab => {
         // console.log("tab activated");
         // console.log(tab);
@@ -175,8 +178,6 @@ async function main() {
         //         await browser.tabs.discard(tab.openerTabId);
         //     }
         // }
-
-        await browser.sidebarAction.open();
     });
 
     // Monitor completed navigation events and update
