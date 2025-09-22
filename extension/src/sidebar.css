@@ -156,3 +156,12 @@ body {
 .context-menu-item:hover {
   background-color: var(--gruvbox-hover-accent);
 }
+
+.discarded-tab {
+  @apply opacity-60;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.tree-node:hover.discarded-tab {
+  @apply opacity-100;
+}

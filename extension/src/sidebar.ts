@@ -54,7 +54,7 @@ class TabTreeSidebar {
     private async applyPendingParentData() {
         try {
             const result = await browser.storage.local.get('tabTreeParentTransfer');
-            const transferData = result.tabTreeParentTransfer as { targetWindowId: number, map: Record<string, number> };
+            const transferData = result.tabTreeParentTransfer as { targetWindowId: number, map: Record<string, number>, collapsed?: number[] };
             if (!transferData) return;
 
             const currentWindow = await browser.windows.getCurrent();
@@ -62,6 +62,11 @@ class TabTreeSidebar {
                 for (const [childId, parentId] of Object.entries(transferData.map)) {
                     if (parentId !== undefined && parentId !== null) {
                         this.parent_map.set(Number(childId), parentId as number);
+                    }
+                }
+                if (transferData.collapsed) {
+                    for (const id of transferData.collapsed) {
+                        this.collapsedNodes.add(id);
                     }
                 }
                 await browser.storage.local.remove('tabTreeParentTransfer');
@@ -78,7 +83,7 @@ class TabTreeSidebar {
         browser.tabs.onCreated.addListener(refresh);
         browser.tabs.onRemoved.addListener(refresh);
         browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl) {
+            if (changeInfo.status || changeInfo.title || changeInfo.favIconUrl || 'discarded' in changeInfo) {
                 refresh();
             }
         });
@@ -212,6 +217,11 @@ class TabTreeSidebar {
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
         nodeElement.draggable = true; // ✅ only drag the visual node
+
+        const tab = this.tabsById.get(node.id);
+        if (tab?.discarded) {
+            nodeElement.classList.add('discarded-tab');
+        }
 
         nodeElement.addEventListener('click', () => this.focusTab(node.id));
 
@@ -366,6 +376,11 @@ class TabTreeSidebar {
 
         const icon = document.createElement('img');
         icon.src = node.favIconUrl || DEFAULT_FAVICON_URL;
+        icon.onerror = () => {
+            if (icon.src !== DEFAULT_FAVICON_URL) {
+                icon.src = DEFAULT_FAVICON_URL;
+            }
+        };
         icon.alt = 'favicon';
         icon.className = 'tree-node-icon';
 
@@ -456,10 +471,17 @@ class TabTreeSidebar {
     private async focusTab(tabId: number) {
         try {
             const tab = await browser.tabs.get(tabId);
-            if (tab.windowId) {
-                await browser.windows.update(tab.windowId, { focused: true });
+            if (!tab.discarded) {
+                if (tab.windowId) {
+                    await browser.windows.update(tab.windowId, { focused: true });
+                }
+                await browser.tabs.update(tabId, { active: true });
+            } else {
+                // Discarded tabs cannot be focused directly, they need to be reloaded first.
+                // The browser usually handles this when you try to switch to it.
+                // Here we simply activate it, letting the browser handle the reload.
+                await browser.tabs.update(tabId, { active: true });
             }
-            await browser.tabs.update(tabId, { active: true });
         } catch (e) {
             console.error(`Could not focus tab ${tabId}:`, e);
         }
@@ -674,10 +696,12 @@ class TabTreeSidebar {
             }
 
             if (Object.keys(parentMapSnapshot).length > 0 && newWindow.id) {
+                const collapsedInSubtree = movedTabIds.filter(id => this.collapsedNodes.has(id));
                 await browser.storage.local.set({
                     tabTreeParentTransfer: {
                         targetWindowId: newWindow.id,
-                        map: parentMapSnapshot
+                        map: parentMapSnapshot,
+                        collapsed: collapsedInSubtree
                     }
                 });
             }
