@@ -54,7 +54,7 @@ class TabTreeSidebar {
     private async applyPendingParentData() {
         try {
             const result = await browser.storage.local.get('tabTreeParentTransfer');
-            const transferData = result.tabTreeParentTransfer;
+            const transferData = result.tabTreeParentTransfer as { targetWindowId: number, map: Map<number, number> };
             if (!transferData) return;
 
             const currentWindow = await browser.windows.getCurrent();
@@ -221,7 +221,7 @@ class TabTreeSidebar {
         });
 
 
-        nodeElement.addEventListener('dragstart', async (event) => {
+        nodeElement.addEventListener('dragstart', (event) => {
             const movedTabIds = this.getTabSubtreeIds(node.id);
             const parentMapSnapshot: Record<number, number | undefined> = {};
             for (const id of movedTabIds) {
@@ -231,10 +231,16 @@ class TabTreeSidebar {
                 }
             }
 
-            const currentWindow = await browser.windows.getCurrent();
+            const draggedTab = this.tabsById.get(node.id);
+            if (!draggedTab || draggedTab.windowId === undefined) {
+                console.error("Could not get source window ID, cancelling drag.");
+                event.preventDefault();
+                return;
+            }
+
             const dragData: DragData = {
                 draggedTabId: node.id,
-                sourceWindowId: currentWindow.id!,
+                sourceWindowId: draggedTab.windowId,
                 movedTabIds,
                 parentMapSnapshot
             };
@@ -326,6 +332,8 @@ class TabTreeSidebar {
 
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
             delete nodeElement.dataset.dropAction;
+
+            await this.render();
         });
 
         const collapseContainer = document.createElement('div');
@@ -438,6 +446,8 @@ class TabTreeSidebar {
             }
 
             this.moveSubtreeToRoot(dragData);
+
+            await this.render();
         });
 
         return button;
