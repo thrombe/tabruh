@@ -132,23 +132,25 @@ class StateManager {
         }
     }
 
-    private attachListeners() {
-        const fullUpdate = async () => {
-            const allWindows = await browser.windows.getAll();
-            for (const win of allWindows) {
-                if (win.id && win.type === 'normal') {
-                    await this.updateWindowState(win.id);
-                    this.broadcastRender(win.id);
-                }
+    private async fullUpdate() {
+        const allWindows = await browser.windows.getAll();
+        for (const win of allWindows) {
+            if (win.id && win.type === 'normal') {
+                await this.updateWindowState(win.id);
+                this.broadcastRender(win.id);
             }
-        };
+        }
+    }
 
-        browser.tabs.onCreated.addListener(fullUpdate);
-        browser.tabs.onRemoved.addListener(fullUpdate);
-        browser.tabs.onUpdated.addListener(fullUpdate);
-        browser.tabs.onMoved.addListener(fullUpdate);
-        browser.tabs.onAttached.addListener(fullUpdate);
-        browser.tabs.onDetached.addListener(fullUpdate);
+    private attachListeners() {
+        const handler = () => this.fullUpdate();
+
+        browser.tabs.onCreated.addListener(handler);
+        browser.tabs.onRemoved.addListener(handler);
+        browser.tabs.onUpdated.addListener(handler);
+        browser.tabs.onMoved.addListener(handler);
+        browser.tabs.onAttached.addListener(handler);
+        browser.tabs.onDetached.addListener(handler);
         browser.windows.onCreated.addListener(async (win) => {
             if (win.id && win.type === 'normal') await this.updateWindowState(win.id);
         });
@@ -246,9 +248,6 @@ class StateManager {
         try {
             const tab = await browser.tabs.get(tabId);
             if (tab.url) {
-                // Background scripts cannot access the clipboard API directly.
-                // A workaround is to inject a script into the active tab to do it.
-                // This is a security feature of browsers.
                 const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
                 if (activeTab && activeTab.id) {
                     await browser.scripting.executeScript({
@@ -281,7 +280,7 @@ class StateManager {
             const sourceState = this.state.get(sourceWindowId);
             if (!sourceState || !newWindow.id) return;
 
-            await this.updateWindowState(newWindow.id); // Ensure new window state is created
+            await this.updateWindowState(newWindow.id);
             const newWindowState = this.state.get(newWindow.id)!;
 
             for (const id of movedTabIds) {
@@ -366,7 +365,7 @@ class StateManager {
             }
 
             if (newParentId === null) {
-                // This means keep original parent, just reorder
+                // Keep original parent
             } else if (newParentId === -1 || newParentId === undefined) {
                 targetState.parentMap.set(dragData.draggedTabId, -1);
             } else {
@@ -374,6 +373,7 @@ class StateManager {
             }
 
             await browser.tabs.move(dragData.movedTabIds, { index, windowId });
+            await this.fullUpdate();
         } catch (e) {
             console.error('Failed to handle drop:', e);
         }
