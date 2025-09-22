@@ -81,6 +81,7 @@ class TabTreeSidebar {
     private attachListeners() {
         const refresh = () => this.render();
 
+        browser.tabs.onActivated.addListener(refresh);
         browser.tabs.onCreated.addListener(refresh);
         browser.tabs.onRemoved.addListener(refresh);
         browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -222,6 +223,9 @@ class TabTreeSidebar {
         const tab = this.tabsById.get(node.id);
         if (tab?.discarded) {
             nodeElement.classList.add('discarded-tab');
+        }
+        if (tab?.active) {
+            nodeElement.classList.add('focused-tab');
         }
 
         nodeElement.addEventListener('click', () => this.focusTab(node.id));

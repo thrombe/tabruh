@@ -30,6 +30,10 @@ body {
   background-color: var(--gruvbox-hover);
 }
 
+.focused-tab, .focused-tab:hover {
+  background-color: var(--gruvbox-hover);
+}
+
 .tree-node-content {
   @apply flex items-center min-w-0 flex-grow;
 }
