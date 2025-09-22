@@ -10,6 +10,14 @@ type TabNode = {
     children: number[];
 };
 
+type DragData = {
+    draggedTabId: number;
+    sourceWindowId: number;
+    movedTabIds: number[];
+    parentMapSnapshot: Record<number, number | undefined>;
+};
+
+
 type TabTree = Map<number, TabNode>;
 
 const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
@@ -21,6 +29,7 @@ class TabTreeSidebar {
     tabsById: Map<number, browser.Tabs.Tab>;
     parent_map: Map<number, number>;
     private collapsedNodes: Set<number>;
+    private currentDragData: DragData | null = null;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -37,9 +46,31 @@ class TabTreeSidebar {
     }
 
     private async init() {
+        await this.applyPendingParentData();
         await this.render();
         this.attachListeners();
     }
+
+    private async applyPendingParentData() {
+        try {
+            const result = await browser.storage.local.get('tabTreeParentTransfer');
+            const transferData = result.tabTreeParentTransfer;
+            if (!transferData) return;
+
+            const currentWindow = await browser.windows.getCurrent();
+            if (transferData.targetWindowId === currentWindow.id) {
+                for (const [childId, parentId] of Object.entries(transferData.map)) {
+                    if (parentId !== undefined && parentId !== null) {
+                        this.parent_map.set(Number(childId), parentId as number);
+                    }
+                }
+                await browser.storage.local.remove('tabTreeParentTransfer');
+            }
+        } catch (e) {
+            console.error('Failed to apply pending parent data:', e);
+        }
+    }
+
 
     private attachListeners() {
         const refresh = () => this.render();
@@ -134,6 +165,27 @@ class TabTreeSidebar {
         return { nodes, rootIds, tabsById };
     }
 
+    private getTabSubtreeIds(rootId: number): number[] {
+        const subtreeIds: number[] = [];
+        const queue = [rootId];
+        const visited = new Set<number>();
+
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            if (visited.has(currentId)) continue;
+            visited.add(currentId);
+
+            subtreeIds.push(currentId);
+
+            const node = this.tree.get(currentId);
+            if (node) {
+                queue.push(...node.children);
+            }
+        }
+        return subtreeIds;
+    }
+
+
     private countAllDescendants(nodeId: number): number {
         const node = this.tree.get(nodeId);
         if (!node) return 0;
@@ -163,24 +215,53 @@ class TabTreeSidebar {
 
         nodeElement.addEventListener('click', () => this.focusTab(node.id));
 
-        nodeElement.addEventListener('dragstart', (event) => {
-            event.dataTransfer!.setData('text/plain', String(node.id));
+        nodeElement.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            this.showContextMenu(event.clientX, event.clientY, node.id);
+        });
+
+
+        nodeElement.addEventListener('dragstart', async (event) => {
+            const movedTabIds = this.getTabSubtreeIds(node.id);
+            const parentMapSnapshot: Record<number, number | undefined> = {};
+            for (const id of movedTabIds) {
+                const tab = this.tabsById.get(id);
+                if (tab) {
+                    parentMapSnapshot[id] = this.getParent(tab);
+                }
+            }
+
+            const currentWindow = await browser.windows.getCurrent();
+            const dragData: DragData = {
+                draggedTabId: node.id,
+                sourceWindowId: currentWindow.id!,
+                movedTabIds,
+                parentMapSnapshot
+            };
+            this.currentDragData = dragData;
+
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
             event.dataTransfer!.effectAllowed = 'move';
             setTimeout(() => {
                 nodeElement.classList.add('dragging');
             }, 0);
         });
 
-        nodeElement.addEventListener('dragend', () => {
+        nodeElement.addEventListener('dragend', (event) => {
             nodeElement.classList.remove('dragging');
+            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData) {
+                this.moveSubtreeToNewWindow(this.currentDragData.draggedTabId);
+            }
+            this.currentDragData = null;
         });
 
         nodeElement.addEventListener('dragover', (event) => {
             event.preventDefault();
-            const draggedIdStr = event.dataTransfer?.getData('text/plain');
-            if (!draggedIdStr) return;
-            const draggedId = parseInt(draggedIdStr, 10);
-            if (draggedId === node.id || this.isDescendant(draggedId, node.id)) {
+            const dragDataStr = event.dataTransfer?.getData('application/json');
+            if (!dragDataStr) return;
+
+            const dragData: DragData = JSON.parse(dragDataStr);
+            if (dragData.movedTabIds.includes(node.id)) {
                 return;
             }
 
@@ -208,35 +289,43 @@ class TabTreeSidebar {
             delete nodeElement.dataset.dropAction;
         });
 
-        nodeElement.addEventListener('drop', (event) => {
+        nodeElement.addEventListener('drop', async (event) => {
             event.preventDefault();
-            const draggedTabIdStr = event.dataTransfer?.getData('text/plain');
-            if (!draggedTabIdStr) return;
-            const draggedTabId = parseInt(draggedTabIdStr, 10);
-            const targetTabId = node.id;
+            event.stopPropagation();
+            const dragDataStr = event.dataTransfer?.getData('application/json');
+            if (!dragDataStr) return;
 
-            if (draggedTabId === targetTabId || this.isDescendant(draggedTabId, targetTabId)) {
-                return;
+            const dragData: DragData = JSON.parse(dragDataStr);
+            const targetTabId = node.id;
+            this.currentDragData = null;
+
+            if (dragData.movedTabIds.includes(targetTabId)) return;
+
+            const currentWindow = await browser.windows.getCurrent();
+            if (dragData.sourceWindowId !== currentWindow.id) {
+                for (const [childId, parentId] of Object.entries(dragData.parentMapSnapshot)) {
+                    if (parentId !== undefined && parentId !== null) {
+                        this.parent_map.set(Number(childId), parentId);
+                    }
+                }
             }
 
             const action = nodeElement.dataset.dropAction;
             switch (action) {
                 case 'above':
-                    this.moveTabAbove(draggedTabId, targetTabId);
+                    this.moveSubtreeAbove(dragData, targetTabId);
                     break;
                 case 'below':
-                    this.moveTabBelow(draggedTabId, targetTabId);
+                    this.moveSubtreeBelow(dragData, targetTabId);
                     break;
                 case 'inside':
                 default:
-                    this.makeTabChild(draggedTabId, targetTabId);
+                    this.makeSubtreeChild(dragData, targetTabId);
                     break;
             }
 
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
             delete nodeElement.dataset.dropAction;
-
-            this.render();
         });
 
         const collapseContainer = document.createElement('div');
@@ -319,7 +408,7 @@ class TabTreeSidebar {
 
         button.addEventListener('dragover', (event) => {
             event.preventDefault();
-            const draggedId = event.dataTransfer?.getData('text/plain');
+            const draggedId = event.dataTransfer?.getData('application/json');
             if (draggedId) {
                 event.dataTransfer!.dropEffect = 'move';
                 button.classList.add('drag-over-target');
@@ -330,22 +419,29 @@ class TabTreeSidebar {
             button.classList.remove('drag-over-target');
         });
 
-        button.addEventListener('drop', (event) => {
+        button.addEventListener('drop', async (event) => {
             event.preventDefault();
             button.classList.remove('drag-over-target');
+            this.currentDragData = null;
 
-            const draggedTabIdStr = event.dataTransfer?.getData('text/plain');
-            if (!draggedTabIdStr) return;
+            const dragDataStr = event.dataTransfer?.getData('application/json');
+            if (!dragDataStr) return;
+            const dragData: DragData = JSON.parse(dragDataStr);
 
-            const draggedTabId = parseInt(draggedTabIdStr, 10);
-            this.moveTabToRoot(draggedTabId);
+            const currentWindow = await browser.windows.getCurrent();
+            if (dragData.sourceWindowId !== currentWindow.id) {
+                for (const [childId, parentId] of Object.entries(dragData.parentMapSnapshot)) {
+                    if (parentId !== undefined && parentId !== null) {
+                        this.parent_map.set(Number(childId), parentId);
+                    }
+                }
+            }
 
-            this.render();
+            this.moveSubtreeToRoot(dragData);
         });
 
         return button;
     }
-
 
     private async focusTab(tabId: number) {
         try {
@@ -361,18 +457,19 @@ class TabTreeSidebar {
 
     private async closeTab(tabId: number) {
         try {
-            await browser.tabs.remove(tabId);
+            const idsToClose = this.getTabSubtreeIds(tabId);
+            await browser.tabs.remove(idsToClose);
         } catch (e) {
-            console.error(`Could not close tab ${tabId}:`, e);
+            console.error(`Could not close tab ${tabId} and its children:`, e);
         }
     }
 
-    private async moveTabToRoot(tabId: number) {
+    private async moveSubtreeToRoot(dragData: DragData) {
         try {
-            this.parent_map.set(tabId, -1);
-            await browser.tabs.move(tabId, { index: -1 });
+            this.parent_map.set(dragData.draggedTabId, -1);
+            await browser.tabs.move(dragData.movedTabIds, { index: -1 });
         } catch (e) {
-            console.error('Failed to move tab to root:', e);
+            console.error('Failed to move subtree to root:', e);
         }
     }
 
@@ -383,78 +480,63 @@ class TabTreeSidebar {
         }
 
         let maxIndex = startTab.index;
-        const searchQueue: number[] = [startNodeId];
-        const visited: Set<number> = new Set();
+        const subtreeIds = this.getTabSubtreeIds(startNodeId);
 
-        while (searchQueue.length > 0) {
-            const currentId = searchQueue.pop()!;
-            if (visited.has(currentId)) continue;
-            visited.add(currentId);
-
-            const currentNode = this.tree.get(currentId);
-            if (!currentNode) continue;
-
-            const currentTab = this.tabsById.get(currentId);
-            if (currentTab && currentTab.index > maxIndex) {
-                maxIndex = currentTab.index;
-            }
-
-            for (const childId of currentNode.children) {
-                searchQueue.push(childId);
+        for (const id of subtreeIds) {
+            const tab = this.tabsById.get(id);
+            if (tab && tab.index > maxIndex) {
+                maxIndex = tab.index;
             }
         }
         return maxIndex;
     }
 
-    private async makeTabChild(draggedTabId: number, targetTabId: number) {
+    private async makeSubtreeChild(dragData: DragData, targetTabId: number) {
         try {
             const index = this.findLastDescendantIndexInFlatList(targetTabId) + 1;
-            this.setParent(draggedTabId, targetTabId);
-            await browser.tabs.move(draggedTabId, { index });
+            this.setParent(dragData.draggedTabId, targetTabId);
+            await browser.tabs.move(dragData.movedTabIds, { index, windowId: (await browser.windows.getCurrent()).id });
         } catch (e) {
             console.error('Failed to make tab a child:', e);
         }
     }
 
-    private async moveTabAbove(draggedTabId: number, targetTabId: number) {
+    private async moveSubtreeAbove(dragData: DragData, targetTabId: number) {
         try {
             const targetTab = this.tabsById.get(targetTabId);
             if (!targetTab) return;
 
             const targetNode = this.tree.get(targetTabId);
             if (targetNode?.parentId) {
-                this.setParent(draggedTabId, targetNode.parentId);
+                this.setParent(dragData.draggedTabId, targetNode.parentId);
             } else {
-                this.parent_map.set(draggedTabId, -1);
+                this.parent_map.set(dragData.draggedTabId, -1);
             }
-            await browser.tabs.move(draggedTabId, { index: targetTab.index });
+            await browser.tabs.move(dragData.movedTabIds, { index: targetTab.index, windowId: (await browser.windows.getCurrent()).id });
         } catch (e) {
             console.error('Failed to move tab above:', e);
         }
     }
 
-    private async moveTabBelow(draggedTabId: number, targetTabId: number) {
+    private async moveSubtreeBelow(dragData: DragData, targetTabId: number) {
         try {
             const targetTab = this.tabsById.get(targetTabId);
-            if (!targetTab) return;
             const targetNode = this.tree.get(targetTabId);
-            if (!targetNode) return;
-            let index = this.findLastDescendantIndexInFlatList(targetTabId);
+            if (!targetTab || !targetNode) return;
 
-            if (targetTab.index < this.tabsById.get(draggedTabId)!.index && !this.isDescendant(index, draggedTabId)) {
-                index += 1;
-            }
+            const index = this.findLastDescendantIndexInFlatList(targetTabId) + 1;
 
             if (targetNode.parentId) {
-                this.setParent(draggedTabId, targetNode.parentId);
+                this.setParent(dragData.draggedTabId, targetNode.parentId);
             } else {
-                this.parent_map.set(draggedTabId, -1);
+                this.parent_map.set(dragData.draggedTabId, -1);
             }
-            await browser.tabs.move(draggedTabId, { index });
+            await browser.tabs.move(dragData.movedTabIds, { index, windowId: (await browser.windows.getCurrent()).id });
         } catch (e) {
             console.error('Failed to move tab below:', e);
         }
     }
+
 
     private toggleCollapse(nodeId: number) {
         const nodeWrapper = this.container.querySelector(`[data-tab-id='${nodeId}']`);
@@ -487,7 +569,111 @@ class TabTreeSidebar {
             }
         }
     }
+
+    private removeContextMenu = () => {
+        const menu = document.getElementById('tab-context-menu');
+        if (menu) {
+            menu.remove();
+        }
+        document.removeEventListener('click', this.removeContextMenu);
+        document.removeEventListener('contextmenu', this.removeContextMenu);
+    }
+
+    private showContextMenu(x: number, y: number, tabId: number) {
+        this.removeContextMenu();
+
+        const menu = document.createElement('div');
+        menu.id = 'tab-context-menu';
+        menu.className = 'context-menu';
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+
+        menu.addEventListener('click', (e) => e.stopPropagation());
+
+        const options = [
+            { label: 'Duplicate Tab', action: () => this.duplicateTab(tabId) },
+            { label: 'Unload Tab', action: () => this.unloadTab(tabId) },
+            { label: 'Copy URL', action: () => this.copyUrl(tabId) },
+            { label: 'Move to New Window', action: () => this.moveSubtreeToNewWindow(tabId) }
+        ];
+
+        options.forEach(opt => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            item.textContent = opt.label;
+            item.addEventListener('click', () => {
+                opt.action();
+                this.removeContextMenu();
+            });
+            menu.appendChild(item);
+        });
+
+        document.body.appendChild(menu);
+        document.addEventListener('click', this.removeContextMenu, { once: true });
+        document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+    }
+
+    private async duplicateTab(tabId: number) {
+        try {
+            await browser.tabs.duplicate(tabId);
+        } catch (e) {
+            console.error('Failed to duplicate tab:', e);
+        }
+    }
+
+    private async unloadTab(tabId: number) {
+        try {
+            await browser.tabs.discard(tabId);
+        } catch (e) {
+            console.error('Failed to unload/discard tab:', e);
+        }
+    }
+
+    private async copyUrl(tabId: number) {
+        try {
+            const tab = this.tabsById.get(tabId);
+            if (tab?.url) {
+                await navigator.clipboard.writeText(tab.url);
+            }
+        } catch (e) {
+            console.error('Failed to copy URL:', e);
+        }
+    }
+
+    private async moveSubtreeToNewWindow(rootTabId: number) {
+        const movedTabIds = this.getTabSubtreeIds(rootTabId);
+        if (movedTabIds.length === 0) return;
+
+        try {
+            const newWindow = await browser.windows.create({ tabId: rootTabId });
+            const otherTabIds = movedTabIds.filter(id => id !== rootTabId);
+
+            if (otherTabIds.length > 0) {
+                await browser.tabs.move(otherTabIds, { windowId: newWindow.id, index: -1 });
+            }
+
+            const parentMapSnapshot: Record<number, number | undefined> = {};
+            for (const id of movedTabIds) {
+                const tab = this.tabsById.get(id);
+                if (tab) {
+                    parentMapSnapshot[id] = this.getParent(tab);
+                }
+            }
+
+            if (Object.keys(parentMapSnapshot).length > 0 && newWindow.id) {
+                await browser.storage.local.set({
+                    tabTreeParentTransfer: {
+                        targetWindowId: newWindow.id,
+                        map: parentMapSnapshot
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Failed to move subtree to new window:', e);
+        }
+    }
 }
+
 
 document.addEventListener('DOMContentLoaded', () => {
     new TabTreeSidebar('tree-container');

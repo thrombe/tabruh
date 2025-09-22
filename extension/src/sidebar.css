@@ -141,3 +141,18 @@ body {
   color: var(--gruvbox-border);
   pointer-events: none;
 }
+
+.context-menu {
+  @apply fixed z-50 rounded-md p-1 shadow-lg;
+  background-color: var(--gruvbox-hover);
+  border: 1px solid var(--gruvbox-border-2);
+  min-width: 180px;
+}
+
+.context-menu-item {
+  @apply p-2 rounded-sm cursor-pointer;
+}
+
+.context-menu-item:hover {
+  background-color: var(--gruvbox-hover-accent);
+}
