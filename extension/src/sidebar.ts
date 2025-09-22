@@ -633,6 +633,7 @@ class TabTreeSidebar {
         const options = [
             { label: 'Duplicate Tab', action: () => this.duplicateTab(tabId) },
             { label: 'Unload Tab', action: () => this.unloadTab(tabId) },
+            { label: 'Unload Tree', action: () => this.unloadTree(tabId) },
             { label: 'Copy URL', action: () => this.copyUrl(tabId) },
             { label: 'Move to New Window', action: () => this.moveSubtreeToNewWindow(tabId) }
         ];
@@ -669,6 +670,15 @@ class TabTreeSidebar {
             await browser.tabs.discard(tabId);
         } catch (e) {
             console.error('Failed to unload/discard tab:', e);
+        }
+    }
+
+    private async unloadTree(tabId: number) {
+        try {
+            const idsToDiscard = this.getTabSubtreeIds(tabId);
+            await browser.tabs.discard(idsToDiscard);
+        } catch (e) {
+            console.error(`Could not unload tree for tab ${tabId}:`, e);
         }
     }
 
