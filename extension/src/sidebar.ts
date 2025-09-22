@@ -289,6 +289,17 @@ class TabTreeSidebar {
         document.removeEventListener('contextmenu', this.removeContextMenu);
     }
 
+    private async copyUrl(tabId: number) {
+        try {
+            const tab = this.currentRenderState?.tabsById.get(tabId);
+            if (tab?.url) {
+                await navigator.clipboard.writeText(tab.url);
+            }
+        } catch (e) {
+            console.error('Failed to copy URL:', e);
+        }
+    }
+
     private showContextMenu(x: number, y: number, tabId: number) {
         this.removeContextMenu();
         if (!this.currentRenderState) return;
@@ -314,7 +325,7 @@ class TabTreeSidebar {
         if (node && node.children.length > 0) {
             createItem('Unload Tree', () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
         }
-        createItem('Copy URL', () => this.sendMessage({ type: 'COPY_URL', payload: { tabId } }));
+        createItem('Copy URL', () => this.copyUrl(tabId));
         createItem('Move to New Window', () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
 
         document.body.appendChild(menu);

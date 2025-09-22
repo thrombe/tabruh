@@ -40,7 +40,6 @@ class StateManager {
             case 'DUPLICATE_TAB': browser.tabs.duplicate(message.payload.tabId); break;
             case 'UNLOAD_TAB': browser.tabs.discard(message.payload.tabId); break;
             case 'UNLOAD_TREE': this.unloadTree(message.payload.tabId); break;
-            case 'COPY_URL': this.copyUrl(message.payload.tabId); break;
             case 'MOVE_SUBTREE_TO_NEW_WINDOW': this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
             case 'CREATE_TAB': browser.tabs.create({ windowId: message.payload.windowId }); break;
             case 'APPLY_PENDING_DATA': this.applyPendingData(message.payload.dragData, message.payload.windowId); break;
@@ -242,24 +241,6 @@ class StateManager {
             const idsToDiscard = this.getTabSubtreeIds(tabId, tab.windowId);
             await browser.tabs.discard(idsToDiscard);
         } catch (e) { console.error(`Could not unload tree for tab ${tabId}:`, e); }
-    }
-
-    private async copyUrl(tabId: number) {
-        try {
-            const tab = await browser.tabs.get(tabId);
-            if (tab.url) {
-                const [activeTab] = await browser.tabs.query({ active: true, currentWindow: true });
-                if (activeTab && activeTab.id) {
-                    await browser.scripting.executeScript({
-                        target: { tabId: activeTab.id },
-                        func: (urlToCopy: string) => {
-                            navigator.clipboard.writeText(urlToCopy).catch(console.error);
-                        },
-                        args: [tab.url],
-                    });
-                }
-            }
-        } catch (e) { console.error('Failed to copy URL:', e); }
     }
 
     private async moveSubtreeToNewWindow(rootTabId: number) {

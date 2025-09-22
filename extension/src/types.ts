@@ -46,7 +46,6 @@ type ActionPayloads = {
     'DUPLICATE_TAB': { tabId: number };
     'UNLOAD_TAB': { tabId: number };
     'UNLOAD_TREE': { tabId: number };
-    'COPY_URL': { tabId: number };
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
     'APPLY_PENDING_DATA': { dragData: DragData; windowId: number };
@@ -66,7 +65,6 @@ export type BackgroundRequest =
     | Message<'DUPLICATE_TAB'>
     | Message<'UNLOAD_TAB'>
     | Message<'UNLOAD_TREE'>
-    | Message<'COPY_URL'>
     | Message<'MOVE_SUBTREE_TO_NEW_WINDOW'>
     | Message<'CREATE_TAB'>
     | Message<'APPLY_PENDING_DATA'>;
