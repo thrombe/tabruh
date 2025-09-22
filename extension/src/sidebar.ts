@@ -54,7 +54,7 @@ class TabTreeSidebar {
     private async applyPendingParentData() {
         try {
             const result = await browser.storage.local.get('tabTreeParentTransfer');
-            const transferData = result.tabTreeParentTransfer as { targetWindowId: number, map: Map<number, number> };
+            const transferData = result.tabTreeParentTransfer as { targetWindowId: number, map: Record<string, number> };
             if (!transferData) return;
 
             const currentWindow = await browser.windows.getCurrent();
@@ -619,8 +619,11 @@ class TabTreeSidebar {
         });
 
         document.body.appendChild(menu);
-        document.addEventListener('click', this.removeContextMenu, { once: true });
-        document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+
+        setTimeout(() => {
+            document.addEventListener('click', this.removeContextMenu, { once: true });
+            document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+        }, 0);
     }
 
     private async duplicateTab(tabId: number) {
