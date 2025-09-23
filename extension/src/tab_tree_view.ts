@@ -16,6 +16,7 @@ export class TabTreeView {
         this.container = container;
         this.port = port;
         this.windowId = windowId;
+        this.container.classList.add('tab-tree-view-container');
     }
 
     private sendMessage(message: BackgroundRequest) {

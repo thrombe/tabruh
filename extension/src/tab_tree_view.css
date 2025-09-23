@@ -15,6 +15,24 @@
   }
 }
 
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  @apply font-sans text-sm;
+}
+
+.tab-tree-view-container {
+  @apply p-2;
+  background-color: var(--gruvbox-bg);
+  color: var(--gruvbox-fg);
+  height: 100%;
+  width: 100%;
+}
+
 .tree-node {
   @apply flex items-center p-1 cursor-pointer select-none relative;
   background-color: transparent;
