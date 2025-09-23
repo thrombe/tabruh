@@ -40,6 +40,7 @@ export type UiStateForRender = {
     id: string;
     name: string;
     isClosed: boolean;
+    windowId?: number;
     tree: TabTree;
     tabsById: Map<number, browser.Tabs.Tab>;
     rootIds: number[];

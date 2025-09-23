@@ -214,15 +214,13 @@ class StateManager {
 
         browser.windows.onRemoved.addListener((windowId) => {
             const groupId = this.windowIdToGroupId.get(windowId);
-            if (groupId) {
-                const group = this.groups.get(groupId);
-                if (group) {
-                    group.isClosed = true;
-                    group.closedTimestamp = Date.now();
-                    delete group.windowId;
-                    this.windowIdToGroupId.delete(windowId);
-                    this.broadcastRenderAll();
-                }
+            if (groupId && this.groups.has(groupId)) {
+                const group = this.groups.get(groupId)!;
+                group.isClosed = true;
+                group.closedTimestamp = Date.now();
+                delete group.windowId;
+                this.windowIdToGroupId.delete(windowId);
+                this.broadcastRenderAll();
             }
         });
     }
@@ -238,6 +236,7 @@ class StateManager {
             id: groupState.id,
             name: groupState.name,
             isClosed: groupState.isClosed,
+            windowId: groupState.windowId,
             tree: groupState.tree,
             tabsById: groupState.tabsById,
             rootIds: groupState.rootIds,
@@ -570,12 +569,26 @@ class StateManager {
         }
     }
 
-    private deleteGroup(groupId: string) {
+    private async deleteGroup(groupId: string) {
         const group = this.groups.get(groupId);
-        if (group && group.isClosed) {
+        if (group) {
+            const { windowId, isClosed } = group;
+
             this.groups.delete(groupId);
+            if (windowId) {
+                this.windowIdToGroupId.delete(windowId);
+            }
+
             for (const port of this.ports) {
                 port.postMessage({ type: 'GROUP_REMOVED', payload: { groupId } });
+            }
+
+            if (windowId && !isClosed) {
+                try {
+                    await browser.windows.remove(windowId);
+                } catch (e) {
+                    console.warn(`Could not remove window for group ${groupId}, it might have been closed already.`, e);
+                }
             }
         }
     }

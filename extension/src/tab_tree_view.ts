@@ -62,7 +62,7 @@ export class TabTreeView {
         treeContainer.appendChild(rootContainer);
 
         if (!state.isClosed) {
-            treeContainer.appendChild(this.renderAddButton());
+            treeContainer.appendChild(this.renderAddButton(state));
         }
 
         this.container.appendChild(treeContainer);
@@ -223,8 +223,6 @@ export class TabTreeView {
             if (!dataTransfer) return;
             if (isClosed) return;
 
-            const currentWindow = await browser.windows.getCurrent();
-
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
                 const dragDataStr = dataTransfer.getData('application/json');
@@ -240,7 +238,7 @@ export class TabTreeView {
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, targetGroupId: groupId } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
-                if (!url || !this.currentRenderState || !currentWindow.id) return;
+                if (!url || !this.currentRenderState || !state.windowId) return;
 
                 let index: number | undefined;
                 let parentId: number | undefined;
@@ -260,7 +258,7 @@ export class TabTreeView {
                         parentId = nodeId;
                         break;
                 }
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: currentWindow.id, index, parentId } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, index, parentId } });
             }
         });
 
@@ -371,14 +369,13 @@ export class TabTreeView {
         return header;
     }
 
-    private renderAddButton(): HTMLDivElement {
+    private renderAddButton(state: UiStateForRender): HTMLDivElement {
         const button = document.createElement('div');
         button.className = 'add-tab-button';
         button.textContent = '+';
-        button.addEventListener('click', async () => {
-            const currentWindow = await browser.windows.getCurrent();
-            if (currentWindow.id) {
-                this.sendMessage({ type: 'CREATE_TAB', payload: { windowId: currentWindow.id } })
+        button.addEventListener('click', () => {
+            if (state.windowId) {
+                this.sendMessage({ type: 'CREATE_TAB', payload: { windowId: state.windowId } });
             }
         });
 
@@ -397,8 +394,7 @@ export class TabTreeView {
             const dataTransfer = event.dataTransfer;
             if (!dataTransfer || !this.currentRenderState) return;
 
-            const currentWindow = await browser.windows.getCurrent();
-            if (!currentWindow.id) return;
+            if (!state.windowId) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -413,7 +409,7 @@ export class TabTreeView {
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: currentWindow.id, index: -1 } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, index: -1 } });
             }
         });
         return button;
@@ -491,12 +487,19 @@ export class TabTreeView {
             menu.appendChild(item);
         };
 
+        const createSeparator = () => {
+            const separator = document.createElement('div');
+            separator.className = 'context-menu-separator';
+            menu.appendChild(separator);
+        };
+
         if (state.isClosed) {
             createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_GROUP', payload: { groupId: state.id } }));
-            createItem('Delete Group', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_GROUP', payload: { groupId: state.id } }));
         } else {
             createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_GROUP', payload: { groupId: state.id } }));
         }
+        createSeparator();
+        createItem('Delete Group', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_GROUP', payload: { groupId: state.id } }));
     }
 
     private showContextMenu(x: number, y: number, tabId: number) {
