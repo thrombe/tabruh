@@ -7,7 +7,6 @@ class OverviewPage {
     private port: browser.Runtime.Port;
     private container: HTMLElement;
     private views: Map<number, TabTreeView> = new Map();
-    private renderTimeout: number | null = null;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -41,42 +40,66 @@ class OverviewPage {
         windows.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
 
         for (const win of windows) {
-            if (!win.id) continue;
+            if (win.id) {
+                this.addWindowView(win.id);
+            }
+        }
+    }
 
-            const windowViewWrapper = document.createElement('div');
-            windowViewWrapper.className = 'window-view';
-            windowViewWrapper.dataset.windowId = String(win.id);
+    private addWindowView(windowId: number) {
+        if (this.views.has(windowId)) return;
 
-            const header = document.createElement('h2');
-            header.className = 'window-view-header';
-            header.textContent = `Window ${win.id}`;
+        const windowViewWrapper = document.createElement('div');
+        windowViewWrapper.className = 'window-view';
+        windowViewWrapper.dataset.windowId = String(windowId);
 
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'window-view-content';
+        const header = document.createElement('h2');
+        header.className = 'window-view-header';
+        header.textContent = `Window ${windowId}`;
 
-            windowViewWrapper.append(header, contentDiv);
-            this.container.appendChild(windowViewWrapper);
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'window-view-content';
 
-            const view = new TabTreeView(contentDiv, this.port, win.id);
-            this.views.set(win.id, view);
+        windowViewWrapper.append(header, contentDiv);
+        this.container.appendChild(windowViewWrapper);
 
-            this.sendMessage({ type: 'GET_STATE', payload: { windowId: win.id } });
+        const view = new TabTreeView(contentDiv, this.port, windowId);
+        this.views.set(windowId, view);
+
+        this.sendMessage({ type: 'GET_STATE', payload: { windowId } });
+    }
+
+    private removeWindowView(windowId: number) {
+        if (this.views.has(windowId)) {
+            const wrapper = this.container.querySelector(`[data-window-id='${windowId}']`);
+            wrapper?.remove();
+            this.views.delete(windowId);
         }
     }
 
     private handleMessage(message: BackgroundResponse) {
-        if (message.type === 'STATE_UPDATE') {
-            const view = this.views.get(message.payload.windowId);
-            if (view) {
-                view.render(message.payload.state);
+        switch (message.type) {
+            case 'STATE_UPDATE': {
+                const view = this.views.get(message.payload.windowId);
+                if (view) {
+                    view.render(message.payload.state);
+                }
+                break;
             }
-        } else if (message.type === 'RENDER') {
-            // Debounce the full layout re-render
-            if (this.renderTimeout) {
-                clearTimeout(this.renderTimeout);
+            case 'RENDER': {
+                if (this.views.has(message.payload.windowId)) {
+                    this.sendMessage({ type: 'GET_STATE', payload: { windowId: message.payload.windowId } });
+                }
+                break;
             }
-            // @ts-ignore
-            this.renderTimeout = setTimeout(() => this.renderInitialLayout(), 100);
+            case 'WINDOW_CREATED': {
+                this.addWindowView(message.payload.windowId);
+                break;
+            }
+            case 'WINDOW_REMOVED': {
+                this.removeWindowView(message.payload.windowId);
+                break;
+            }
         }
     }
 }

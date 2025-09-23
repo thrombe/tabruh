@@ -79,8 +79,12 @@ export type BackgroundRequest =
 type ResponsePayloads = {
     'STATE_UPDATE': { state: UiStateForRender; windowId: number; };
     'RENDER': { windowId: number };
+    'WINDOW_CREATED': { windowId: number };
+    'WINDOW_REMOVED': { windowId: number };
 };
 
 export type BackgroundResponse =
     | { type: 'STATE_UPDATE'; payload: ResponsePayloads['STATE_UPDATE'] }
-    | { type: 'RENDER'; payload: ResponsePayloads['RENDER'] };
+    | { type: 'RENDER'; payload: ResponsePayloads['RENDER'] }
+    | { type: 'WINDOW_CREATED'; payload: ResponsePayloads['WINDOW_CREATED'] }
+    | { type: 'WINDOW_REMOVED'; payload: ResponsePayloads['WINDOW_REMOVED'] };

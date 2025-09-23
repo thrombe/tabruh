@@ -153,11 +153,21 @@ class StateManager {
         browser.tabs.onMoved.addListener(handler);
         browser.tabs.onAttached.addListener(handler);
         browser.tabs.onDetached.addListener(handler);
+
         browser.windows.onCreated.addListener(async (win) => {
-            if (win.id && win.type === 'normal') await this.updateWindowState(win.id);
+            if (win.id && win.type === 'normal') {
+                await this.updateWindowState(win.id);
+                for (const port of this.ports) {
+                    port.postMessage({ type: 'WINDOW_CREATED', payload: { windowId: win.id } });
+                }
+            }
         });
+
         browser.windows.onRemoved.addListener((windowId) => {
             this.state.delete(windowId);
+            for (const port of this.ports) {
+                port.postMessage({ type: 'WINDOW_REMOVED', payload: { windowId } });
+            }
         });
     }
 
