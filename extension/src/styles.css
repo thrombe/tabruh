@@ -1,0 +1,27 @@
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --gruvbox-bg: #282828;
+    --gruvbox-fg: #ebdbb2;
+    --gruvbox-border: #a89984;
+    --gruvbox-border-2: #7e7165;
+    --gruvbox-hover: #3c3836;
+    --gruvbox-hover-accent: #504945;
+    --gruvbox-blue: #83a598;
+  }
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  @apply font-sans text-sm;
+}
+

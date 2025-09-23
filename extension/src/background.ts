@@ -175,6 +175,7 @@ class StateManager {
             port.postMessage({
                 type: 'STATE_UPDATE',
                 payload: {
+                    windowId,
                     state: {
                         tree: windowState.tree,
                         tabsById: windowState.tabsById,

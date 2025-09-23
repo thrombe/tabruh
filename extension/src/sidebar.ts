@@ -44,7 +44,9 @@ class TabTreeSidebar {
         if (message.type === 'RENDER' && message.payload.windowId === this.windowId) {
             this.sendMessage({ type: 'GET_STATE', payload: { windowId: this.windowId! } });
         } else if (message.type === 'STATE_UPDATE' && this.view) {
-            this.view.render(message.payload.state);
+            if (message.payload.windowId === this.windowId) {
+                this.view.render(message.payload.state);
+            }
         }
     }
 }

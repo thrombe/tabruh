@@ -77,7 +77,7 @@ export type BackgroundRequest =
 
 
 type ResponsePayloads = {
-    'STATE_UPDATE': { state: UiStateForRender };
+    'STATE_UPDATE': { state: UiStateForRender; windowId: number; };
     'RENDER': { windowId: number };
 };
 

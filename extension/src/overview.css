@@ -1,0 +1,32 @@
+@import "./styles.css";
+
+#overview-container {
+    display: flex;
+    height: 100vh;
+    overflow-x: auto;
+    background-color: #1d2021; /* gruvbox darker bg */
+}
+
+.window-view {
+    width: 350px;
+    flex-shrink: 0;
+    height: 100%;
+    border-right: 2px solid var(--gruvbox-border-2);
+    display: flex;
+    flex-direction: column;
+}
+
+.window-view-header {
+    padding: 0.5rem;
+    font-weight: bold;
+    font-size: 1.1rem;
+    background-color: var(--gruvbox-hover-accent);
+    color: var(--gruvbox-fg);
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.window-view-content {
+    flex-grow: 1;
+    overflow-y: hidden;
+}
