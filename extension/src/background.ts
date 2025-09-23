@@ -153,6 +153,7 @@ class StateManager {
         browser.tabs.onMoved.addListener(handler);
         browser.tabs.onAttached.addListener(handler);
         browser.tabs.onDetached.addListener(handler);
+        browser.tabs.onActivated.addListener(handler);
 
         browser.windows.onCreated.addListener(async (win) => {
             if (win.id && win.type === 'normal') {
