@@ -91,11 +91,9 @@ export class TabTreeView {
         return maxIndex;
     }
 
-    private extractUrlFromText(text: string): string | null {
+    private extractUrlFromPlainText(text: string): string | null {
         if (!text) return null;
-
         const trimmedText = text.trim();
-
         try {
             new URL(trimmedText);
             return trimmedText;
@@ -109,6 +107,24 @@ export class TabTreeView {
                     return null;
                 }
             }
+        }
+        return null;
+    }
+
+    private getUrlFromDataTransfer(dataTransfer: DataTransfer): string | null {
+        const uriList = dataTransfer.getData('text/uri-list');
+        if (uriList) {
+            const lines = uriList.split(/[\r\n]+/);
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine && !trimmedLine.startsWith('#')) {
+                    return this.extractUrlFromPlainText(trimmedLine);
+                }
+            }
+        }
+        const plainText = dataTransfer.getData('text/plain');
+        if (plainText) {
+            return this.extractUrlFromPlainText(plainText);
         }
         return null;
     }
@@ -219,8 +235,7 @@ export class TabTreeView {
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId } });
             } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
-                const rawData = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
-                const url = this.extractUrlFromText(rawData);
+                const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url || !this.currentRenderState) return;
 
                 const { tree, tabsById } = this.currentRenderState;
@@ -339,8 +354,7 @@ export class TabTreeView {
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId } });
             } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
-                const rawData = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
-                const url = this.extractUrlFromText(rawData);
+                const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
                 this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId, index: -1 } });
             }
