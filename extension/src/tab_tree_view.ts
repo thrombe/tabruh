@@ -143,6 +143,14 @@ export class TabTreeView {
         if (tab?.active) nodeElement.classList.add('focused-tab');
 
         nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.id } }));
+
+        nodeElement.addEventListener('mousedown', (event) => {
+            if (event.button === 1) { // Middle mouse button
+                event.preventDefault();
+                this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } });
+            }
+        });
+
         nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
 
         nodeElement.addEventListener('dragstart', (event) => {
