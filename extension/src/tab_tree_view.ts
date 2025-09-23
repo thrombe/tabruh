@@ -12,18 +12,21 @@ const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="1
 const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>`;
 const ICON_WINDOW = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 const ICON_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18h4"/><path d="M12 10v8"/><path d="M12 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M19 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 10v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3"/><path d="M19 10v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2v-3"/></svg>`;
+const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
+const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+
 
 export class TabTreeView {
     private container: HTMLElement;
     private port: browser.Runtime.Port;
-    private windowId: number;
     private currentRenderState: UiStateForRender | null = null;
     private currentDragData: DragData | null = null;
+    private isSidebar: boolean;
 
-    constructor(container: HTMLElement, port: browser.Runtime.Port, windowId: number) {
+    constructor(container: HTMLElement, port: browser.Runtime.Port, isSidebar: boolean = false) {
         this.container = container;
         this.port = port;
-        this.windowId = windowId;
+        this.isSidebar = isSidebar;
         this.container.classList.add('tab-tree-view-container');
     }
 
@@ -38,17 +41,31 @@ export class TabTreeView {
     public render(state: UiStateForRender) {
         this.currentRenderState = state;
         this.container.innerHTML = '';
+        if (state.isClosed) {
+            this.container.classList.add('closed-group');
+        } else {
+            this.container.classList.remove('closed-group');
+        }
+
+        this.container.appendChild(this.renderHeader(state));
+
+        const treeContainer = document.createElement('div');
+        treeContainer.className = 'tab-tree-scroll-container';
 
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
 
         for (const rootId of state.rootIds) {
-            const nodeElement = this.renderNode(rootId, state.tree, state.tabsById, state.collapsedNodes);
+            const nodeElement = this.renderNode(rootId, state);
             rootContainer.appendChild(nodeElement);
         }
+        treeContainer.appendChild(rootContainer);
 
-        this.container.appendChild(rootContainer);
-        this.container.appendChild(this.renderAddButton());
+        if (!state.isClosed) {
+            treeContainer.appendChild(this.renderAddButton());
+        }
+
+        this.container.appendChild(treeContainer);
     }
 
     private getTabSubtreeIds(rootId: number, tree: TabTree): number[] {
@@ -104,27 +121,31 @@ export class TabTreeView {
         return url ? url.trim() : null;
     }
 
-    private renderNode(nodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>, collapsedNodes: Set<number>): HTMLDivElement {
+    private renderNode(nodeId: number, state: UiStateForRender): HTMLDivElement {
+        const { tree, tabsById, collapsedNodes, id: groupId, isClosed } = state;
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
         nodeWrapper.dataset.tabId = String(node.id);
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
-        nodeElement.draggable = true;
+        nodeElement.draggable = !isClosed;
 
         const tab = tabsById.get(node.id);
-        if (tab?.discarded) nodeElement.classList.add('discarded-tab');
+        if (tab?.discarded || isClosed) nodeElement.classList.add('discarded-tab');
         if (tab?.active) nodeElement.classList.add('focused-tab');
 
-        nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.id } }));
-        nodeElement.addEventListener('mousedown', (event) => {
-            if (event.button === 1) {
-                event.preventDefault();
-                this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } });
-            }
-        });
-        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
+        if (!isClosed) {
+            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.id } }));
+            nodeElement.addEventListener('mousedown', (event) => {
+                if (event.button === 1) {
+                    event.preventDefault();
+                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } });
+                }
+            });
+            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
+        }
+
 
         nodeElement.addEventListener('dragstart', (event) => {
             const movedTabIds = this.getTabSubtreeIds(node.id, tree);
@@ -135,11 +156,9 @@ export class TabTreeView {
             }
             const collapsedInSubtree = movedTabIds.filter(id => collapsedNodes.has(id));
 
-            if (!tab || tab.windowId === undefined) { event.preventDefault(); return; }
-
             const dragData: DragData = {
                 draggedTabId: node.id,
-                sourceWindowId: tab.windowId,
+                sourceGroupId: groupId,
                 movedTabIds,
                 parentMapSnapshot,
                 collapsed: collapsedInSubtree
@@ -202,6 +221,9 @@ export class TabTreeView {
 
             const dataTransfer = event.dataTransfer;
             if (!dataTransfer) return;
+            if (isClosed) return;
+
+            const currentWindow = await browser.windows.getCurrent();
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -212,17 +234,13 @@ export class TabTreeView {
                 this.currentDragData = null;
                 if (dragData.movedTabIds.includes(node.id)) return;
 
-                if (dragData.sourceWindowId !== this.windowId) {
-                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId } });
+                if (dragData.sourceGroupId !== groupId) {
+                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, targetGroupId: groupId } });
                 }
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, targetGroupId: groupId } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
-                if (!url || !this.currentRenderState) return;
-
-                const { tree, tabsById } = this.currentRenderState;
-                const targetNode = tree.get(nodeId);
-                if (!targetNode) return;
+                if (!url || !this.currentRenderState || !currentWindow.id) return;
 
                 let index: number | undefined;
                 let parentId: number | undefined;
@@ -230,11 +248,11 @@ export class TabTreeView {
                 switch (action) {
                     case 'above':
                         index = tabsById.get(nodeId)?.index;
-                        parentId = targetNode.parentId;
+                        parentId = state.tree.get(nodeId)?.parentId;
                         break;
                     case 'below':
                         index = this.findLastDescendantIndex(nodeId, tree, tabsById) + 1;
-                        parentId = targetNode.parentId;
+                        parentId = state.tree.get(nodeId)?.parentId;
                         break;
                     case 'inside':
                     default:
@@ -242,7 +260,7 @@ export class TabTreeView {
                         parentId = nodeId;
                         break;
                 }
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId, index, parentId } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: currentWindow.id, index, parentId } });
             }
         });
 
@@ -255,7 +273,7 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.id, windowId: this.windowId } });
+                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.id, groupId } });
             });
 
             if (collapsedNodes.has(nodeId)) {
@@ -282,12 +300,16 @@ export class TabTreeView {
         title.textContent = node.title;
         contentWrapper.append(icon, title);
 
-        const closeButton = document.createElement('button');
-        closeButton.className = 'close-tab-button';
-        closeButton.textContent = '⨯';
-        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } }); });
+        if (!isClosed) {
+            const closeButton = document.createElement('button');
+            closeButton.className = 'close-tab-button';
+            closeButton.textContent = '⨯';
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } }); });
+            nodeElement.append(collapseContainer, contentWrapper, closeButton);
+        } else {
+            nodeElement.append(collapseContainer, contentWrapper);
+        }
 
-        nodeElement.append(collapseContainer, contentWrapper, closeButton);
         nodeWrapper.appendChild(nodeElement);
 
         if (node.children.length > 0) {
@@ -297,7 +319,7 @@ export class TabTreeView {
                 childrenContainer.classList.add('hidden');
             }
             for (const childId of node.children) {
-                childrenContainer.appendChild(this.renderNode(childId, tree, tabsById, collapsedNodes));
+                childrenContainer.appendChild(this.renderNode(childId, state));
             }
             nodeWrapper.appendChild(childrenContainer);
         }
@@ -305,11 +327,60 @@ export class TabTreeView {
         return nodeWrapper;
     }
 
+    private renderHeader(state: UiStateForRender): HTMLDivElement {
+        const header = document.createElement('div');
+        header.className = 'tab-tree-header';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'group-name';
+        nameSpan.textContent = state.name;
+        if (state.isClosed) {
+            nameSpan.textContent = `[Closed] ${state.name}`;
+        }
+        nameSpan.addEventListener('click', () => {
+            if (state.isClosed) return;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'group-name-input';
+            input.value = state.name;
+            header.replaceChild(input, nameSpan);
+            input.focus();
+            input.select();
+            const save = () => {
+                if (input.value.trim()) {
+                    this.sendMessage({ type: 'RENAME_GROUP', payload: { groupId: state.id, newName: input.value.trim() } });
+                }
+                header.replaceChild(nameSpan, input);
+            };
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') header.replaceChild(nameSpan, input);
+            });
+        });
+
+        const menuButton = document.createElement('button');
+        menuButton.className = 'group-menu-button';
+        menuButton.innerHTML = '&#x22EE;';
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showGroupContextMenu(e.clientX, e.clientY, state);
+        });
+
+        header.append(nameSpan, menuButton);
+        return header;
+    }
+
     private renderAddButton(): HTMLDivElement {
         const button = document.createElement('div');
         button.className = 'add-tab-button';
         button.textContent = '+';
-        button.addEventListener('click', () => this.sendMessage({ type: 'CREATE_TAB', payload: { windowId: this.windowId } }));
+        button.addEventListener('click', async () => {
+            const currentWindow = await browser.windows.getCurrent();
+            if (currentWindow.id) {
+                this.sendMessage({ type: 'CREATE_TAB', payload: { windowId: currentWindow.id } })
+            }
+        });
 
         button.addEventListener('dragover', (event) => {
             event.preventDefault();
@@ -324,7 +395,10 @@ export class TabTreeView {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer) return;
+            if (!dataTransfer || !this.currentRenderState) return;
+
+            const currentWindow = await browser.windows.getCurrent();
+            if (!currentWindow.id) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -332,14 +406,14 @@ export class TabTreeView {
                 if (!dragDataStr) return;
                 const dragData: DragData = JSON.parse(dragDataStr);
                 this.currentDragData = null;
-                if (dragData.sourceWindowId !== this.windowId) {
-                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId } });
+                if (dragData.sourceGroupId !== this.currentRenderState.id) {
+                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, targetGroupId: this.currentRenderState.id } });
                 }
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', targetGroupId: this.currentRenderState.id } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId, index: -1 } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: currentWindow.id, index: -1 } });
             }
         });
         return button;
@@ -363,27 +437,80 @@ export class TabTreeView {
         }
     }
 
-    private showContextMenu(x: number, y: number, tabId: number) {
+    private createContextMenu(x: number, y: number): HTMLDivElement {
         this.removeContextMenu();
-        if (!this.currentRenderState) return;
-
         const menu = document.createElement('div');
         menu.id = 'tab-context-menu';
         menu.className = 'context-menu';
         menu.style.visibility = 'hidden';
         menu.addEventListener('click', (e) => e.stopPropagation());
 
-        const createItem = (label: string, icon: string, action: () => void) => {
+        document.body.appendChild(menu);
+
+        setTimeout(() => {
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            const viewWidth = document.documentElement.clientWidth;
+            const viewHeight = document.documentElement.clientHeight;
+
+            let finalX = x;
+            let finalY = y;
+            if (x + menuWidth > viewWidth) finalX = viewWidth - menuWidth - 5;
+            if (y + menuHeight > viewHeight) finalY = viewHeight - menuHeight - 5;
+            finalX = Math.max(5, finalX);
+            finalY = Math.max(5, finalY);
+
+            menu.style.left = `${finalX}px`;
+            menu.style.top = `${finalY}px`;
+            menu.style.visibility = 'visible';
+
+            document.addEventListener('click', this.removeContextMenu, { once: true });
+            document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+            window.addEventListener('blur', this.removeContextMenu, { once: true });
+        }, 0);
+
+        return menu;
+    }
+
+    private showGroupContextMenu(x: number, y: number, state: UiStateForRender) {
+        const menu = this.createContextMenu(x, y);
+
+        const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
             const item = document.createElement('div');
             item.className = 'context-menu-item';
-
+            if (disabled) item.classList.add('disabled');
             const iconSpan = document.createElement('span');
             iconSpan.className = 'context-menu-icon';
             iconSpan.innerHTML = icon;
-
             const labelSpan = document.createElement('span');
             labelSpan.textContent = label;
+            item.append(iconSpan, labelSpan);
+            if (!disabled) {
+                item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            }
+            menu.appendChild(item);
+        };
 
+        if (state.isClosed) {
+            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_GROUP', payload: { groupId: state.id } }));
+            createItem('Delete Group', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_GROUP', payload: { groupId: state.id } }));
+        } else {
+            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_GROUP', payload: { groupId: state.id } }));
+        }
+    }
+
+    private showContextMenu(x: number, y: number, tabId: number) {
+        if (!this.currentRenderState) return;
+        const menu = this.createContextMenu(x, y);
+
+        const createItem = (label: string, icon: string, action: () => void) => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'context-menu-icon';
+            iconSpan.innerHTML = icon;
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = label;
             item.append(iconSpan, labelSpan);
             item.addEventListener('click', () => { action(); this.removeContextMenu(); });
             menu.appendChild(item);
@@ -421,36 +548,5 @@ export class TabTreeView {
         createSeparator();
 
         createItem('Copy URL', ICON_COPY, () => this.copyUrl(tabId));
-
-        document.body.appendChild(menu);
-
-        const menuWidth = menu.offsetWidth;
-        const menuHeight = menu.offsetHeight;
-        const viewWidth = document.documentElement.clientWidth;
-        const viewHeight = document.documentElement.clientHeight;
-
-        let finalX = x;
-        let finalY = y;
-
-        if (x + menuWidth > viewWidth) {
-            finalX = viewWidth - menuWidth - 5;
-        }
-
-        if (y + menuHeight > viewHeight) {
-            finalY = viewHeight - menuHeight - 5;
-        }
-
-        finalX = Math.max(5, finalX);
-        finalY = Math.max(5, finalY);
-
-        menu.style.left = `${finalX}px`;
-        menu.style.top = `${finalY}px`;
-        menu.style.visibility = 'visible';
-
-        setTimeout(() => {
-            document.addEventListener('click', this.removeContextMenu, { once: true });
-            document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
-            window.addEventListener('blur', this.removeContextMenu, { once: true });
-        }, 0);
     }
 }

@@ -24,12 +24,18 @@ class TabTreeSidebar {
             return;
         }
 
-        this.view = new TabTreeView(container, this.port, this.windowId);
+        this.view = new TabTreeView(container, this.port, true);
 
         this.port.onMessage.addListener((message: BackgroundResponse) => this.handleMessage(message));
         this.port.onDisconnect.addListener(() => console.error("Sidebar disconnected from background script."));
 
-        this.sendMessage({ type: 'GET_STATE', payload: { windowId: this.windowId } });
+        this.requestState();
+    }
+
+    private requestState() {
+        if (this.windowId) {
+            this.sendMessage({ type: 'GET_STATE_FOR_WINDOW', payload: { windowId: this.windowId } });
+        }
     }
 
     private sendMessage(message: BackgroundRequest) {
@@ -41,12 +47,12 @@ class TabTreeSidebar {
     }
 
     private handleMessage(message: BackgroundResponse) {
-        if (message.type === 'RENDER' && message.payload.windowId === this.windowId) {
-            this.sendMessage({ type: 'GET_STATE', payload: { windowId: this.windowId! } });
+        if (message.type === 'RENDER_ALL') {
+            this.requestState();
         } else if (message.type === 'STATE_UPDATE' && this.view) {
-            if (message.payload.windowId === this.windowId) {
-                this.view.render(message.payload.state);
-            }
+            // In sidebar, we only care about updates for our own window/group.
+            // The background script already filters this, so we just render.
+            this.view.render(message.payload.state);
         }
     }
 }

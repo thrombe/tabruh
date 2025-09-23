@@ -1,11 +1,48 @@
 @import "./styles.css";
 
 .tab-tree-view-container {
-  @apply p-2;
+  @apply p-0 flex flex-col;
   background-color: var(--gruvbox-bg);
   color: var(--gruvbox-fg);
   height: 100%;
   width: 100%;
+}
+
+.tab-tree-scroll-container {
+  @apply flex-grow overflow-y-auto p-2;
+}
+
+.closed-group .tab-tree-scroll-container {
+  @apply opacity-60 pointer-events-none;
+}
+
+.tab-tree-header {
+  @apply flex items-center justify-between p-2 flex-shrink-0;
+  background-color: var(--gruvbox-hover-accent);
+  border-bottom: 1px solid var(--gruvbox-border-2);
+}
+
+.group-name {
+  @apply font-bold truncate cursor-pointer flex-grow;
+}
+
+.group-name-input {
+  @apply font-bold flex-grow bg-transparent border-b-2;
+  border-color: var(--gruvbox-blue);
+  color: var(--gruvbox-fg);
+  outline: none;
+}
+
+.group-menu-button {
+  @apply w-6 h-6 rounded flex items-center justify-center text-xl font-bold flex-shrink-0;
+  background: none;
+  border: none;
+  color: var(--gruvbox-fg);
+  cursor: pointer;
+}
+
+.group-menu-button:hover {
+  background-color: var(--gruvbox-hover);
 }
 
 .tree-node {
@@ -147,6 +184,10 @@
 
 .context-menu-item:hover {
   background-color: var(--gruvbox-hover-accent);
+}
+
+.context-menu-item.disabled {
+  @apply opacity-50 cursor-not-allowed;
 }
 
 .context-menu-icon {
