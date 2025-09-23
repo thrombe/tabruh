@@ -69,6 +69,8 @@ type ActionPayloads = {
     'CLOSE_GROUP': { groupId: string };
     'RESTORE_GROUP': { groupId: string };
     'DELETE_GROUP': { groupId: string };
+    'FLATTEN_IMMEDIATE': { tabId: number };
+    'FLATTEN_TREE': { tabId: number };
 };
 
 export type Message<T extends keyof ActionPayloads> = {
@@ -95,7 +97,9 @@ export type BackgroundRequest =
     | Message<'RENAME_GROUP'>
     | Message<'CLOSE_GROUP'>
     | Message<'RESTORE_GROUP'>
-    | Message<'DELETE_GROUP'>;
+    | Message<'DELETE_GROUP'>
+    | Message<'FLATTEN_IMMEDIATE'>
+    | Message<'FLATTEN_TREE'>;
 
 type ResponsePayloads = {
     'STATE_UPDATE': { state: UiStateForRender; };

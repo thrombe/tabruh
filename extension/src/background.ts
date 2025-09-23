@@ -54,6 +54,8 @@ class StateManager {
             case 'CLOSE_GROUP': this.closeGroup(message.payload.groupId); break;
             case 'RESTORE_GROUP': this.restoreGroup(message.payload.groupId); break;
             case 'DELETE_GROUP': this.deleteGroup(message.payload.groupId); break;
+            case 'FLATTEN_IMMEDIATE': this.flattenImmediate(message.payload.tabId); break;
+            case 'FLATTEN_TREE': this.flattenTree(message.payload.tabId); break;
         }
     }
 
@@ -655,13 +657,14 @@ class StateManager {
         if (tabsToCreate.length === 0) return;
 
         const activeTabInfo = group.tabsById.get(group.lastActiveTabId ?? -1) ?? tabsToCreate[0];
+        if (!activeTabInfo) return;
 
         try {
             const newWindow = await browser.windows.create({ url: activeTabInfo.url, state: 'maximized' });
             if (!newWindow.id || !newWindow.tabs || newWindow.tabs.length === 0) return;
 
             const newWindowId = newWindow.id;
-            const firstNewTabId = newWindow.tabs[0].id!;
+            const firstNewTabId = newWindow.tabs[0]!.id!;
 
             const oldIdToNewIdMap = new Map<number, number>();
             oldIdToNewIdMap.set(activeTabInfo.id!, firstNewTabId);
@@ -706,6 +709,50 @@ class StateManager {
             this.broadcastRenderAll();
 
         } catch (e) { console.error(`Failed to restore group ${groupId}:`, e) }
+    }
+
+    private async flattenImmediate(tabId: number) {
+        const groupState = this.findGroupStateByTabId(tabId);
+        if (!groupState || !groupState.windowId) return;
+
+        const nodeToFlatten = groupState.tree.get(tabId);
+        if (!nodeToFlatten || nodeToFlatten.children.length === 0) return;
+
+        const tabToFlatten = groupState.tabsById.get(tabId);
+        if (!tabToFlatten) return;
+
+        const newParentId = groupState.parentMap.get(tabId) ?? -1;
+        const childrenToMove = [...nodeToFlatten.children];
+
+        for (const childId of childrenToMove) {
+            groupState.parentMap.set(childId, newParentId);
+        }
+
+        await browser.tabs.move(childrenToMove, { index: tabToFlatten.index + 1, windowId: groupState.windowId });
+        await this.updateAndBroadcast(groupState.windowId);
+    }
+
+    private async flattenTree(tabId: number) {
+        const groupState = this.findGroupStateByTabId(tabId);
+        if (!groupState || !groupState.windowId) return;
+
+        const nodeToFlatten = groupState.tree.get(tabId);
+        if (!nodeToFlatten || nodeToFlatten.children.length === 0) return;
+
+        const tabToFlatten = groupState.tabsById.get(tabId);
+        if (!tabToFlatten) return;
+
+        const newParentId = groupState.parentMap.get(tabId) ?? -1;
+        const allDescendants = this.getTabSubtreeIds(tabId, groupState).filter(id => id !== tabId);
+
+        if (allDescendants.length === 0) return;
+
+        for (const descendantId of allDescendants) {
+            groupState.parentMap.set(descendantId, newParentId);
+        }
+
+        await browser.tabs.move(allDescendants, { index: tabToFlatten.index + 1, windowId: groupState.windowId });
+        await this.updateAndBroadcast(groupState.windowId);
     }
 }
 

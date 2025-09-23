@@ -14,6 +14,8 @@ const ICON_WINDOW = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="
 const ICON_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18h4"/><path d="M12 10v8"/><path d="M12 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M19 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 10v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3"/><path d="M19 10v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2v-3"/></svg>`;
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+const ICON_FLATTEN_IMMEDIATE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="14 9 9 4 4 9"/><path d="M20 20h-7a4 4 0 0 1-4-4V4"/></svg>`;
+const ICON_FLATTEN_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 1 9 9"/></svg>`;
 
 
 export class TabTreeView {
@@ -549,6 +551,12 @@ export class TabTreeView {
         }
         createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
         createSeparator();
+
+        if (node && node.children.length > 0) {
+            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'FLATTEN_IMMEDIATE', payload: { tabId } }));
+            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'FLATTEN_TREE', payload: { tabId } }));
+            createSeparator();
+        }
 
         createItem('Copy URL', ICON_COPY, () => this.copyUrl(tabId));
     }
