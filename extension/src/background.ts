@@ -36,10 +36,11 @@ class StateManager {
                 this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.windowId);
                 break;
             case 'FOCUS_TAB': this.focusTab(message.payload.tabId); break;
-            case 'CLOSE_TAB': this.closeTab(message.payload.tabId); break;
-            case 'DUPLICATE_TAB': browser.tabs.duplicate(message.payload.tabId); break;
+            case 'CLOSE_SUBTREE': this.closeSubtree(message.payload.tabId); break;
+            case 'DUPLICATE_TAB_SMART': this.duplicateTabSmart(message.payload.tabId); break;
             case 'UNLOAD_TAB': browser.tabs.discard(message.payload.tabId); break;
             case 'UNLOAD_TREE': this.unloadTree(message.payload.tabId); break;
+            case 'LOAD_TREE': this.loadTree(message.payload.tabId); break;
             case 'MOVE_SUBTREE_TO_NEW_WINDOW': this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
             case 'CREATE_TAB': browser.tabs.create({ windowId: message.payload.windowId }); break;
             case 'APPLY_PENDING_DATA': this.applyPendingData(message.payload.dragData, message.payload.windowId); break;
@@ -215,13 +216,13 @@ class StateManager {
         } catch (e) { console.error(`Could not focus tab ${tabId}:`, e); }
     }
 
-    private async closeTab(tabId: number) {
+    private async closeSubtree(tabId: number) {
         try {
             const tab = await browser.tabs.get(tabId);
             if (!tab.windowId) return;
             const idsToClose = this.getTabSubtreeIds(tabId, tab.windowId);
             await browser.tabs.remove(idsToClose);
-        } catch (e) { console.error(`Could not close tab ${tabId}`, e); }
+        } catch (e) { console.error(`Could not close tab subtree ${tabId}`, e); }
     }
 
     private toggleCollapse(windowId: number, nodeId: number) {
@@ -241,6 +242,42 @@ class StateManager {
             const idsToDiscard = this.getTabSubtreeIds(tabId, tab.windowId);
             await browser.tabs.discard(idsToDiscard);
         } catch (e) { console.error(`Could not unload tree for tab ${tabId}:`, e); }
+    }
+
+    private async loadTree(tabId: number) {
+        try {
+            const tab = await browser.tabs.get(tabId);
+            if (!tab.windowId) return;
+            const idsToLoad = this.getTabSubtreeIds(tabId, tab.windowId);
+            for (const id of idsToLoad) {
+                await browser.tabs.reload(id);
+            }
+        } catch (e) { console.error(`Could not load tree for tab ${tabId}:`, e); }
+    }
+
+    private async duplicateTabSmart(tabId: number) {
+        try {
+            const originalTab = await browser.tabs.get(tabId);
+            if (!originalTab.windowId) return;
+
+            const windowState = this.state.get(originalTab.windowId);
+            if (!windowState) return;
+
+            const parentId = windowState.parentMap.get(tabId);
+
+            const newTab = await browser.tabs.create({
+                windowId: originalTab.windowId,
+                index: originalTab.index + 1,
+                url: originalTab.url,
+                active: false,
+            });
+
+            if (newTab.id && parentId) {
+                windowState.parentMap.set(newTab.id, parentId);
+            }
+        } catch (e) {
+            console.error(`Could not duplicate tab ${tabId}:`, e);
+        }
     }
 
     private async moveSubtreeToNewWindow(rootTabId: number) {

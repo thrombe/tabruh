@@ -40,12 +40,13 @@ export type UiStateForRender = {
 type ActionPayloads = {
     'GET_STATE': { windowId: number };
     'FOCUS_TAB': { tabId: number };
-    'CLOSE_TAB': { tabId: number };
+    'CLOSE_SUBTREE': { tabId: number };
     'TOGGLE_COLLAPSE': { nodeId: number; windowId: number };
     'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; windowId: number };
-    'DUPLICATE_TAB': { tabId: number };
+    'DUPLICATE_TAB_SMART': { tabId: number };
     'UNLOAD_TAB': { tabId: number };
     'UNLOAD_TREE': { tabId: number };
+    'LOAD_TREE': { tabId: number };
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
     'APPLY_PENDING_DATA': { dragData: DragData; windowId: number };
@@ -59,12 +60,13 @@ export type Message<T extends keyof ActionPayloads> = {
 export type BackgroundRequest =
     | Message<'GET_STATE'>
     | Message<'FOCUS_TAB'>
-    | Message<'CLOSE_TAB'>
+    | Message<'CLOSE_SUBTREE'>
     | Message<'TOGGLE_COLLAPSE'>
     | Message<'HANDLE_DROP'>
-    | Message<'DUPLICATE_TAB'>
+    | Message<'DUPLICATE_TAB_SMART'>
     | Message<'UNLOAD_TAB'>
     | Message<'UNLOAD_TREE'>
+    | Message<'LOAD_TREE'>
     | Message<'MOVE_SUBTREE_TO_NEW_WINDOW'>
     | Message<'CREATE_TAB'>
     | Message<'APPLY_PENDING_DATA'>;

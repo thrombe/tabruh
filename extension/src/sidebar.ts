@@ -236,7 +236,7 @@ class TabTreeSidebar {
         const closeButton = document.createElement('button');
         closeButton.className = 'close-tab-button';
         closeButton.textContent = '⨯';
-        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_TAB', payload: { tabId: node.id } }); });
+        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId: node.id } }); });
 
         nodeElement.append(collapseContainer, contentWrapper, closeButton);
         nodeWrapper.appendChild(nodeElement);
@@ -319,12 +319,23 @@ class TabTreeSidebar {
             menu.appendChild(item);
         };
 
-        createItem('Duplicate Tab', () => this.sendMessage({ type: 'DUPLICATE_TAB', payload: { tabId } }));
-        createItem('Unload Tab', () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { tabId } }));
+        createItem('Duplicate Tab', () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { tabId } }));
+
+        const tab = this.currentRenderState.tabsById.get(tabId);
+        if (tab?.discarded) {
+            createItem('Load Tree', () => this.sendMessage({ type: 'LOAD_TREE', payload: { tabId } }));
+        } else {
+            createItem('Unload Tab', () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { tabId } }));
+        }
+
         const node = this.currentRenderState.tree.get(tabId);
         if (node && node.children.length > 0) {
-            createItem('Unload Tree', () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
+            if (!tab?.discarded) {
+                createItem('Unload Tree', () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
+            }
+            createItem('Close Tree', () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId } }));
         }
+
         createItem('Copy URL', () => this.copyUrl(tabId));
         createItem('Move to New Window', () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
 
