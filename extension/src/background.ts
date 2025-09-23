@@ -461,10 +461,14 @@ async function main() {
         })
     });
     browser.menus.onClicked.addListener((info, tab) => {
-        if (info.menuItemId === "open-overview") {
-            browser.tabs.create({
-                url: browser.runtime.getURL("overview.html"),
-            });
+        switch (info.menuItemId) {
+            case "open-overview": {
+                browser.tabs.create({
+                    url: browser.runtime.getURL("overview.html"),
+                });
+            } break;
+            default:
+                console.error("unknown menu item id " + info.menuItemId);
         }
     });
 
