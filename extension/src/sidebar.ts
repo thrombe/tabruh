@@ -117,6 +117,31 @@ class TabTreeSidebar {
         return maxIndex;
     }
 
+    private extractUrlFromText(text: string): string | null {
+        if (!text) return null;
+
+        const trimmedText = text.trim();
+
+        try {
+            // Check if it's already a valid absolute URL
+            new URL(trimmedText);
+            return trimmedText;
+        } catch (e) {
+            // If not, see if it looks like a domain name that we can fix
+            // A simple heuristic: no spaces, contains a dot.
+            if (!trimmedText.includes(' ') && trimmedText.includes('.')) {
+                try {
+                    const potentialUrl = 'https://' + trimmedText;
+                    new URL(potentialUrl);
+                    return potentialUrl;
+                } catch (e2) {
+                    return null; // Even with https:// it's not valid
+                }
+            }
+        }
+        return null;
+    }
+
     private renderNode(nodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>, collapsedNodes: Set<number>): HTMLDivElement {
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
@@ -223,7 +248,8 @@ class TabTreeSidebar {
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId! } });
             } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
-                const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                const rawData = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                const url = this.extractUrlFromText(rawData);
                 if (!url || !this.currentRenderState) return;
 
                 const { tree, tabsById } = this.currentRenderState;
@@ -342,7 +368,8 @@ class TabTreeSidebar {
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId! } });
             } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
-                const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                const rawData = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                const url = this.extractUrlFromText(rawData);
                 if (!url) return;
                 this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId!, index: -1 } });
             }
