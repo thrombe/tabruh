@@ -2,8 +2,16 @@ import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
 import type { DragData, TabTree, BackgroundRequest, UiStateForRender, DropAction } from './types';
 
-const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0-0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
+const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
+
+const ICON_DUPLICATE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+const ICON_LOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+const ICON_UNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>`;
+const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>`;
+const ICON_WINDOW = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
+const ICON_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18h4"/><path d="M12 10v8"/><path d="M12 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M19 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 10v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3"/><path d="M19 10v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2v-3"/></svg>`;
 
 export class TabTreeView {
     private container: HTMLElement;
@@ -341,6 +349,7 @@ export class TabTreeView {
         document.getElementById('tab-context-menu')?.remove();
         document.removeEventListener('click', this.removeContextMenu);
         document.removeEventListener('contextmenu', this.removeContextMenu);
+        window.removeEventListener('blur', this.removeContextMenu);
     }
 
     private async copyUrl(tabId: number) {
@@ -365,39 +374,60 @@ export class TabTreeView {
         menu.style.top = `${y}px`;
         menu.addEventListener('click', (e) => e.stopPropagation());
 
-        const createItem = (label: string, action: () => void) => {
+        const createItem = (label: string, icon: string, action: () => void) => {
             const item = document.createElement('div');
             item.className = 'context-menu-item';
-            item.textContent = label;
+
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'context-menu-icon';
+            iconSpan.innerHTML = icon;
+
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = label;
+
+            item.append(iconSpan, labelSpan);
             item.addEventListener('click', () => { action(); this.removeContextMenu(); });
             menu.appendChild(item);
         };
 
-        createItem('Duplicate Tab', () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { tabId } }));
+        const createSeparator = () => {
+            const separator = document.createElement('div');
+            separator.className = 'context-menu-separator';
+            menu.appendChild(separator);
+        };
+
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { tabId } }));
+        createSeparator();
 
         const tab = this.currentRenderState.tabsById.get(tabId);
         if (tab?.discarded) {
-            createItem('Load Tree', () => this.sendMessage({ type: 'LOAD_TREE', payload: { tabId } }));
+            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { tabId } }));
         } else {
-            createItem('Unload Tab', () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { tabId } }));
+            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { tabId } }));
         }
 
         const node = this.currentRenderState.tree.get(tabId);
         if (node && node.children.length > 0) {
             if (!tab?.discarded) {
-                createItem('Unload Tree', () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
+                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
             }
-            createItem('Close Tree', () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId } }));
         }
+        createSeparator();
 
-        createItem('Close Tab Only', () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId } }));
-        createItem('Copy URL', () => this.copyUrl(tabId));
-        createItem('Move to New Window', () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
+        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId } }));
+        if (node && node.children.length > 0) {
+            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId } }));
+        }
+        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
+        createSeparator();
+
+        createItem('Copy URL', ICON_COPY, () => this.copyUrl(tabId));
 
         document.body.appendChild(menu);
         setTimeout(() => {
             document.addEventListener('click', this.removeContextMenu, { once: true });
             document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+            window.addEventListener('blur', this.removeContextMenu, { once: true });
         }, 0);
     }
 }

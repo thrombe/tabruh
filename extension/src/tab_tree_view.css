@@ -137,15 +137,26 @@
   @apply fixed z-50 rounded-md p-1 shadow-lg;
   background-color: var(--gruvbox-hover);
   border: 1px solid var(--gruvbox-border-2);
-  min-width: 180px;
+  min-width: 200px;
+  color: var(--gruvbox-fg);
 }
 
 .context-menu-item {
-  @apply p-2 rounded-sm cursor-pointer;
+  @apply p-2 rounded-sm cursor-pointer flex items-center gap-3 text-base;
 }
 
 .context-menu-item:hover {
   background-color: var(--gruvbox-hover-accent);
+}
+
+.context-menu-icon {
+  @apply flex-shrink-0 w-4 h-4;
+  color: var(--gruvbox-border);
+}
+
+.context-menu-separator {
+  @apply h-px my-1;
+  background-color: var(--gruvbox-border-2);
 }
 
 .discarded-tab {
