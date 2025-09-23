@@ -92,30 +92,8 @@ export class TabTreeView {
     }
 
     private getUrlFromDataTransfer(dataTransfer: DataTransfer): string | null {
-        const uriList = dataTransfer.getData('text/uri-list');
-        if (uriList) {
-            const lines = uriList.split(/[\r\n]+/);
-            for (const line of lines) {
-                const trimmedLine = line.trim();
-                if (trimmedLine && !trimmedLine.startsWith('#')) {
-                    try {
-                        new URL(trimmedLine);
-                        return trimmedLine;
-                    } catch (e) { /* ignore invalid lines */ }
-                }
-            }
-        }
-        const plainText = dataTransfer.getData('text/plain');
-        if (plainText) {
-            const trimmedText = plainText.trim();
-            try {
-                new URL(trimmedText);
-                return trimmedText;
-            } catch (e) {
-                return null;
-            }
-        }
-        return null;
+        const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+        return url ? url.trim() : null;
     }
 
     private renderNode(nodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>, collapsedNodes: Set<number>): HTMLDivElement {
