@@ -44,6 +44,7 @@ class StateManager {
             case 'LOAD_TREE': this.loadTree(message.payload.tabId); break;
             case 'MOVE_SUBTREE_TO_NEW_WINDOW': this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
             case 'CREATE_TAB': browser.tabs.create({ windowId: message.payload.windowId }); break;
+            case 'CREATE_TAB_FROM_URL': this.createTabFromUrl(message.payload); break;
             case 'APPLY_PENDING_DATA': this.applyPendingData(message.payload.dragData, message.payload.windowId); break;
         }
     }
@@ -240,11 +241,9 @@ class StateManager {
             const parentId = nodeToClose?.parentId;
 
             if (childIds.length > 0) {
-                // Re-parent children
                 for (const childId of childIds) {
                     windowState.parentMap.set(childId, parentId ?? -1);
                 }
-                // Move children to take the place of the parent
                 await browser.tabs.move(childIds, { index: tabToClose.index, windowId });
             }
 
@@ -279,7 +278,6 @@ class StateManager {
             if (!tab.windowId) return;
             const idsToLoad = this.getTabSubtreeIds(tabId, tab.windowId);
             for (const id of idsToLoad) {
-                // browser.tabs.reload reloads even if not discarded, which is safe.
                 await browser.tabs.reload(id);
             }
         } catch (e) { console.error(`Could not load tree for tab ${tabId}:`, e); }
@@ -310,6 +308,25 @@ class StateManager {
             }
         } catch (e) {
             console.error(`Could not duplicate tab ${tabId}:`, e);
+        }
+    }
+
+    private async createTabFromUrl(payload: { url: string; windowId: number; index?: number; parentId?: number; }) {
+        try {
+            const { url, windowId, index, parentId } = payload;
+            const newTab = await browser.tabs.create({
+                url,
+                windowId,
+                index,
+                active: false,
+            });
+
+            const windowState = this.state.get(windowId);
+            if (newTab.id && parentId && windowState) {
+                windowState.parentMap.set(newTab.id, parentId);
+            }
+        } catch (e) {
+            console.error('Failed to create tab from URL', e);
         }
     }
 

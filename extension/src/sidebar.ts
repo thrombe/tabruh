@@ -102,6 +102,21 @@ class TabTreeSidebar {
         return count;
     }
 
+    private findLastDescendantIndex(startNodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>): number {
+        const startTab = tabsById.get(startNodeId);
+        if (!startTab) return -1;
+
+        let maxIndex = startTab.index;
+        const subtreeIds = this.getTabSubtreeIds(startNodeId, tree);
+        for (const id of subtreeIds) {
+            const tab = tabsById.get(id);
+            if (tab && tab.index > maxIndex) {
+                maxIndex = tab.index;
+            }
+        }
+        return maxIndex;
+    }
+
     private renderNode(nodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>, collapsedNodes: Set<number>): HTMLDivElement {
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
@@ -152,10 +167,18 @@ class TabTreeSidebar {
 
         nodeElement.addEventListener('dragover', (event) => {
             event.preventDefault();
-            const dragDataStr = event.dataTransfer?.getData('application/json');
-            if (!dragDataStr) return;
-            const dragData: DragData = JSON.parse(dragDataStr);
-            if (dragData.movedTabIds.includes(node.id)) return;
+            const types = event.dataTransfer?.types;
+            if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
+                return;
+            }
+
+            if (types.includes('application/json')) {
+                const dragDataStr = event.dataTransfer?.getData('application/json');
+                if (dragDataStr) {
+                    const dragData: DragData = JSON.parse(dragDataStr);
+                    if (dragData.movedTabIds.includes(node.id)) return;
+                }
+            }
 
             const rect = nodeElement.getBoundingClientRect();
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
@@ -184,17 +207,49 @@ class TabTreeSidebar {
             const action = nodeElement.dataset.dropAction as DropAction;
             delete nodeElement.dataset.dropAction;
 
-            const dragDataStr = event.dataTransfer?.getData('application/json');
-            if (!dragDataStr) return;
-            const dragData: DragData = JSON.parse(dragDataStr);
+            const types = event.dataTransfer?.types;
+            const dataTransfer = event.dataTransfer;
 
-            this.currentDragData = null;
-            if (dragData.movedTabIds.includes(node.id)) return;
+            if (types?.includes('application/json') && dataTransfer) {
+                const dragDataStr = dataTransfer.getData('application/json');
+                if (!dragDataStr) return;
+                const dragData: DragData = JSON.parse(dragDataStr);
 
-            if (dragData.sourceWindowId !== this.windowId) {
-                this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId! } });
+                this.currentDragData = null;
+                if (dragData.movedTabIds.includes(node.id)) return;
+
+                if (dragData.sourceWindowId !== this.windowId) {
+                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId! } });
+                }
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId! } });
+            } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
+                const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                if (!url || !this.currentRenderState) return;
+
+                const { tree, tabsById } = this.currentRenderState;
+                const targetNode = tree.get(nodeId);
+                if (!targetNode) return;
+
+                let index: number | undefined;
+                let parentId: number | undefined;
+
+                switch (action) {
+                    case 'above':
+                        index = tabsById.get(nodeId)?.index;
+                        parentId = targetNode.parentId;
+                        break;
+                    case 'below':
+                        index = this.findLastDescendantIndex(nodeId, tree, tabsById) + 1;
+                        parentId = targetNode.parentId;
+                        break;
+                    case 'inside':
+                    default:
+                        index = this.findLastDescendantIndex(nodeId, tree, tabsById) + 1;
+                        parentId = nodeId;
+                        break;
+                }
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId!, index, parentId } });
             }
-            this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId! } });
         });
 
         const collapseContainer = document.createElement('div');
@@ -264,21 +319,33 @@ class TabTreeSidebar {
 
         button.addEventListener('dragover', (event) => {
             event.preventDefault();
-            event.dataTransfer!.dropEffect = 'move';
-            button.classList.add('drag-over-target');
+            const types = event.dataTransfer?.types;
+            if (types && (types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
+                event.dataTransfer!.dropEffect = 'move';
+                button.classList.add('drag-over-target');
+            }
         });
         button.addEventListener('dragleave', () => button.classList.remove('drag-over-target'));
         button.addEventListener('drop', (event) => {
             event.preventDefault();
             button.classList.remove('drag-over-target');
-            const dragDataStr = event.dataTransfer?.getData('application/json');
-            if (!dragDataStr) return;
-            const dragData: DragData = JSON.parse(dragDataStr);
-            this.currentDragData = null;
-            if (dragData.sourceWindowId !== this.windowId) {
-                this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId! } });
+            const dataTransfer = event.dataTransfer;
+            const types = dataTransfer?.types;
+
+            if (types?.includes('application/json') && dataTransfer) {
+                const dragDataStr = dataTransfer.getData('application/json');
+                if (!dragDataStr) return;
+                const dragData: DragData = JSON.parse(dragDataStr);
+                this.currentDragData = null;
+                if (dragData.sourceWindowId !== this.windowId) {
+                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId! } });
+                }
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId! } });
+            } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
+                const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+                if (!url) return;
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId!, index: -1 } });
             }
-            this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId! } });
         });
         return button;
     }

@@ -50,6 +50,7 @@ type ActionPayloads = {
     'LOAD_TREE': { tabId: number };
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
+    'CREATE_TAB_FROM_URL': { url: string; windowId: number; index?: number; parentId?: number };
     'APPLY_PENDING_DATA': { dragData: DragData; windowId: number };
 };
 
@@ -71,6 +72,7 @@ export type BackgroundRequest =
     | Message<'LOAD_TREE'>
     | Message<'MOVE_SUBTREE_TO_NEW_WINDOW'>
     | Message<'CREATE_TAB'>
+    | Message<'CREATE_TAB_FROM_URL'>
     | Message<'APPLY_PENDING_DATA'>;
 
 
