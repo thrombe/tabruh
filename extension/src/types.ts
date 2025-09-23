@@ -26,6 +26,7 @@ export type GroupState = {
     name: string;
     windowId?: number;
     isClosed: boolean;
+    creationTimestamp: number;
     closedTimestamp?: number;
     lastActiveTabId?: number;
     parentMap: Map<number, number>;
@@ -41,6 +42,7 @@ export type UiStateForRender = {
     name: string;
     isClosed: boolean;
     windowId?: number;
+    creationTimestamp: number;
     tree: TabTree;
     tabsById: Map<number, browser.Tabs.Tab>;
     rootIds: number[];

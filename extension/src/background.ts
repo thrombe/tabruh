@@ -123,6 +123,7 @@ class StateManager {
 
     private async initializeStateForAllwindows() {
         const windows = await browser.windows.getAll({ windowTypes: ['normal'] });
+        let creationTime = Date.now();
         for (const win of windows) {
             if (win.id) {
                 const groupId = crypto.randomUUID();
@@ -131,6 +132,7 @@ class StateManager {
                     name: `Window ${win.id}`,
                     windowId: win.id,
                     isClosed: false,
+                    creationTimestamp: creationTime++,
                     parentMap: new Map(),
                     collapsedNodes: new Set(),
                     tabs: [],
@@ -159,6 +161,16 @@ class StateManager {
         this.broadcastRenderAll();
     }
 
+    private async checkAndCleanupGroup(groupId: string) {
+        const group = this.groups.get(groupId);
+        if (!group) return;
+
+        const isUnnamed = /^Window \d+$/.test(group.name);
+        if (group.tabs.length === 0 && isUnnamed) {
+            await this.deleteGroup(groupId);
+        }
+    }
+
     private attachListeners() {
         browser.tabs.onCreated.addListener(async (tab) => {
             if (tab.windowId && tab.id) {
@@ -181,6 +193,10 @@ class StateManager {
         browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             if (!removeInfo.isWindowClosing && removeInfo.windowId) {
                 await this.updateAndBroadcast(removeInfo.windowId);
+                const groupId = this.windowIdToGroupId.get(removeInfo.windowId);
+                if (groupId) {
+                    await this.checkAndCleanupGroup(groupId);
+                }
             }
         });
 
@@ -198,6 +214,10 @@ class StateManager {
 
         browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
             await this.updateAndBroadcast(detachInfo.oldWindowId);
+            const groupId = this.windowIdToGroupId.get(detachInfo.oldWindowId);
+            if (groupId) {
+                await this.checkAndCleanupGroup(groupId);
+            }
         });
 
         browser.tabs.onActivated.addListener(async (activeInfo) => {
@@ -217,6 +237,7 @@ class StateManager {
                     name: `Window ${win.id}`,
                     windowId: win.id,
                     isClosed: false,
+                    creationTimestamp: Date.now(),
                     parentMap: new Map(),
                     collapsedNodes: new Set(),
                     tabs: [],
@@ -256,6 +277,7 @@ class StateManager {
             name: groupState.name,
             isClosed: groupState.isClosed,
             windowId: groupState.windowId,
+            creationTimestamp: groupState.creationTimestamp,
             tree: groupState.tree,
             tabsById: groupState.tabsById,
             rootIds: groupState.rootIds,
@@ -447,6 +469,7 @@ class StateManager {
         try {
             const sourceGroup = this.findGroupStateByTabId(rootTabId);
             if (!sourceGroup || sourceGroup.isClosed || !sourceGroup.windowId) return;
+            const sourceGroupId = sourceGroup.id;
 
             const movedTabIds = this.getTabSubtreeIds(rootTabId, sourceGroup);
             if (movedTabIds.length === 0) return;
@@ -480,6 +503,7 @@ class StateManager {
                 await this.updateGroupStateByWindowId(sourceGroup.windowId);
             }
             this.broadcastRenderAll();
+            await this.checkAndCleanupGroup(sourceGroupId);
         } catch (e) {
             console.error('Failed to move subtree to new window:', e);
         }
@@ -574,6 +598,7 @@ class StateManager {
                 await this.updateGroupStateByWindowId(sourceGroup.windowId);
             }
             this.broadcastRenderAll();
+            await this.checkAndCleanupGroup(dragData.sourceGroupId);
         } catch (e) {
             console.error('Failed to handle drop:', e);
         }

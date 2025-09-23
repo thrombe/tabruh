@@ -38,20 +38,21 @@ class OverviewPage {
 
     private sortGroups(groups: UiStateForRender[]): UiStateForRender[] {
         return groups.sort((a, b) => {
-            const aIsNamed = !a.name.startsWith("Window ");
-            const bIsNamed = !b.name.startsWith("Window ");
+            const aIsNamed = !/^Window \d+$/.test(a.name);
+            const bIsNamed = !/^Window \d+$/.test(b.name);
 
-            if (aIsNamed && !bIsNamed) return -1;
-            if (!aIsNamed && bIsNamed) return 1;
-
-            if (a.isClosed && !b.isClosed) return 1;
-            if (!a.isClosed && b.isClosed) return -1;
-
-            if (a.isClosed && b.isClosed) {
-                // @ts-ignore
-                return b.closedTimestamp - a.closedTimestamp;
+            // 1. Open groups before closed groups
+            if (a.isClosed !== b.isClosed) {
+                return a.isClosed ? 1 : -1;
             }
-            return 0; // Or sort by windowId/name for open/named groups
+
+            // 2. Named groups before unnamed groups
+            if (aIsNamed !== bIsNamed) {
+                return aIsNamed ? -1 : 1;
+            }
+
+            // 3. Sort by creation time (older first)
+            return a.creationTimestamp - b.creationTimestamp;
         });
     }
 
