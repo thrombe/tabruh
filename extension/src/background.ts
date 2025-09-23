@@ -378,7 +378,8 @@ class StateManager {
 
     private applyPendingData(dragData: DragData, windowId: number) {
         const windowState = this.state.get(windowId);
-        if (!windowState) return;
+        const sourceState = this.state.get(dragData.sourceWindowId);
+        if (!windowState || !sourceState) return;
 
         for (const [childId, parentId] of Object.entries(dragData.parentMapSnapshot)) {
             if (parentId !== undefined && parentId !== null) {
@@ -388,11 +389,9 @@ class StateManager {
         for (const id of dragData.collapsed) {
             windowState.collapsedNodes.add(id);
         }
-        const sourceState = this.state.get(dragData.sourceWindowId);
-        if (sourceState) {
-            for (const id of dragData.movedTabIds) {
-                sourceState.collapsedNodes.delete(id);
-            }
+
+        for (const id of dragData.movedTabIds) {
+            sourceState.collapsedNodes.delete(id);
         }
     }
 

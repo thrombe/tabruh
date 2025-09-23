@@ -91,26 +91,6 @@ export class TabTreeView {
         return maxIndex;
     }
 
-    private extractUrlFromPlainText(text: string): string | null {
-        if (!text) return null;
-        const trimmedText = text.trim();
-        try {
-            new URL(trimmedText);
-            return trimmedText;
-        } catch (e) {
-            if (!trimmedText.includes(' ') && trimmedText.includes('.')) {
-                try {
-                    const potentialUrl = 'https://' + trimmedText;
-                    new URL(potentialUrl);
-                    return potentialUrl;
-                } catch (e2) {
-                    return null;
-                }
-            }
-        }
-        return null;
-    }
-
     private getUrlFromDataTransfer(dataTransfer: DataTransfer): string | null {
         const uriList = dataTransfer.getData('text/uri-list');
         if (uriList) {
@@ -118,13 +98,22 @@ export class TabTreeView {
             for (const line of lines) {
                 const trimmedLine = line.trim();
                 if (trimmedLine && !trimmedLine.startsWith('#')) {
-                    return this.extractUrlFromPlainText(trimmedLine);
+                    try {
+                        new URL(trimmedLine);
+                        return trimmedLine;
+                    } catch (e) { /* ignore invalid lines */ }
                 }
             }
         }
         const plainText = dataTransfer.getData('text/plain');
         if (plainText) {
-            return this.extractUrlFromPlainText(plainText);
+            const trimmedText = plainText.trim();
+            try {
+                new URL(trimmedText);
+                return trimmedText;
+            } catch (e) {
+                return null;
+            }
         }
         return null;
     }
@@ -143,14 +132,12 @@ export class TabTreeView {
         if (tab?.active) nodeElement.classList.add('focused-tab');
 
         nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.id } }));
-
         nodeElement.addEventListener('mousedown', (event) => {
-            if (event.button === 1) { // Middle mouse button
+            if (event.button === 1) {
                 event.preventDefault();
                 this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } });
             }
         });
-
         nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
 
         nodeElement.addEventListener('dragstart', (event) => {
@@ -227,10 +214,11 @@ export class TabTreeView {
             const action = nodeElement.dataset.dropAction as DropAction;
             delete nodeElement.dataset.dropAction;
 
-            const types = event.dataTransfer?.types;
             const dataTransfer = event.dataTransfer;
+            if (!dataTransfer) return;
 
-            if (types?.includes('application/json') && dataTransfer) {
+            const types = dataTransfer.types;
+            if (types.includes('application/json')) {
                 const dragDataStr = dataTransfer.getData('application/json');
                 if (!dragDataStr) return;
                 const dragData: DragData = JSON.parse(dragDataStr);
@@ -242,7 +230,7 @@ export class TabTreeView {
                     this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId } });
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, windowId: this.windowId } });
-            } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
+            } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url || !this.currentRenderState) return;
 
@@ -346,13 +334,14 @@ export class TabTreeView {
             }
         });
         button.addEventListener('dragleave', () => button.classList.remove('drag-over-target'));
-        button.addEventListener('drop', (event) => {
+        button.addEventListener('drop', async (event) => {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            const types = dataTransfer?.types;
+            if (!dataTransfer) return;
 
-            if (types?.includes('application/json') && dataTransfer) {
+            const types = dataTransfer.types;
+            if (types.includes('application/json')) {
                 const dragDataStr = dataTransfer.getData('application/json');
                 if (!dragDataStr) return;
                 const dragData: DragData = JSON.parse(dragDataStr);
@@ -361,7 +350,7 @@ export class TabTreeView {
                     this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, windowId: this.windowId } });
                 }
                 this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', windowId: this.windowId } });
-            } else if ((types?.includes('text/uri-list') || types?.includes('text/plain')) && dataTransfer) {
+            } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
                 this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: this.windowId, index: -1 } });
