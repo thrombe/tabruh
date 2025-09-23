@@ -7,6 +7,7 @@ class OverviewPage {
     private port: browser.Runtime.Port;
     private container: HTMLElement;
     private views: Map<number, TabTreeView> = new Map();
+    private renderTimeout: number | null = null;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -70,9 +71,12 @@ class OverviewPage {
                 view.render(message.payload.state);
             }
         } else if (message.type === 'RENDER') {
-            // A simple approach: if any window changes, re-render the whole overview
-            // This handles window creation/deletion gracefully.
-            this.renderInitialLayout();
+            // Debounce the full layout re-render
+            if (this.renderTimeout) {
+                clearTimeout(this.renderTimeout);
+            }
+            // @ts-ignore
+            this.renderTimeout = setTimeout(() => this.renderInitialLayout(), 100);
         }
     }
 }
