@@ -370,8 +370,7 @@ export class TabTreeView {
         const menu = document.createElement('div');
         menu.id = 'tab-context-menu';
         menu.className = 'context-menu';
-        menu.style.left = `${x}px`;
-        menu.style.top = `${y}px`;
+        menu.style.visibility = 'hidden';
         menu.addEventListener('click', (e) => e.stopPropagation());
 
         const createItem = (label: string, icon: string, action: () => void) => {
@@ -424,6 +423,30 @@ export class TabTreeView {
         createItem('Copy URL', ICON_COPY, () => this.copyUrl(tabId));
 
         document.body.appendChild(menu);
+
+        const menuWidth = menu.offsetWidth;
+        const menuHeight = menu.offsetHeight;
+        const viewWidth = document.documentElement.clientWidth;
+        const viewHeight = document.documentElement.clientHeight;
+
+        let finalX = x;
+        let finalY = y;
+
+        if (x + menuWidth > viewWidth) {
+            finalX = viewWidth - menuWidth - 5;
+        }
+
+        if (y + menuHeight > viewHeight) {
+            finalY = viewHeight - menuHeight - 5;
+        }
+
+        finalX = Math.max(5, finalX);
+        finalY = Math.max(5, finalY);
+
+        menu.style.left = `${finalX}px`;
+        menu.style.top = `${finalY}px`;
+        menu.style.visibility = 'visible';
+
         setTimeout(() => {
             document.addEventListener('click', this.removeContextMenu, { once: true });
             document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
