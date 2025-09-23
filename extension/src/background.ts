@@ -59,11 +59,8 @@ class StateManager {
 
     private getParent(tab: browser.Tabs.Tab, groupState: GroupState): number | undefined {
         if (tab.id === undefined) return undefined;
-
-        const parent = groupState.parentMap.get(tab.id);
-        if (parent === -1) return undefined;
-        if (parent === undefined) return tab.openerTabId;
-        return parent;
+        const parentId = groupState.parentMap.get(tab.id);
+        return parentId === -1 ? undefined : parentId;
     }
 
     private buildTabTreeForGroup(groupId: string) {
@@ -145,6 +142,14 @@ class StateManager {
                 this.groups.set(groupId, newGroup);
                 this.windowIdToGroupId.set(win.id, groupId);
                 await this.updateGroupStateByWindowId(win.id);
+
+                // Post-initialization pass to establish natural parent relationships
+                for (const tab of newGroup.tabs) {
+                    if (tab.id && tab.openerTabId && newGroup.tabsById.has(tab.openerTabId)) {
+                        newGroup.parentMap.set(tab.id, tab.openerTabId);
+                    }
+                }
+                this.buildTabTreeForGroup(groupId);
             }
         }
     }
@@ -156,7 +161,21 @@ class StateManager {
 
     private attachListeners() {
         browser.tabs.onCreated.addListener(async (tab) => {
-            if (tab.windowId) await this.updateAndBroadcast(tab.windowId);
+            if (tab.windowId && tab.id) {
+                const groupId = this.windowIdToGroupId.get(tab.windowId);
+                if (groupId) {
+                    const groupState = this.groups.get(groupId);
+                    const tabsInWindow = await browser.tabs.query({ windowId: tab.windowId });
+                    const openerExists = tab.openerTabId && tabsInWindow.some(t => t.id === tab.openerTabId);
+
+                    if (groupState && tab.openerTabId && openerExists) {
+                        if (!groupState.parentMap.has(tab.id)) {
+                            groupState.parentMap.set(tab.id, tab.openerTabId);
+                        }
+                    }
+                }
+                await this.updateAndBroadcast(tab.windowId);
+            }
         });
 
         browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
@@ -434,6 +453,7 @@ class StateManager {
 
             const newWindow = await browser.windows.create({ tabId: rootTabId });
             if (!newWindow.id) return;
+
             const otherTabIds = movedTabIds.filter(id => id !== rootTabId);
             if (otherTabIds.length > 0) {
                 await browser.tabs.move(otherTabIds, { windowId: newWindow.id, index: -1 });
@@ -443,17 +463,26 @@ class StateManager {
             const newGroup = newGroupId ? this.groups.get(newGroupId) : undefined;
             if (!newGroup) return;
 
-            for (const id of movedTabIds) {
-                if (sourceGroup.parentMap.has(id)) {
-                    newGroup.parentMap.set(id, sourceGroup.parentMap.get(id)!);
-                    sourceGroup.parentMap.delete(id);
+            for (const tabId of movedTabIds) {
+                if (sourceGroup.parentMap.has(tabId)) {
+                    newGroup.parentMap.set(tabId, sourceGroup.parentMap.get(tabId)!);
+                    sourceGroup.parentMap.delete(tabId);
                 }
-                if (sourceGroup.collapsedNodes.has(id)) {
-                    newGroup.collapsedNodes.add(id);
-                    sourceGroup.collapsedNodes.delete(id);
+                if (sourceGroup.collapsedNodes.has(tabId)) {
+                    newGroup.collapsedNodes.add(tabId);
+                    sourceGroup.collapsedNodes.delete(tabId);
                 }
             }
-        } catch (e) { console.error('Failed to move subtree to new window:', e); }
+            newGroup.parentMap.set(rootTabId, -1);
+
+            await this.updateGroupStateByWindowId(newWindow.id);
+            if (sourceGroup.windowId) {
+                await this.updateGroupStateByWindowId(sourceGroup.windowId);
+            }
+            this.broadcastRenderAll();
+        } catch (e) {
+            console.error('Failed to move subtree to new window:', e);
+        }
     }
 
     private applyPendingData(dragData: DragData, targetGroupId: string) {
