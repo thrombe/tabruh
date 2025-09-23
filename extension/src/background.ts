@@ -426,11 +426,16 @@ class StateManager {
 
     private async handleDrop(dragData: DragData, targetTabId: number, action: string, windowId: number) {
         const targetState = this.state.get(windowId);
-        if (!targetState) return;
+        const sourceState = this.state.get(dragData.sourceWindowId);
+        if (!targetState || !sourceState) return;
 
         try {
             let index: number;
             let newParentId: number | undefined | null = null;
+
+            const draggedTab = sourceState.tabsById.get(dragData.draggedTabId);
+            if (!draggedTab) return;
+            const isMovingDown = dragData.sourceWindowId === windowId && draggedTab.index < (targetState.tabsById.get(targetTabId)?.index ?? Infinity);
 
             switch (action) {
                 case 'above': {
@@ -458,6 +463,13 @@ class StateManager {
                 }
             }
 
+            // This is the complete fix for the off-by-one error.
+            // If moving down within the same window, the target's effective index is one less
+            // because the original tab is removed before being placed at the new position.
+            if (isMovingDown) {
+                index--;
+            }
+
             if (newParentId === null) {
                 // Keep original parent
             } else if (newParentId === -1 || newParentId === undefined) {
@@ -468,7 +480,8 @@ class StateManager {
 
             await browser.tabs.move(dragData.movedTabIds, { index, windowId });
 
-            // Manually trigger updates for affected windows to handle the no-index-change edge case.
+            // After a drop, always update the source and target windows to ensure UI consistency,
+            // which handles the edge case where tab indices don't change.
             await this.updateAndBroadcast(windowId);
             if (dragData.sourceWindowId !== windowId) {
                 await this.updateAndBroadcast(dragData.sourceWindowId);
