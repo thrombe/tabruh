@@ -15,12 +15,6 @@
   }
 }
 
-body {
-  @apply font-sans text-sm m-0 p-2;
-  background-color: var(--gruvbox-bg);
-  color: var(--gruvbox-fg);
-}
-
 .tree-node {
   @apply flex items-center p-1 cursor-pointer select-none relative;
   background-color: transparent;
