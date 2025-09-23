@@ -236,7 +236,7 @@ class TabTreeSidebar {
         const closeButton = document.createElement('button');
         closeButton.className = 'close-tab-button';
         closeButton.textContent = '⨯';
-        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId: node.id } }); });
+        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } }); });
 
         nodeElement.append(collapseContainer, contentWrapper, closeButton);
         nodeWrapper.appendChild(nodeElement);
@@ -336,6 +336,7 @@ class TabTreeSidebar {
             createItem('Close Tree', () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId } }));
         }
 
+        createItem('Close Tab Only', () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId } }));
         createItem('Copy URL', () => this.copyUrl(tabId));
         createItem('Move to New Window', () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
 

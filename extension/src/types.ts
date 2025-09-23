@@ -41,6 +41,7 @@ type ActionPayloads = {
     'GET_STATE': { windowId: number };
     'FOCUS_TAB': { tabId: number };
     'CLOSE_SUBTREE': { tabId: number };
+    'CLOSE_SINGLE_TAB': { tabId: number };
     'TOGGLE_COLLAPSE': { nodeId: number; windowId: number };
     'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; windowId: number };
     'DUPLICATE_TAB_SMART': { tabId: number };
@@ -61,6 +62,7 @@ export type BackgroundRequest =
     | Message<'GET_STATE'>
     | Message<'FOCUS_TAB'>
     | Message<'CLOSE_SUBTREE'>
+    | Message<'CLOSE_SINGLE_TAB'>
     | Message<'TOGGLE_COLLAPSE'>
     | Message<'HANDLE_DROP'>
     | Message<'DUPLICATE_TAB_SMART'>
