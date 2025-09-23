@@ -30,7 +30,7 @@ class StateManager {
                 break;
             case 'TOGGLE_COLLAPSE':
                 this.toggleCollapse(message.payload.windowId, message.payload.nodeId);
-                this.sendStateUpdate(message.payload.windowId, port);
+                this.broadcastRender(message.payload.windowId);
                 break;
             case 'HANDLE_DROP':
                 this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.windowId);
@@ -134,26 +134,41 @@ class StateManager {
         }
     }
 
-    private async fullUpdate() {
-        const allWindows = await browser.windows.getAll();
-        for (const win of allWindows) {
-            if (win.id && win.type === 'normal') {
-                await this.updateWindowState(win.id);
-                this.broadcastRender(win.id);
-            }
-        }
+    private async updateAndBroadcast(windowId: number) {
+        await this.updateWindowState(windowId);
+        this.broadcastRender(windowId);
     }
 
     private attachListeners() {
-        const handler = () => this.fullUpdate();
+        browser.tabs.onCreated.addListener(async (tab) => {
+            if (tab.windowId) await this.updateAndBroadcast(tab.windowId);
+        });
 
-        browser.tabs.onCreated.addListener(handler);
-        browser.tabs.onRemoved.addListener(handler);
-        browser.tabs.onUpdated.addListener(handler);
-        browser.tabs.onMoved.addListener(handler);
-        browser.tabs.onAttached.addListener(handler);
-        browser.tabs.onDetached.addListener(handler);
-        browser.tabs.onActivated.addListener(handler);
+        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+            if (!removeInfo.isWindowClosing) {
+                await this.updateAndBroadcast(removeInfo.windowId);
+            }
+        });
+
+        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+            if (tab.windowId) await this.updateAndBroadcast(tab.windowId);
+        });
+
+        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
+            await this.updateAndBroadcast(moveInfo.windowId);
+        });
+
+        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
+            await this.updateAndBroadcast(attachInfo.newWindowId);
+        });
+
+        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
+            await this.updateAndBroadcast(detachInfo.oldWindowId);
+        });
+
+        browser.tabs.onActivated.addListener(async (activeInfo) => {
+            await this.updateAndBroadcast(activeInfo.windowId);
+        });
 
         browser.windows.onCreated.addListener(async (win) => {
             if (win.id && win.type === 'normal') {
@@ -452,7 +467,12 @@ class StateManager {
             }
 
             await browser.tabs.move(dragData.movedTabIds, { index, windowId });
-            await this.fullUpdate();
+
+            // Manually trigger updates for affected windows to handle the no-index-change edge case.
+            await this.updateAndBroadcast(windowId);
+            if (dragData.sourceWindowId !== windowId) {
+                await this.updateAndBroadcast(dragData.sourceWindowId);
+            }
         } catch (e) {
             console.error('Failed to handle drop:', e);
         }
