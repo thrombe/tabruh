@@ -13,9 +13,12 @@ export type TabNode = {
 
 export type TabTree = Map<number, TabNode>;
 
+export type DragType = 'tabs' | 'window';
+
 export type DragData = {
-    draggedTabId: number;
+    type: DragType;
     sourceStateId: string;
+    draggedTabId?: number;
     movedTabIds: number[];
     parentMapSnapshot: Record<number, number | undefined>;
     collapsed: number[];

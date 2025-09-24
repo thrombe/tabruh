@@ -164,6 +164,7 @@ export class TabTreeView {
             const collapsedInSubtree = movedTabIds.filter(id => collapsedNodes.has(id));
 
             const dragData: DragData = {
+                type: 'tabs',
                 draggedTabId: node.id,
                 sourceStateId: stateId,
                 movedTabIds,
@@ -178,7 +179,7 @@ export class TabTreeView {
 
         nodeElement.addEventListener('dragend', (event) => {
             nodeElement.classList.remove('dragging');
-            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData) {
+            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedTabId) {
                 this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: this.currentDragData.draggedTabId } });
             }
             this.currentDragData = null;
@@ -340,6 +341,35 @@ export class TabTreeView {
     private renderHeader(state: UiStateForRender): HTMLDivElement {
         const header = document.createElement('div');
         header.className = 'tab-tree-header';
+        header.draggable = !state.isClosed;
+
+        header.addEventListener('dragstart', (event) => {
+            event.stopPropagation();
+            const movedTabIds = Array.from(state.tabsById.keys());
+            const parentMapSnapshot: Record<number, number | undefined> = {};
+            for (const node of state.tree.values()) {
+                parentMapSnapshot[node.id] = node.parentId;
+            }
+            const collapsed = Array.from(state.collapsedNodes);
+
+            const dragData: DragData = {
+                type: 'window',
+                sourceStateId: state.id,
+                movedTabIds,
+                parentMapSnapshot,
+                collapsed,
+            };
+            this.currentDragData = dragData;
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+            event.dataTransfer!.effectAllowed = 'move';
+            setTimeout(() => this.container.classList.add('dragging'), 0);
+        });
+
+        header.addEventListener('dragend', () => {
+            this.container.classList.remove('dragging');
+            this.currentDragData = null;
+        });
+
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
@@ -517,7 +547,9 @@ export class TabTreeView {
     }
 
     private startNodeRename(nodeId: number) {
-        const nodeElement = this.container.querySelector<HTMLElement>(`[data-tab-id="${nodeId}"] .tree-node-content`);
+        const nodeElementWrapper = this.container.querySelector<HTMLElement>(`[data-tab-id="${nodeId}"]`);
+        if (!nodeElementWrapper) return;
+        const nodeElement = nodeElementWrapper.querySelector<HTMLElement>('.tree-node-content');
         const titleElement = nodeElement?.querySelector<HTMLElement>('.tree-node-title');
         const node = this.currentRenderState?.tree.get(nodeId);
 
@@ -528,22 +560,30 @@ export class TabTreeView {
         input.className = 'node-rename-input';
         input.value = node.customTitle || node.title;
 
+        const save = () => {
+            const newName = input.value.trim();
+            titleElement.textContent = newName;
+            if (nodeElement.contains(input)) {
+                nodeElement.replaceChild(titleElement, input);
+            }
+            if (newName !== (node.customTitle || node.title)) {
+                this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId, newName } });
+            }
+        };
+
+        input.addEventListener('blur', save, { once: true });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                input.blur();
+            } else if (e.key === 'Escape') {
+                nodeElement.replaceChild(titleElement, input);
+            }
+        });
+
         nodeElement.replaceChild(input, titleElement);
         input.focus();
         input.select();
-
-        const save = () => {
-            if (input.value.trim() !== (node.customTitle || node.title)) {
-                this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId, newName: input.value.trim() } });
-            }
-            nodeElement.replaceChild(titleElement, input);
-        };
-
-        input.addEventListener('blur', save);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') save();
-            if (e.key === 'Escape') nodeElement.replaceChild(titleElement, input);
-        });
     }
 
     private showContextMenu(x: number, y: number, tabId: number) {

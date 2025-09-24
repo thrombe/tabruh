@@ -618,9 +618,16 @@ class StateManager {
     }
 
     private async moveSubtreeToNewWindow(rootTabId: number) {
+        const sourceState = this.findWindowStateByTabId(rootTabId);
+        if (!sourceState || sourceState.isClosed || !sourceState.windowId) return;
+
+        const node = sourceState.tree.get(rootTabId);
+        if (node?.isGroup) {
+            await this.popOutGroup(rootTabId);
+            return;
+        }
+
         try {
-            const sourceState = this.findWindowStateByTabId(rootTabId);
-            if (!sourceState || sourceState.isClosed || !sourceState.windowId) return;
             const sourceStateId = sourceState.id;
 
             const movedTabIds = this.getTabSubtreeIds(rootTabId, sourceState);
@@ -696,6 +703,76 @@ class StateManager {
     }
 
     private async handleDrop(dragData: DragData, targetTabId: number, action: string, targetStateId: string) {
+        if (dragData.sourceStateId === targetStateId && dragData.type === 'window') return;
+
+        if (dragData.type === 'window') {
+            await this.handleWindowDrop(dragData, targetTabId, action, targetStateId);
+        } else {
+            await this.handleTabsDrop(dragData, targetTabId, action, targetStateId);
+        }
+    }
+
+    private async handleWindowDrop(dragData: DragData, targetTabId: number, action: string, targetStateId: string) {
+        const sourceState = this.windowStates.get(dragData.sourceStateId);
+        const targetState = this.windowStates.get(targetStateId);
+        if (!sourceState || !targetState || targetState.isClosed || !targetState.windowId) return;
+        if (!sourceState.windowId) return;
+
+        try {
+            let index: number | undefined;
+            let parentId: number | undefined;
+
+            const targetTab = targetState.tabsById.get(targetTabId);
+
+            switch (action) {
+                case 'above':
+                    index = targetTab?.index;
+                    parentId = targetTab ? targetState.tree.get(targetTabId)?.parentId : -1;
+                    break;
+                case 'below':
+                    index = targetTab ? this.findLastDescendantIndexInFlatList(targetTabId, targetState) + 1 : -1;
+                    parentId = targetTab ? targetState.tree.get(targetTabId)?.parentId : -1;
+                    break;
+                case 'root':
+                    index = -1;
+                    parentId = -1;
+                    break;
+                case 'inside':
+                default:
+                    index = targetTab ? this.findLastDescendantIndexInFlatList(targetTabId, targetState) + 1 : -1;
+                    parentId = targetTab ? targetTabId : -1;
+                    break;
+            }
+
+            const groupTab = await this.createGroup({ windowId: targetState.windowId, parentId, index }, false);
+            if (!groupTab?.id) return;
+            this.renameNode(groupTab.id, sourceState.name);
+
+            await browser.tabs.move(dragData.movedTabIds, { windowId: targetState.windowId, index: groupTab.index + 1 });
+
+            for (const [child, parent] of Object.entries(dragData.parentMapSnapshot)) {
+                const childId = Number(child);
+                if (parent === undefined || parent === null || parent === -1) {
+                    targetState.parentMap.set(childId, groupTab.id);
+                } else {
+                    targetState.parentMap.set(childId, parent);
+                }
+            }
+
+            for (const collapsed of dragData.collapsed) {
+                targetState.collapsedNodes.add(collapsed);
+            }
+
+            await browser.windows.remove(sourceState.windowId);
+            await this.updateAndBroadcast(targetState.windowId);
+
+        } catch (e) {
+            console.error('Failed to handle window drop:', e);
+        }
+    }
+
+
+    private async handleTabsDrop(dragData: DragData, targetTabId: number, action: string, targetStateId: string) {
         const targetState = this.windowStates.get(targetStateId);
         const sourceState = this.windowStates.get(dragData.sourceStateId);
         if (!targetState || !sourceState || targetState.isClosed || !targetState.windowId) return;
@@ -704,7 +781,7 @@ class StateManager {
             let index: number;
             let newParentId: number | undefined | null = null;
 
-            const draggedTab = sourceState.tabsById.get(dragData.draggedTabId);
+            const draggedTab = sourceState.tabsById.get(dragData.draggedTabId!);
             if (!draggedTab) return;
             const isMovingDown = dragData.sourceStateId === targetStateId && draggedTab.index < (targetState.tabsById.get(targetTabId)?.index ?? Infinity);
 
@@ -741,9 +818,9 @@ class StateManager {
             if (newParentId === null) {
                 // Keep original parent
             } else if (newParentId === -1 || newParentId === undefined) {
-                targetState.parentMap.set(dragData.draggedTabId, -1);
+                targetState.parentMap.set(dragData.draggedTabId!, -1);
             } else {
-                targetState.parentMap.set(dragData.draggedTabId, newParentId);
+                targetState.parentMap.set(dragData.draggedTabId!, newParentId);
             }
 
             await browser.tabs.move(dragData.movedTabIds, { index, windowId: targetState.windowId });
@@ -912,7 +989,7 @@ class StateManager {
         await this.updateAndBroadcast(windowState.windowId);
     }
 
-    private async createGroup(payload: { windowId: number, parentId?: number, index?: number }) {
+    private async createGroup(payload: { windowId: number, parentId?: number, index?: number }, broadcast: boolean = true): Promise<browser.Tabs.Tab | undefined> {
         const { windowId, parentId, index } = payload;
         const stateId = this.windowIdToStateId.get(windowId);
         const windowState = stateId ? this.windowStates.get(stateId) : undefined;
@@ -935,14 +1012,21 @@ class StateManager {
         if (parentId) {
             windowState.parentMap.set(groupTab.id, parentId);
         }
-        await this.updateAndBroadcast(windowId);
+        if (broadcast) {
+            await this.updateAndBroadcast(windowId);
+        }
+        return groupTab;
     }
 
     private renameNode(nodeId: number, newName: string) {
         const windowState = this.findWindowStateByTabId(nodeId);
         if (!windowState) return;
         this.nodeToCustomTitle.set(nodeId, newName);
-        this.broadcastRenderAll();
+        if (windowState.windowId) {
+            this.updateAndBroadcast(windowState.windowId);
+        } else {
+            this.broadcastRenderAll();
+        }
     }
 
     private async popOutGroup(tabId: number) {
@@ -950,32 +1034,39 @@ class StateManager {
         const groupNode = sourceState?.tree.get(tabId);
         if (!sourceState || !sourceState.windowId || !groupNode || !groupNode.isGroup) return;
 
-        const childrenIds = [...groupNode.children];
-        if (childrenIds.length === 0) {
+        const childrenIds = this.getTabSubtreeIds(tabId, sourceState).filter(id => id !== tabId);
+        const directChildrenIds = [...groupNode.children];
+
+        if (directChildrenIds.length === 0) {
             await browser.tabs.remove(tabId);
             return;
         }
 
-        const firstChildId = childrenIds.shift()!;
+        const firstChildId = directChildrenIds.shift()!;
         const newWindow = await browser.windows.create({ tabId: firstChildId });
         if (!newWindow.id) return;
 
-        if (childrenIds.length > 0) {
-            await browser.tabs.move(childrenIds, { windowId: newWindow.id, index: -1 });
+        const otherChildrenIds = childrenIds.filter(id => id !== firstChildId);
+        if (otherChildrenIds.length > 0) {
+            await browser.tabs.move(otherChildrenIds, { windowId: newWindow.id, index: -1 });
         }
 
         const newStateId = this.windowIdToStateId.get(newWindow.id);
         const newState = newStateId ? this.windowStates.get(newStateId) : undefined;
         if (!newState) return;
 
-        // Re-parent all children of the group node to be root nodes in the new window
-        const allMovedIds = [firstChildId, ...childrenIds];
-        for (const movedId of allMovedIds) {
-            const originalParent = sourceState.parentMap.get(movedId);
-            if (originalParent === tabId) {
-                newState.parentMap.set(movedId, -1);
+        newState.name = groupNode.customTitle || `Window ${newState.windowId}`;
+
+        for (const movedId of childrenIds) {
+            if (sourceState.parentMap.has(movedId)) {
+                newState.parentMap.set(movedId, sourceState.parentMap.get(movedId)!);
             }
         }
+
+        for (const childId of groupNode.children) {
+            newState.parentMap.set(childId, -1);
+        }
+
         await browser.tabs.remove(tabId);
         await this.updateAndBroadcast(sourceState.windowId);
         await this.updateAndBroadcast(newWindow.id);
