@@ -129,7 +129,7 @@ export class TabTreeView {
         const { tree, tabsById, collapsedNodes, id: stateId, isClosed } = state;
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
-        nodeWrapper.dataset.tabId = String(node.id);
+        nodeWrapper.dataset.tabId = String(node.bid);
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
@@ -138,24 +138,24 @@ export class TabTreeView {
         }
         nodeElement.draggable = !isClosed;
 
-        const tab = tabsById.get(node.id);
+        const tab = tabsById.get(node.bid);
         if (tab?.discarded || isClosed) nodeElement.classList.add('discarded-tab');
         if (tab?.active) nodeElement.classList.add('focused-tab');
 
         if (!isClosed) {
-            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.id } }));
+            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.bid } }));
             nodeElement.addEventListener('mousedown', (event) => {
                 if (event.button === 1) {
                     event.preventDefault();
-                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } });
+                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.bid } });
                 }
             });
-            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
+            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.bid); });
         }
 
 
         nodeElement.addEventListener('dragstart', (event) => {
-            const movedTabIds = this.getTabSubtreeIds(node.id, tree);
+            const movedTabIds = this.getTabSubtreeIds(node.bid, tree);
             const parentMapSnapshot: Record<number, number | undefined> = {};
             for (const id of movedTabIds) {
                 const n = tree.get(id);
@@ -165,7 +165,7 @@ export class TabTreeView {
 
             const dragData: DragData = {
                 type: 'tabs',
-                draggedTabId: node.id,
+                draggedTabId: node.bid,
                 sourceStateId: stateId,
                 movedTabIds,
                 parentMapSnapshot,
@@ -196,7 +196,7 @@ export class TabTreeView {
                 const dragDataStr = event.dataTransfer?.getData('application/json');
                 if (dragDataStr) {
                     const dragData: DragData = JSON.parse(dragDataStr);
-                    if (dragData.movedTabIds.includes(node.id)) return;
+                    if (dragData.movedTabIds.includes(node.bid)) return;
                 }
             }
 
@@ -238,12 +238,12 @@ export class TabTreeView {
                 const dragData: DragData = JSON.parse(dragDataStr);
 
                 this.currentDragData = null;
-                if (dragData.movedTabIds.includes(node.id)) return;
+                if (dragData.movedTabIds.includes(node.bid)) return;
 
                 if (dragData.sourceStateId !== stateId) {
                     this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, targetStateId: stateId } });
                 }
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.id, action, targetStateId: stateId } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.bid, action, targetStateId: stateId } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url || !this.currentRenderState || !state.windowId) return;
@@ -279,7 +279,7 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.id, stateId } });
+                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.bid, stateId } });
             });
 
             if (collapsedNodes.has(nodeId)) {
@@ -315,7 +315,7 @@ export class TabTreeView {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
             closeButton.textContent = '⨯';
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.id } }); });
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.bid } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         } else {
             nodeElement.append(collapseContainer, contentWrapper);
@@ -348,7 +348,7 @@ export class TabTreeView {
             const movedTabIds = Array.from(state.tabsById.keys());
             const parentMapSnapshot: Record<number, number | undefined> = {};
             for (const node of state.tree.values()) {
-                parentMapSnapshot[node.id] = node.parentId;
+                parentMapSnapshot[node.bid] = node.parentId;
             }
             const collapsed = Array.from(state.collapsedNodes);
 

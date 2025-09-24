@@ -2,6 +2,7 @@ import browser from 'webextension-polyfill';
 
 export type TabNode = {
     id: number;
+    bid: number;
     title: string;
     url: string;
     favIconUrl?: string;
@@ -17,7 +18,7 @@ export type DragType = 'tabs' | 'window';
 
 export type DragData = {
     type: DragType;
-    sourceStateId: string;
+    sourceStateId: number;
     draggedTabId?: number;
     movedTabIds: number[];
     parentMapSnapshot: Record<number, number | undefined>;
@@ -27,7 +28,7 @@ export type DragData = {
 export type DropAction = 'above' | 'below' | 'inside' | 'root';
 
 export type WindowState = {
-    id: string;
+    bid: number;
     name: string;
     windowId?: number;
     isClosed: boolean;
@@ -43,7 +44,7 @@ export type WindowState = {
 };
 
 export type UiStateForRender = {
-    id: string;
+    id: number;
     name: string;
     isClosed: boolean;
     windowId?: number;
@@ -61,8 +62,8 @@ type ActionPayloads = {
     'FOCUS_TAB': { tabId: number };
     'CLOSE_SUBTREE': { tabId: number };
     'CLOSE_SINGLE_TAB': { tabId: number };
-    'TOGGLE_COLLAPSE': { nodeId: number; stateId: string };
-    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; targetStateId: string };
+    'TOGGLE_COLLAPSE': { nodeId: number; stateId: number };
+    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; targetStateId: number };
     'DUPLICATE_TAB_SMART': { tabId: number };
     'UNLOAD_TAB': { tabId: number };
     'UNLOAD_TREE': { tabId: number };
@@ -70,11 +71,11 @@ type ActionPayloads = {
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
     'CREATE_TAB_FROM_URL': { url: string; windowId: number; index?: number; parentId?: number };
-    'APPLY_PENDING_DATA': { dragData: DragData; targetStateId: string };
-    'RENAME_WINDOW': { stateId: string; newName: string };
-    'CLOSE_WINDOW': { stateId: string };
-    'RESTORE_WINDOW': { stateId: string };
-    'DELETE_WINDOW_STATE': { stateId: string };
+    'APPLY_PENDING_DATA': { dragData: DragData; targetStateId: number };
+    'RENAME_WINDOW': { stateId: number; newName: string };
+    'CLOSE_WINDOW': { stateId: number };
+    'RESTORE_WINDOW': { stateId: number };
+    'DELETE_WINDOW_STATE': { stateId: number };
     'FLATTEN_IMMEDIATE': { tabId: number };
     'FLATTEN_TREE': { tabId: number };
     'CREATE_GROUP': { windowId: number, parentId?: number, index?: number };
