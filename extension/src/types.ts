@@ -1,7 +1,6 @@
 import browser from 'webextension-polyfill';
 
 export type TabNode = {
-    id: number;
     bid: number;
     title: string;
     url: string;

@@ -23,10 +23,163 @@ type PortMessageEvent = {
 
 type StateManagerEvent = BrowserEvent | PortMessageEvent;
 
+export type TabId = number;
+export type WindowId = number;
+export type BrowserId = TabId | WindowId;
+
+export type BruhId = number;
+
+export type Node = {
+    id: BruhId
+    title: string;
+    favIconUrl?: string;
+    children: BruhId[];
+} & ({
+    type: "tab",
+    tid: TabId,
+    url: string;
+    parentId: BruhId;
+    collapsed: boolean,
+} | {
+    type: "group",
+    tid?: TabId,
+    url: string,
+    parentId: BruhId,
+    collapsed: boolean,
+} | {
+    type: "window",
+    wid: WindowId,
+});
+
+export type Window = {
+    id: BruhId,
+    wid: WindowId,
+    ctime: number,
+    tabs: browser.Tabs.Tab[],
+};
+
+export type NodeTree = Map<BruhId, Node>;
+
+class App {
+    ports: Set<browser.Runtime.Port> = new Set();
+    eventChannel: Channel<StateManagerEvent> = new Channel();
+
+    bruhid: BruhId = 1;
+    tree: NodeTree = new Map();
+    windows: Map<WindowId, Window> = new Map();
+    tab_id_map: Map<TabId, BruhId> = new Map();
+
+    static async init() {
+        let self = new App();
+        await self.init_tree();
+        return self;
+    }
+
+    async attach_listeners() {
+        browser.runtime.onConnect.addListener((port) => {
+            this.ports.add(port);
+
+            port.onMessage.addListener(async (message) => {
+                await this.eventChannel.send({
+                    type: 'portMessage',
+                    payload: { message: message as BackgroundRequest, port }
+                });
+            });
+            port.onDisconnect.addListener(() => {
+                this.ports.delete(port);
+            });
+        });
+
+        browser.tabs.onCreated.addListener(async (tab) => {
+            let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
+        });
+
+        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
+        });
+
+        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
+        });
+
+        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
+        });
+
+        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
+        });
+
+        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
+        });
+
+        browser.tabs.onActivated.addListener(async (activeInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
+        });
+
+        browser.windows.onCreated.addListener(async (win) => {
+            let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
+        });
+
+        browser.windows.onRemoved.addListener(async (windowId) => {
+            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
+        });
+    }
+
+    async init_tree() {
+        let creationTime = Date.now();
+        let windows = await browser.windows.getAll({ windowTypes: ["normal"] });
+        for (let w of windows) {
+            if (!w.id) continue;
+            const id = this.bruhid++;
+            this.windows.set(w.id, {
+                id: id, wid: w.id,
+                ctime: creationTime++,
+                tabs: [],
+            });
+            this.tree.set(id, {
+                type: "window",
+                id: id,
+                title: `Window ${id}`,
+                wid: w.id,
+                children: [],
+            });
+        }
+
+        let tabs = await browser.tabs.query({});
+        for (let t of tabs) {
+            if (!t.id || !t.windowId) continue;
+            const id = this.bruhid++;
+            this.tab_id_map.set(t.id, id);
+        }
+
+        for (let t of tabs) {
+            if (!t.id || !t.windowId) continue;
+            const id = this.tab_id_map.get(t.id)!;
+            const w = this.windows.get(t.windowId)!;
+            const n = this.tree.get(w.id)!;
+            n.children.push(id);
+            this.tree.set(id, {
+                type: "tab",
+                id: id,
+                tid: t.id,
+                url: t.url!,
+                title: t.title ?? "Untitled",
+                favIconUrl: t.favIconUrl,
+                parentId: (t.openerTabId !== undefined ? this.tab_id_map.get(t.openerTabId)! : w.id),
+                children: [],
+                collapsed: false,
+            });
+        }
+    }
+}
+
 class StateManager {
     private id: number = 1;
     private ports: Set<browser.Runtime.Port> = new Set();
     private eventChannel: Channel<StateManagerEvent> = new Channel();
+    private tree: TabTree = new Map();
 
     private windowStates: Map<number, WindowState> = new Map();
     private windowIdToStateId: Map<number, number> = new Map();
@@ -329,7 +482,6 @@ class StateManager {
         for (const tab of sortedTabs) {
             if (tab.id === undefined) continue;
             const node: TabNode = {
-                id: this.id++,
                 bid: tab.id,
                 title: tab.title ?? 'Untitled',
                 url: tab.url ?? '',
