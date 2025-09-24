@@ -1,10 +1,23 @@
 import browser from 'webextension-polyfill';
 import type { BackgroundRequest, DragData, GroupState, TabTree } from './types';
+import { Channel } from './utils';
+
+type BrowserEvent =
+    | { type: 'tabCreated', payload: browser.Tabs.Tab }
+    | { type: 'tabRemoved', payload: { tabId: number, removeInfo: browser.Tabs.OnRemovedRemoveInfoType } }
+    | { type: 'tabUpdated', payload: { tabId: number, changeInfo: browser.Tabs.OnUpdatedChangeInfoType, tab: browser.Tabs.Tab } }
+    | { type: 'tabMoved', payload: { tabId: number, moveInfo: browser.Tabs.OnMovedMoveInfoType } }
+    | { type: 'tabAttached', payload: { tabId: number, attachInfo: browser.Tabs.OnAttachedAttachInfoType } }
+    | { type: 'tabDetached', payload: { tabId: number, detachInfo: browser.Tabs.OnDetachedDetachInfoType } }
+    | { type: 'tabActivated', payload: browser.Tabs.OnActivatedActiveInfoType }
+    | { type: 'windowCreated', payload: browser.Windows.Window }
+    | { type: 'windowRemoved', payload: number };
 
 class StateManager {
     private groups: Map<string, GroupState> = new Map();
     private windowIdToGroupId: Map<number, string> = new Map();
     private ports: Set<browser.Runtime.Port> = new Set();
+    private eventChannel: Channel<BrowserEvent> = new Channel();
 
     constructor() {
         this.init();
@@ -14,17 +27,129 @@ class StateManager {
         browser.runtime.onConnect.addListener((port) => this.handleNewConnection(port));
         this.attachListeners();
         await this.initializeStateForAllwindows();
+        let _ = this.processEvents();
+    }
+
+    private async processEvents() {
+        while (true) {
+            const event = await this.eventChannel.wait_recv();
+            if (!event) break;
+
+            switch (event.type) {
+                case 'tabCreated': {
+                    const tab = event.payload;
+                    if (tab.windowId && tab.id) {
+                        const groupId = this.windowIdToGroupId.get(tab.windowId);
+                        if (groupId) {
+                            const groupState = this.groups.get(groupId);
+                            const tabsInWindow = await browser.tabs.query({ windowId: tab.windowId });
+                            const openerExists = tab.openerTabId && tabsInWindow.some(t => t.id === tab.openerTabId);
+
+                            if (groupState && tab.openerTabId && openerExists) {
+                                if (!groupState.parentMap.has(tab.id)) {
+                                    groupState.parentMap.set(tab.id, tab.openerTabId);
+                                }
+                            }
+                        }
+                        await this.updateAndBroadcast(tab.windowId);
+                    }
+                    break;
+                }
+                case 'tabRemoved': {
+                    const { removeInfo } = event.payload;
+                    if (!removeInfo.isWindowClosing && removeInfo.windowId) {
+                        await this.updateAndBroadcast(removeInfo.windowId);
+                        const groupId = this.windowIdToGroupId.get(removeInfo.windowId);
+                        if (groupId) {
+                            await this.checkAndCleanupGroup(groupId);
+                        }
+                    }
+                    break;
+                }
+                case 'tabUpdated': {
+                    const { tab } = event.payload;
+                    if (tab.windowId) await this.updateAndBroadcast(tab.windowId);
+                    break;
+                }
+                case 'tabMoved': {
+                    const { moveInfo } = event.payload;
+                    await this.updateAndBroadcast(moveInfo.windowId);
+                    break;
+                }
+                case 'tabAttached': {
+                    const { attachInfo } = event.payload;
+                    await this.updateAndBroadcast(attachInfo.newWindowId);
+                    break;
+                }
+                case 'tabDetached': {
+                    const { detachInfo } = event.payload;
+                    await this.updateAndBroadcast(detachInfo.oldWindowId);
+                    const groupId = this.windowIdToGroupId.get(detachInfo.oldWindowId);
+                    if (groupId) {
+                        await this.checkAndCleanupGroup(groupId);
+                    }
+                    break;
+                }
+                case 'tabActivated': {
+                    const activeInfo = event.payload;
+                    const groupId = this.windowIdToGroupId.get(activeInfo.windowId);
+                    if (groupId) {
+                        const group = this.groups.get(groupId);
+                        if (group) group.lastActiveTabId = activeInfo.tabId;
+                    }
+                    await this.updateAndBroadcast(activeInfo.windowId);
+                    break;
+                }
+                case 'windowCreated': {
+                    const win = event.payload;
+                    if (win.id && win.type === 'normal') {
+                        const groupId = crypto.randomUUID();
+                        const newGroup: GroupState = {
+                            id: groupId,
+                            name: `Window ${win.id}`,
+                            windowId: win.id,
+                            isClosed: false,
+                            creationTimestamp: Date.now(),
+                            parentMap: new Map(),
+                            collapsedNodes: new Set(),
+                            tabs: [],
+                            tree: new Map(),
+                            tabsById: new Map(),
+                            rootIds: [],
+                        };
+                        this.groups.set(groupId, newGroup);
+                        this.windowIdToGroupId.set(win.id, groupId);
+                        await this.updateGroupStateByWindowId(win.id);
+                        this.broadcastRenderAll();
+                    }
+                    break;
+                }
+                case 'windowRemoved': {
+                    const windowId = event.payload;
+                    const groupId = this.windowIdToGroupId.get(windowId);
+                    if (groupId && this.groups.has(groupId)) {
+                        const group = this.groups.get(groupId)!;
+                        group.isClosed = true;
+                        group.closedTimestamp = Date.now();
+                        delete group.windowId;
+                        this.windowIdToGroupId.delete(windowId);
+                        this.broadcastRenderAll();
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     private handleNewConnection(port: browser.Runtime.Port) {
         this.ports.add(port);
-        port.onMessage.addListener((message: BackgroundRequest) => this.handleMessage(message, port));
+        port.onMessage.addListener(async (message: BackgroundRequest) => this.handleMessage(message, port));
         port.onDisconnect.addListener(() => {
             this.ports.delete(port);
         });
     }
 
-    private handleMessage(message: BackgroundRequest, port: browser.Runtime.Port) {
+    private async handleMessage(message: BackgroundRequest, port: browser.Runtime.Port) {
         switch (message.type) {
             case 'GET_STATE_FOR_WINDOW':
                 this.sendStateUpdateForWindow(message.payload.windowId, port);
@@ -37,25 +162,25 @@ class StateManager {
                 this.broadcastRenderAll();
                 break;
             case 'HANDLE_DROP':
-                this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.targetGroupId);
+                await this.handleDrop(message.payload.dragData, message.payload.targetTabId, message.payload.action, message.payload.targetGroupId);
                 break;
-            case 'FOCUS_TAB': this.focusTab(message.payload.tabId); break;
-            case 'CLOSE_SUBTREE': this.closeSubtree(message.payload.tabId); break;
-            case 'CLOSE_SINGLE_TAB': this.closeSingleTab(message.payload.tabId); break;
-            case 'DUPLICATE_TAB_SMART': this.duplicateTabSmart(message.payload.tabId); break;
-            case 'UNLOAD_TAB': browser.tabs.discard(message.payload.tabId); break;
-            case 'UNLOAD_TREE': this.unloadTree(message.payload.tabId); break;
-            case 'LOAD_TREE': this.loadTree(message.payload.tabId); break;
-            case 'MOVE_SUBTREE_TO_NEW_WINDOW': this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
-            case 'CREATE_TAB': browser.tabs.create({ windowId: message.payload.windowId }); break;
-            case 'CREATE_TAB_FROM_URL': this.createTabFromUrl(message.payload); break;
+            case 'FOCUS_TAB': await this.focusTab(message.payload.tabId); break;
+            case 'CLOSE_SUBTREE': await this.closeSubtree(message.payload.tabId); break;
+            case 'CLOSE_SINGLE_TAB': await this.closeSingleTab(message.payload.tabId); break;
+            case 'DUPLICATE_TAB_SMART': await this.duplicateTabSmart(message.payload.tabId); break;
+            case 'UNLOAD_TAB': await browser.tabs.discard(message.payload.tabId); break;
+            case 'UNLOAD_TREE': await this.unloadTree(message.payload.tabId); break;
+            case 'LOAD_TREE': await this.loadTree(message.payload.tabId); break;
+            case 'MOVE_SUBTREE_TO_NEW_WINDOW': await this.moveSubtreeToNewWindow(message.payload.rootTabId); break;
+            case 'CREATE_TAB': await browser.tabs.create({ windowId: message.payload.windowId }); break;
+            case 'CREATE_TAB_FROM_URL': await this.createTabFromUrl(message.payload); break;
             case 'APPLY_PENDING_DATA': this.applyPendingData(message.payload.dragData, message.payload.targetGroupId); break;
             case 'RENAME_GROUP': this.renameGroup(message.payload.groupId, message.payload.newName); break;
-            case 'CLOSE_GROUP': this.closeGroup(message.payload.groupId); break;
-            case 'RESTORE_GROUP': this.restoreGroup(message.payload.groupId); break;
-            case 'DELETE_GROUP': this.deleteGroup(message.payload.groupId); break;
-            case 'FLATTEN_IMMEDIATE': this.flattenImmediate(message.payload.tabId); break;
-            case 'FLATTEN_TREE': this.flattenTree(message.payload.tabId); break;
+            case 'CLOSE_GROUP': await this.closeGroup(message.payload.groupId); break;
+            case 'RESTORE_GROUP': await this.restoreGroup(message.payload.groupId); break;
+            case 'DELETE_GROUP': await this.deleteGroup(message.payload.groupId); break;
+            case 'FLATTEN_IMMEDIATE': await this.flattenImmediate(message.payload.tabId); break;
+            case 'FLATTEN_TREE': await this.flattenTree(message.payload.tabId); break;
         }
     }
 
@@ -174,96 +299,40 @@ class StateManager {
     }
 
     private attachListeners() {
-        browser.tabs.onCreated.addListener(async (tab) => {
-            if (tab.windowId && tab.id) {
-                const groupId = this.windowIdToGroupId.get(tab.windowId);
-                if (groupId) {
-                    const groupState = this.groups.get(groupId);
-                    const tabsInWindow = await browser.tabs.query({ windowId: tab.windowId });
-                    const openerExists = tab.openerTabId && tabsInWindow.some(t => t.id === tab.openerTabId);
-
-                    if (groupState && tab.openerTabId && openerExists) {
-                        if (!groupState.parentMap.has(tab.id)) {
-                            groupState.parentMap.set(tab.id, tab.openerTabId);
-                        }
-                    }
-                }
-                await this.updateAndBroadcast(tab.windowId);
-            }
+        browser.tabs.onCreated.addListener((tab) => {
+            let _ = this.eventChannel.send({ type: 'tabCreated', payload: tab });
         });
 
-        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-            if (!removeInfo.isWindowClosing && removeInfo.windowId) {
-                await this.updateAndBroadcast(removeInfo.windowId);
-                const groupId = this.windowIdToGroupId.get(removeInfo.windowId);
-                if (groupId) {
-                    await this.checkAndCleanupGroup(groupId);
-                }
-            }
+        browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
+            let _ = this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
         });
 
-        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-            if (tab.windowId) await this.updateAndBroadcast(tab.windowId);
+        browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+            let _ = this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
         });
 
-        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
-            await this.updateAndBroadcast(moveInfo.windowId);
+        browser.tabs.onMoved.addListener((tabId, moveInfo) => {
+            let _ = this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
         });
 
-        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
-            await this.updateAndBroadcast(attachInfo.newWindowId);
+        browser.tabs.onAttached.addListener((tabId, attachInfo) => {
+            let _ = this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
         });
 
-        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
-            await this.updateAndBroadcast(detachInfo.oldWindowId);
-            const groupId = this.windowIdToGroupId.get(detachInfo.oldWindowId);
-            if (groupId) {
-                await this.checkAndCleanupGroup(groupId);
-            }
+        browser.tabs.onDetached.addListener((tabId, detachInfo) => {
+            let _ = this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
         });
 
-        browser.tabs.onActivated.addListener(async (activeInfo) => {
-            const groupId = this.windowIdToGroupId.get(activeInfo.windowId);
-            if (groupId) {
-                const group = this.groups.get(groupId);
-                if (group) group.lastActiveTabId = activeInfo.tabId;
-            }
-            await this.updateAndBroadcast(activeInfo.windowId);
+        browser.tabs.onActivated.addListener((activeInfo) => {
+            let _ = this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
         });
 
-        browser.windows.onCreated.addListener(async (win) => {
-            if (win.id && win.type === 'normal') {
-                const groupId = crypto.randomUUID();
-                const newGroup: GroupState = {
-                    id: groupId,
-                    name: `Window ${win.id}`,
-                    windowId: win.id,
-                    isClosed: false,
-                    creationTimestamp: Date.now(),
-                    parentMap: new Map(),
-                    collapsedNodes: new Set(),
-                    tabs: [],
-                    tree: new Map(),
-                    tabsById: new Map(),
-                    rootIds: [],
-                };
-                this.groups.set(groupId, newGroup);
-                this.windowIdToGroupId.set(win.id, groupId);
-                await this.updateGroupStateByWindowId(win.id);
-                this.broadcastRenderAll();
-            }
+        browser.windows.onCreated.addListener((win) => {
+            let _ = this.eventChannel.send({ type: 'windowCreated', payload: win });
         });
 
         browser.windows.onRemoved.addListener((windowId) => {
-            const groupId = this.windowIdToGroupId.get(windowId);
-            if (groupId && this.groups.has(groupId)) {
-                const group = this.groups.get(groupId)!;
-                group.isClosed = true;
-                group.closedTimestamp = Date.now();
-                delete group.windowId;
-                this.windowIdToGroupId.delete(windowId);
-                this.broadcastRenderAll();
-            }
+            let _ = this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
         });
     }
 
