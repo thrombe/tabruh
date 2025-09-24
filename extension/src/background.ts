@@ -179,10 +179,10 @@ class StateManager {
 
     private handleNewConnection(port: browser.Runtime.Port) {
         this.ports.add(port);
-        port.onMessage.addListener((message: BackgroundRequest) => {
-            let _ = this.eventChannel.send({
+        port.onMessage.addListener(async (message) => {
+            await this.eventChannel.send({
                 type: 'portMessage',
-                payload: { message, port }
+                payload: { message: message as BackgroundRequest, port }
             });
         });
         port.onDisconnect.addListener(() => {
@@ -759,7 +759,7 @@ class StateManager {
                     parentId = targetTab ? targetState.tree.get(targetTabId)?.parentId : -1;
                     break;
                 case 'root':
-                    index = -1;
+                    index = targetState.tabs.length;
                     parentId = -1;
                     break;
                 case 'inside':
@@ -1060,21 +1060,11 @@ class StateManager {
         if (!sourceState || !sourceState.windowId || !groupNode || !groupNode.isGroup) return;
 
         const childrenIds = this.getTabSubtreeIds(tabId, sourceState).filter(id => id !== tabId);
-        const directChildrenIds = [...groupNode.children];
 
-        if (directChildrenIds.length === 0) {
-            await browser.tabs.remove(tabId);
-            return;
-        }
-
-        const firstChildId = directChildrenIds.shift()!;
-        const newWindow = await browser.windows.create({ tabId: firstChildId });
+        const newWindow = await browser.windows.create({ tabId: tabId });
         if (!newWindow.id) return;
 
-        const otherChildrenIds = childrenIds.filter(id => id !== firstChildId);
-        if (otherChildrenIds.length > 0) {
-            await browser.tabs.move(otherChildrenIds, { windowId: newWindow.id, index: -1 });
-        }
+        await browser.tabs.move(childrenIds, { windowId: newWindow.id, index: 1 });
 
         const newStateId = this.windowIdToStateId.get(newWindow.id);
         const newState = newStateId ? this.windowStates.get(newStateId) : undefined;
@@ -1088,11 +1078,8 @@ class StateManager {
             }
         }
 
-        for (const childId of groupNode.children) {
-            newState.parentMap.set(childId, -1);
-        }
-
-        await browser.tabs.remove(tabId);
+        newState.parentMap.set(tabId, -1);
+        console.log(newState);
         await this.updateAndBroadcast(sourceState.windowId);
         await this.updateAndBroadcast(newWindow.id);
     }
