@@ -13,11 +13,21 @@ type BrowserEvent =
     | { type: 'windowCreated', payload: browser.Windows.Window }
     | { type: 'windowRemoved', payload: number };
 
+type PortMessageEvent = {
+    type: 'portMessage',
+    payload: {
+        message: BackgroundRequest,
+        port: browser.Runtime.Port
+    }
+};
+
+type StateManagerEvent = BrowserEvent | PortMessageEvent;
+
 class StateManager {
     private windowStates: Map<string, WindowState> = new Map();
     private windowIdToStateId: Map<number, string> = new Map();
     private ports: Set<browser.Runtime.Port> = new Set();
-    private eventChannel: Channel<BrowserEvent> = new Channel();
+    private eventChannel: Channel<StateManagerEvent> = new Channel();
     private restoringStateId: string | null = null;
     private nodeToCustomTitle: Map<number, string> = new Map();
 
@@ -51,6 +61,11 @@ class StateManager {
             if (!event) break;
 
             switch (event.type) {
+                case 'portMessage': {
+                    const { message, port } = event.payload;
+                    await this.handleMessage(message, port);
+                    break;
+                }
                 case 'tabCreated': {
                     const tab = event.payload;
                     if (tab.windowId && tab.id) {
@@ -164,7 +179,12 @@ class StateManager {
 
     private handleNewConnection(port: browser.Runtime.Port) {
         this.ports.add(port);
-        port.onMessage.addListener(async (message: BackgroundRequest) => this.handleMessage(message, port));
+        port.onMessage.addListener((message: BackgroundRequest) => {
+            let _ = this.eventChannel.send({
+                type: 'portMessage',
+                payload: { message, port }
+            });
+        });
         port.onDisconnect.addListener(() => {
             this.ports.delete(port);
         });
@@ -371,7 +391,12 @@ class StateManager {
 
     private broadcastRenderAll() {
         for (const port of this.ports) {
-            port.postMessage({ type: 'RENDER_ALL', payload: {} });
+            try {
+                port.postMessage({ type: 'RENDER_ALL', payload: {} });
+            } catch (e) {
+                console.warn("Could not post message to a port, it might be closed.", e);
+                this.ports.delete(port);
+            }
         }
     }
 
