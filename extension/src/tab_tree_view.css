@@ -54,12 +54,28 @@
   background-color: var(--gruvbox-hover);
 }
 
+.group-node {
+  @apply font-semibold;
+  color: var(--gruvbox-aqua);
+}
+
+.group-node > .tree-node-content > .tree-node-icon {
+  color: var(--gruvbox-aqua);
+}
+
 .focused-tab, .focused-tab:hover {
   background-color: var(--gruvbox-hover);
 }
 
 .tree-node-content {
   @apply flex items-center min-w-0 flex-grow;
+}
+
+.node-rename-input {
+  @apply flex-grow bg-transparent border-b-2 text-base;
+  border-color: var(--gruvbox-blue);
+  color: var(--gruvbox-fg);
+  outline: none;
 }
 
 .tree-node-icon {

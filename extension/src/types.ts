@@ -7,13 +7,15 @@ export type TabNode = {
     favIconUrl?: string;
     parentId?: number;
     children: number[];
+    isGroup?: boolean;
+    customTitle?: string;
 };
 
 export type TabTree = Map<number, TabNode>;
 
 export type DragData = {
     draggedTabId: number;
-    sourceGroupId: string;
+    sourceStateId: string;
     movedTabIds: number[];
     parentMapSnapshot: Record<number, number | undefined>;
     collapsed: number[];
@@ -21,7 +23,7 @@ export type DragData = {
 
 export type DropAction = 'above' | 'below' | 'inside' | 'root';
 
-export type GroupState = {
+export type WindowState = {
     id: string;
     name: string;
     windowId?: number;
@@ -51,12 +53,13 @@ export type UiStateForRender = {
 
 type ActionPayloads = {
     'GET_STATE_FOR_WINDOW': { windowId: number };
-    'GET_ALL_GROUPS': {};
+    'GET_STATE_FOR_GROUP_VIEW': { nodeId: number };
+    'GET_ALL_WINDOW_STATES': {};
     'FOCUS_TAB': { tabId: number };
     'CLOSE_SUBTREE': { tabId: number };
     'CLOSE_SINGLE_TAB': { tabId: number };
-    'TOGGLE_COLLAPSE': { nodeId: number; groupId: string };
-    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; targetGroupId: string };
+    'TOGGLE_COLLAPSE': { nodeId: number; stateId: string };
+    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; targetStateId: string };
     'DUPLICATE_TAB_SMART': { tabId: number };
     'UNLOAD_TAB': { tabId: number };
     'UNLOAD_TREE': { tabId: number };
@@ -64,13 +67,16 @@ type ActionPayloads = {
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
     'CREATE_TAB': { windowId: number };
     'CREATE_TAB_FROM_URL': { url: string; windowId: number; index?: number; parentId?: number };
-    'APPLY_PENDING_DATA': { dragData: DragData; targetGroupId: string };
-    'RENAME_GROUP': { groupId: string; newName: string };
-    'CLOSE_GROUP': { groupId: string };
-    'RESTORE_GROUP': { groupId: string };
-    'DELETE_GROUP': { groupId: string };
+    'APPLY_PENDING_DATA': { dragData: DragData; targetStateId: string };
+    'RENAME_WINDOW': { stateId: string; newName: string };
+    'CLOSE_WINDOW': { stateId: string };
+    'RESTORE_WINDOW': { stateId: string };
+    'DELETE_WINDOW_STATE': { stateId: string };
     'FLATTEN_IMMEDIATE': { tabId: number };
     'FLATTEN_TREE': { tabId: number };
+    'CREATE_GROUP': { windowId: number, parentId?: number, index?: number };
+    'RENAME_NODE': { nodeId: number, newName: string };
+    'POP_OUT_GROUP': { tabId: number };
 };
 
 export type Message<T extends keyof ActionPayloads> = {
@@ -80,7 +86,8 @@ export type Message<T extends keyof ActionPayloads> = {
 
 export type BackgroundRequest =
     | Message<'GET_STATE_FOR_WINDOW'>
-    | Message<'GET_ALL_GROUPS'>
+    | Message<'GET_STATE_FOR_GROUP_VIEW'>
+    | Message<'GET_ALL_WINDOW_STATES'>
     | Message<'FOCUS_TAB'>
     | Message<'CLOSE_SUBTREE'>
     | Message<'CLOSE_SINGLE_TAB'>
@@ -94,22 +101,26 @@ export type BackgroundRequest =
     | Message<'CREATE_TAB'>
     | Message<'CREATE_TAB_FROM_URL'>
     | Message<'APPLY_PENDING_DATA'>
-    | Message<'RENAME_GROUP'>
-    | Message<'CLOSE_GROUP'>
-    | Message<'RESTORE_GROUP'>
-    | Message<'DELETE_GROUP'>
+    | Message<'RENAME_WINDOW'>
+    | Message<'CLOSE_WINDOW'>
+    | Message<'RESTORE_WINDOW'>
+    | Message<'DELETE_WINDOW_STATE'>
     | Message<'FLATTEN_IMMEDIATE'>
-    | Message<'FLATTEN_TREE'>;
+    | Message<'FLATTEN_TREE'>
+    | Message<'CREATE_GROUP'>
+    | Message<'RENAME_NODE'>
+    | Message<'POP_OUT_GROUP'>;
+
 
 type ResponsePayloads = {
     'STATE_UPDATE': { state: UiStateForRender; };
-    'ALL_GROUPS_UPDATE': { groups: UiStateForRender[] };
+    'ALL_STATES_UPDATE': { states: UiStateForRender[] };
     'RENDER_ALL': {};
-    'GROUP_REMOVED': { groupId: string };
+    'STATE_REMOVED': { stateId: string };
 };
 
 export type BackgroundResponse =
     | { type: 'STATE_UPDATE'; payload: ResponsePayloads['STATE_UPDATE'] }
-    | { type: 'ALL_GROUPS_UPDATE'; payload: ResponsePayloads['ALL_GROUPS_UPDATE'] }
+    | { type: 'ALL_STATES_UPDATE'; payload: ResponsePayloads['ALL_STATES_UPDATE'] }
     | { type: 'RENDER_ALL'; payload: ResponsePayloads['RENDER_ALL'] }
-    | { type: 'GROUP_REMOVED'; payload: ResponsePayloads['GROUP_REMOVED'] };
+    | { type: 'STATE_REMOVED'; payload: ResponsePayloads['STATE_REMOVED'] };
