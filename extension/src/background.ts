@@ -843,17 +843,17 @@ async function main() {
 
     let state = new StateManager();
 
-    browser.runtime.onInstalled.addListener(() => {
+    browser.runtime.onInstalled.addListener(async () => {
         browser.menus.create({
             id: "open-overview",
             title: "Overview Page",
             contexts: ["browser_action"],
-        })
+        });
     });
-    browser.menus.onClicked.addListener((info, tab) => {
+    browser.menus.onClicked.addListener(async (info, tab) => {
         switch (info.menuItemId) {
             case "open-overview": {
-                browser.tabs.create({
+                await browser.tabs.create({
                     url: browser.runtime.getURL("overview.html"),
                 });
             } break;
@@ -863,7 +863,13 @@ async function main() {
     });
 
     browser.browserAction.onClicked.addListener(async (tab, info) => {
-        await browser.sidebarAction.toggle();
+        if (info?.button == 0) {
+            await browser.sidebarAction.toggle();
+        } else if (info?.button == 1) {
+            await browser.tabs.create({
+                url: browser.runtime.getURL("overview.html"),
+            });
+        }
     });
 
     browser.tabs.onActivated.addListener(async tab => {
