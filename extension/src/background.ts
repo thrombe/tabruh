@@ -18,6 +18,7 @@ class StateManager {
     private windowIdToGroupId: Map<number, string> = new Map();
     private ports: Set<browser.Runtime.Port> = new Set();
     private eventChannel: Channel<BrowserEvent> = new Channel();
+    private restoringGroupId: string | null = null;
 
     constructor() {
         this.init();
@@ -103,24 +104,32 @@ class StateManager {
                 case 'windowCreated': {
                     const win = event.payload;
                     if (win.id && win.type === 'normal') {
-                        const groupId = crypto.randomUUID();
-                        const newGroup: GroupState = {
-                            id: groupId,
-                            name: `Window ${win.id}`,
-                            windowId: win.id,
-                            isClosed: false,
-                            creationTimestamp: Date.now(),
-                            parentMap: new Map(),
-                            collapsedNodes: new Set(),
-                            tabs: [],
-                            tree: new Map(),
-                            tabsById: new Map(),
-                            rootIds: [],
-                        };
-                        this.groups.set(groupId, newGroup);
-                        this.windowIdToGroupId.set(win.id, groupId);
-                        await this.updateGroupStateByWindowId(win.id);
-                        this.broadcastRenderAll();
+                        const groupIdForRestoration = this.restoringGroupId;
+                        if (groupIdForRestoration) {
+                            // Part of a restoration. Link the window to the existing group.
+                            // The restoreGroup method is responsible for updating state and broadcasting.
+                            this.windowIdToGroupId.set(win.id, groupIdForRestoration);
+                        } else {
+                            // Normal window creation. Create a new group and associate it.
+                            const groupId = crypto.randomUUID();
+                            const newGroup: GroupState = {
+                                id: groupId,
+                                name: `Window ${win.id}`,
+                                windowId: win.id,
+                                isClosed: false,
+                                creationTimestamp: Date.now(),
+                                parentMap: new Map(),
+                                collapsedNodes: new Set(),
+                                tabs: [],
+                                tree: new Map(),
+                                tabsById: new Map(),
+                                rootIds: [],
+                            };
+                            this.groups.set(groupId, newGroup);
+                            this.windowIdToGroupId.set(win.id, groupId);
+                            await this.updateGroupStateByWindowId(win.id);
+                            this.broadcastRenderAll();
+                        }
                     }
                     break;
                 }
@@ -729,6 +738,8 @@ class StateManager {
         if (!activeTabInfo) return;
 
         try {
+            this.restoringGroupId = groupId;
+
             const newWindow = await browser.windows.create({ url: activeTabInfo.url, state: 'maximized' });
             if (!newWindow.id || !newWindow.tabs || newWindow.tabs.length === 0) return;
 
@@ -766,7 +777,6 @@ class StateManager {
             group.windowId = newWindowId;
             delete group.closedTimestamp;
             group.parentMap = newParentMap;
-            this.windowIdToGroupId.set(newWindowId, groupId);
 
             await this.updateGroupStateByWindowId(newWindowId);
             group.lastActiveTabId = firstNewTabId;
@@ -778,6 +788,9 @@ class StateManager {
             this.broadcastRenderAll();
 
         } catch (e) { console.error(`Failed to restore group ${groupId}:`, e) }
+        finally {
+            this.restoringGroupId = null;
+        }
     }
 
     private async flattenImmediate(tabId: number) {
