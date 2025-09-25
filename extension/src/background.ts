@@ -110,11 +110,12 @@ class App {
         let creationTime = Date.now();
         let windows = await browser.windows.getAll({ windowTypes: ["normal"], populate: true });
         for (let w of windows) {
-            if (!w.id) continue;
             const id = this.get_window_id(w.id);
-            this.windows.set(w.id, {
+            if (!id) continue;
+            const wid = w.id!;
+            this.windows.set(wid, {
                 id: id,
-                wid: w.id,
+                wid: wid,
                 ctime: creationTime++,
                 tabs: w.tabs ?? [],
             });
@@ -122,15 +123,13 @@ class App {
                 type: "window",
                 id: id,
                 title: `Window ${id}`,
-                wid: w.id,
+                wid: wid,
             });
         }
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                if (t.id) {
-                    this.get_tab_id(t.id);
-                }
+                let _ = this.get_tab_id(t.id);
             }
         }
 
@@ -332,17 +331,25 @@ class App {
     }
 
     async _process_event(event: StateManagerEvent) {
+        if (event.type == "portMessage") {
+            console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
+        } else {
+            console.log(Date.now(), event.type, event.payload);
+        }
+
         switch (event.type) {
             case 'tabCreated': {
                 let t = event.payload;
-                if (!t.id || !t.windowId) return;
+                let tbid = this.get_tab_id(t.id);
+                let wbid = this.get_window_id(t.windowId);
+                if (!tbid || !wbid) return;
+                let wid = t.windowId!;
 
-                const nw = await browser.windows.get(t.windowId, { populate: true });
-                const w = this.windows.get(t.windowId)!;
+                const nw = await browser.windows.get(wid, { populate: true });
+                const w = this.windows.get(wid)!;
                 w.tabs = nw.tabs!;
 
-                const id = this.get_tab_id(t.id);
-                this._set_tab(id, t, "opener");
+                this._set_tab(tbid, t, "opener");
             } break;
             case 'tabRemoved': {
                 let e = event.payload;
@@ -365,9 +372,10 @@ class App {
             case 'tabUpdated': {
                 let e = event.payload;
                 let t = e.tab;
-                if (!t.id || !t.windowId) return;
-                const id = this.tab_id_map.get(e.tabId)!;
-                this._set_tab(id, t, "old");
+                let tbid = this.get_tab_id(e.tabId);
+                if (!this.get_window_id(t.windowId)) return;
+
+                this._set_tab(tbid, t, "old");
             } break;
             case 'tabMoved': {
                 let e = event.payload;
@@ -405,15 +413,17 @@ class App {
             } break;
             case 'windowCreated': {
                 const e = event.payload;
-                if (!e.id) return;
-                const id = this.get_window_id(e.id);
-                this.windows.set(e.id, {
-                    id: id,
-                    wid: e.id,
+                const wbid = this.get_window_id(e.id);
+                if (!wbid) return;
+                let wid = e.id!;
+
+                this.windows.set(wid, {
+                    id: wbid,
+                    wid: wid,
                     tabs: e.tabs ?? [],
                     ctime: Date.now(),
                 });
-                this.tree.set(id, { type: 'window', id, wid: e.id, title: `Window ${e.id}` });
+                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: `Window ${wid}` });
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
