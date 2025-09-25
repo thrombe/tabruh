@@ -43,13 +43,13 @@ export type DropAction = 'above' | 'below' | 'inside' | 'root';
 export type DragData = {
     type: DragType;
     sourceWindowId: WindowId;
-    draggedNodeId?: BruhId;
+    draggedNodeId: BruhId;
     movedNodeIds: BruhId[];
 };
 
 export type UiStateForRender = {
     id: BruhId;
-    windowId?: WindowId;
+    windowId: WindowId;
     name: string;
     isClosed: boolean;
     creationTimestamp: number;
