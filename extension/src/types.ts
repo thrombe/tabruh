@@ -1,86 +1,102 @@
 import browser from 'webextension-polyfill';
+import * as utils from './utils';
 
-export type TabNode = {
-    bid: number;
+export type TabId = number;
+export type WindowId = number;
+export type BrowserId = TabId | WindowId;
+
+export type BruhId = number;
+
+export type Node = {
+    id: BruhId
     title: string;
-    url: string;
     favIconUrl?: string;
-    parentId?: number;
-    children: number[];
-    isGroup?: boolean;
-    customTitle?: string;
+} & ({
+    type: "tab",
+    tid: TabId,
+    url: string;
+    parentId: BruhId;
+    collapsed: boolean,
+} | {
+    type: "group",
+    tid?: TabId,
+    url: string,
+    parentId: BruhId,
+    collapsed: boolean,
+} | {
+    type: "window",
+    wid: WindowId,
+});
+
+export type BruhWindow = {
+    id: BruhId,
+    wid: WindowId,
+    ctime: number,
+    tabs: browser.Tabs.Tab[],
 };
 
-export type TabTree = Map<number, TabNode>;
+export type NodeTree = Map<BruhId, Node>;
 
 export type DragType = 'tabs' | 'window';
+export type DropAction = 'above' | 'below' | 'inside' | 'root';
 
 export type DragData = {
     type: DragType;
-    sourceStateId: number;
-    draggedTabId?: number;
-    movedTabIds: number[];
-    parentMapSnapshot: Record<number, number | undefined>;
-    collapsed: number[];
-};
-
-export type DropAction = 'above' | 'below' | 'inside' | 'root';
-
-export type WindowState = {
-    bid: number;
-    name: string;
-    windowId?: number;
-    isClosed: boolean;
-    creationTimestamp: number;
-    closedTimestamp?: number;
-    lastActiveTabId?: number;
-    parentMap: Map<number, number>;
-    collapsedNodes: Set<number>;
-    tabs: browser.Tabs.Tab[];
-    tree: TabTree;
-    tabsById: Map<number, browser.Tabs.Tab>;
-    rootIds: number[];
+    sourceWindowId: WindowId;
+    draggedNodeId?: BruhId;
+    movedNodeIds: BruhId[];
 };
 
 export type UiStateForRender = {
-    id: number;
+    id: BruhId;
+    windowId?: WindowId;
     name: string;
     isClosed: boolean;
-    windowId?: number;
     creationTimestamp: number;
-    tree: TabTree;
-    tabsById: Map<number, browser.Tabs.Tab>;
-    rootIds: number[];
-    collapsedNodes: Set<number>;
+    tree: Map<BruhId, UiNode>;
+    tabsById: Map<TabId, browser.Tabs.Tab>;
+    rootIds: BruhId[];
+};
+
+export type UiNode = {
+    id: BruhId;
+    title: string;
+    url?: string;
+    favIconUrl?: string;
+    isGroup: boolean;
+    isDiscarded: boolean;
+    isActive: boolean;
+    isCollapsed: boolean;
+    children: BruhId[];
 };
 
 type ActionPayloads = {
-    'GET_STATE_FOR_WINDOW': { windowId: number };
-    'GET_STATE_FOR_GROUP_VIEW': { nodeId: number };
+    'GET_STATE_FOR_WINDOW': { windowId: WindowId };
+    'GET_STATE_FOR_GROUP_VIEW': { nodeId: BruhId };
     'GET_ALL_WINDOW_STATES': {};
-    'FOCUS_TAB': { tabId: number };
-    'CLOSE_SUBTREE': { tabId: number };
-    'CLOSE_SINGLE_TAB': { tabId: number };
-    'TOGGLE_COLLAPSE': { nodeId: number; stateId: number };
-    'HANDLE_DROP': { dragData: DragData; targetTabId: number; action: DropAction; targetStateId: number };
-    'DUPLICATE_TAB_SMART': { tabId: number };
-    'UNLOAD_TAB': { tabId: number };
-    'UNLOAD_TREE': { tabId: number };
-    'LOAD_TREE': { tabId: number };
-    'MOVE_SUBTREE_TO_NEW_WINDOW': { rootTabId: number };
-    'CREATE_TAB': { windowId: number };
-    'CREATE_TAB_FROM_URL': { url: string; windowId: number; index?: number; parentId?: number };
-    'APPLY_PENDING_DATA': { dragData: DragData; targetStateId: number };
-    'RENAME_WINDOW': { stateId: number; newName: string };
-    'CLOSE_WINDOW': { stateId: number };
-    'RESTORE_WINDOW': { stateId: number };
-    'DELETE_WINDOW_STATE': { stateId: number };
-    'FLATTEN_IMMEDIATE': { tabId: number };
-    'FLATTEN_TREE': { tabId: number };
-    'CREATE_GROUP': { windowId: number, parentId?: number, index?: number };
-    'RENAME_NODE': { nodeId: number, newName: string };
-    'POP_OUT_GROUP': { tabId: number };
+    'FOCUS_TAB': { nodeId: BruhId };
+    'CLOSE_SUBTREE': { nodeId: BruhId };
+    'CLOSE_SINGLE_TAB': { nodeId: BruhId };
+    'TOGGLE_COLLAPSE': { nodeId: BruhId };
+    'HANDLE_DROP': { dragData: DragData; targetNodeId: BruhId; action: DropAction; targetWindowId: WindowId };
+    'DUPLICATE_TAB_SMART': { nodeId: BruhId };
+    'UNLOAD_TAB': { nodeId: BruhId };
+    'UNLOAD_TREE': { nodeId: BruhId };
+    'LOAD_TREE': { nodeId: BruhId };
+    'MOVE_SUBTREE_TO_NEW_WINDOW': { rootNodeId: BruhId };
+    'CREATE_TAB': { windowId: WindowId };
+    'CREATE_TAB_FROM_URL': { url: string; windowId: WindowId; index?: number; parentId?: BruhId };
+    'RENAME_WINDOW': { windowId: WindowId; newName: string };
+    'CLOSE_WINDOW': { windowId: WindowId };
+    'RESTORE_WINDOW': { windowId: WindowId };
+    'DELETE_WINDOW_STATE': { windowId: WindowId };
+    'FLATTEN_IMMEDIATE': { nodeId: BruhId };
+    'FLATTEN_TREE': { nodeId: BruhId };
+    'CREATE_GROUP': { windowId: WindowId, parentId?: BruhId, index?: number };
+    'RENAME_NODE': { nodeId: BruhId, newName: string };
+    'POP_OUT_GROUP': { nodeId: BruhId };
 };
+
 
 export type Message<T extends keyof ActionPayloads> = {
     type: T;
@@ -103,7 +119,6 @@ export type BackgroundRequest =
     | Message<'MOVE_SUBTREE_TO_NEW_WINDOW'>
     | Message<'CREATE_TAB'>
     | Message<'CREATE_TAB_FROM_URL'>
-    | Message<'APPLY_PENDING_DATA'>
     | Message<'RENAME_WINDOW'>
     | Message<'CLOSE_WINDOW'>
     | Message<'RESTORE_WINDOW'>
@@ -119,7 +134,7 @@ type ResponsePayloads = {
     'STATE_UPDATE': { state: UiStateForRender; };
     'ALL_STATES_UPDATE': { states: UiStateForRender[] };
     'RENDER_ALL': {};
-    'STATE_REMOVED': { stateId: string };
+    'STATE_REMOVED': { windowId: WindowId };
 };
 
 export type BackgroundResponse =
@@ -127,3 +142,24 @@ export type BackgroundResponse =
     | { type: 'ALL_STATES_UPDATE'; payload: ResponsePayloads['ALL_STATES_UPDATE'] }
     | { type: 'RENDER_ALL'; payload: ResponsePayloads['RENDER_ALL'] }
     | { type: 'STATE_REMOVED'; payload: ResponsePayloads['STATE_REMOVED'] };
+
+export type BrowserEvent =
+    | { type: 'tabCreated', payload: browser.Tabs.Tab }
+    | { type: 'tabRemoved', payload: { tabId: TabId, removeInfo: browser.Tabs.OnRemovedRemoveInfoType } }
+    | { type: 'tabUpdated', payload: { tabId: TabId, changeInfo: browser.Tabs.OnUpdatedChangeInfoType, tab: browser.Tabs.Tab } }
+    | { type: 'tabMoved', payload: { tabId: TabId, moveInfo: browser.Tabs.OnMovedMoveInfoType } }
+    | { type: 'tabAttached', payload: { tabId: TabId, attachInfo: browser.Tabs.OnAttachedAttachInfoType } }
+    | { type: 'tabDetached', payload: { tabId: TabId, detachInfo: browser.Tabs.OnDetachedDetachInfoType } }
+    | { type: 'tabActivated', payload: browser.Tabs.OnActivatedActiveInfoType }
+    | { type: 'windowCreated', payload: browser.Windows.Window }
+    | { type: 'windowRemoved', payload: WindowId };
+
+export type PortMessageEvent = {
+    type: 'portMessage',
+    payload: {
+        message: BackgroundRequest,
+        port: browser.Runtime.Port
+    }
+};
+
+export type StateManagerEvent = BrowserEvent | PortMessageEvent;
