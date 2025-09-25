@@ -598,6 +598,7 @@ class App {
                         if (node) node.title = newName;
                     } break;
                     case 'POP_OUT_GROUP': {
+                        // TODO: might need some fix
                         const node = this.tree.get(message.payload.nodeId);
                         if (!node || node.type !== 'group' || !node.tid) return;
                         const children = this._getChildrenMap().get(node.id) || [];

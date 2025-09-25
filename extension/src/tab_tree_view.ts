@@ -1,6 +1,6 @@
 import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
-import type { DragData, TabTree, BackgroundRequest, UiStateForRender, DropAction } from './types';
+import type { DragData, BackgroundRequest, UiStateForRender, DropAction, BruhId, UiNode } from './types';
 
 const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
@@ -72,10 +72,10 @@ export class TabTreeView {
         this.container.appendChild(treeContainer);
     }
 
-    private getTabSubtreeIds(rootId: number, tree: TabTree): number[] {
-        const subtreeIds: number[] = [];
-        const queue = [rootId];
-        const visited = new Set<number>();
+    private getNodeSubtreeIds(rootId: BruhId, tree: Map<BruhId, UiNode>): BruhId[] {
+        const subtreeIds: BruhId[] = [];
+        const queue: BruhId[] = [rootId];
+        const visited = new Set<BruhId>();
         while (queue.length > 0) {
             const currentId = queue.shift()!;
             if (visited.has(currentId)) continue;
@@ -89,7 +89,7 @@ export class TabTreeView {
         return subtreeIds;
     }
 
-    private countAllDescendants(nodeId: number, tree: TabTree): number {
+    private countAllDescendants(nodeId: BruhId, tree: Map<BruhId, UiNode>): number {
         const node = tree.get(nodeId);
         if (!node) return 0;
         let count = 0;
@@ -105,31 +105,16 @@ export class TabTreeView {
         return count;
     }
 
-    private findLastDescendantIndex(startNodeId: number, tree: TabTree, tabsById: Map<number, browser.Tabs.Tab>): number {
-        const startTab = tabsById.get(startNodeId);
-        if (!startTab) return -1;
-
-        let maxIndex = startTab.index;
-        const subtreeIds = this.getTabSubtreeIds(startNodeId, tree);
-        for (const id of subtreeIds) {
-            const tab = tabsById.get(id);
-            if (tab && tab.index > maxIndex) {
-                maxIndex = tab.index;
-            }
-        }
-        return maxIndex;
-    }
-
     private getUrlFromDataTransfer(dataTransfer: DataTransfer): string | null {
         const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
         return url ? url.trim() : null;
     }
 
-    private renderNode(nodeId: number, state: UiStateForRender): HTMLDivElement {
-        const { tree, tabsById, collapsedNodes, id: stateId, isClosed } = state;
+    private renderNode(nodeId: BruhId, state: UiStateForRender): HTMLDivElement {
+        const { tree, isClosed } = state;
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
-        nodeWrapper.dataset.tabId = String(node.bid);
+        nodeWrapper.dataset.nodeId = String(node.id);
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
@@ -138,38 +123,30 @@ export class TabTreeView {
         }
         nodeElement.draggable = !isClosed;
 
-        const tab = tabsById.get(node.bid);
-        if (tab?.discarded || isClosed) nodeElement.classList.add('discarded-tab');
-        if (tab?.active) nodeElement.classList.add('focused-tab');
+        if (node.isDiscarded || isClosed) nodeElement.classList.add('discarded-tab');
+        if (node.isActive) nodeElement.classList.add('focused-tab');
 
         if (!isClosed) {
-            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { tabId: node.bid } }));
+            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { nodeId: node.id } }));
             nodeElement.addEventListener('mousedown', (event) => {
                 if (event.button === 1) {
                     event.preventDefault();
-                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.bid } });
+                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
                 }
             });
-            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.bid); });
+            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
         }
 
 
         nodeElement.addEventListener('dragstart', (event) => {
-            const movedTabIds = this.getTabSubtreeIds(node.bid, tree);
-            const parentMapSnapshot: Record<number, number | undefined> = {};
-            for (const id of movedTabIds) {
-                const n = tree.get(id);
-                if (n) parentMapSnapshot[id] = n.parentId;
-            }
-            const collapsedInSubtree = movedTabIds.filter(id => collapsedNodes.has(id));
+            if (!state.windowId) return;
+            const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
 
             const dragData: DragData = {
                 type: 'tabs',
-                draggedTabId: node.bid,
-                sourceStateId: stateId,
-                movedTabIds,
-                parentMapSnapshot,
-                collapsed: collapsedInSubtree
+                draggedNodeId: node.id,
+                sourceWindowId: state.windowId,
+                movedNodeIds,
             };
             this.currentDragData = dragData;
             event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
@@ -179,8 +156,8 @@ export class TabTreeView {
 
         nodeElement.addEventListener('dragend', (event) => {
             nodeElement.classList.remove('dragging');
-            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedTabId) {
-                this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: this.currentDragData.draggedTabId } });
+            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedNodeId) {
+                this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootNodeId: this.currentDragData.draggedNodeId } });
             }
             this.currentDragData = null;
         });
@@ -196,7 +173,7 @@ export class TabTreeView {
                 const dragDataStr = event.dataTransfer?.getData('application/json');
                 if (dragDataStr) {
                     const dragData: DragData = JSON.parse(dragDataStr);
-                    if (dragData.movedTabIds.includes(node.bid)) return;
+                    if (dragData.movedNodeIds.includes(node.id)) return;
                 }
             }
 
@@ -228,8 +205,7 @@ export class TabTreeView {
             delete nodeElement.dataset.dropAction;
 
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer) return;
-            if (isClosed) return;
+            if (!dataTransfer || isClosed || !state.windowId) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -238,35 +214,13 @@ export class TabTreeView {
                 const dragData: DragData = JSON.parse(dragDataStr);
 
                 this.currentDragData = null;
-                if (dragData.movedTabIds.includes(node.bid)) return;
+                if (dragData.movedNodeIds.includes(node.id)) return;
 
-                if (dragData.sourceStateId !== stateId) {
-                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, targetStateId: stateId } });
-                }
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: node.bid, action, targetStateId: stateId } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: node.id, action, targetWindowId: state.windowId } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
-                if (!url || !this.currentRenderState || !state.windowId) return;
-
-                let index: number | undefined;
-                let parentId: number | undefined;
-
-                switch (action) {
-                    case 'above':
-                        index = tabsById.get(nodeId)?.index;
-                        parentId = state.tree.get(nodeId)?.parentId;
-                        break;
-                    case 'below':
-                        index = this.findLastDescendantIndex(nodeId, tree, tabsById) + 1;
-                        parentId = state.tree.get(nodeId)?.parentId;
-                        break;
-                    case 'inside':
-                    default:
-                        index = this.findLastDescendantIndex(nodeId, tree, tabsById) + 1;
-                        parentId = nodeId;
-                        break;
-                }
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, index, parentId } });
+                if (!url) return;
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId } });
             }
         });
 
@@ -279,10 +233,10 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.bid, stateId } });
+                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.id } });
             });
 
-            if (collapsedNodes.has(nodeId)) {
+            if (node.isCollapsed) {
                 collapseButton.classList.add('collapsed');
                 const descendantCount = this.countAllDescendants(nodeId, tree);
                 if (descendantCount > 0) {
@@ -308,14 +262,14 @@ export class TabTreeView {
 
         const title = document.createElement('span');
         title.className = 'tree-node-title';
-        title.textContent = node.customTitle || node.title;
+        title.textContent = node.title;
         contentWrapper.append(icon, title);
 
         if (!isClosed) {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
             closeButton.textContent = '⨯';
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId: node.bid } }); });
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         } else {
             nodeElement.append(collapseContainer, contentWrapper);
@@ -323,12 +277,9 @@ export class TabTreeView {
 
         nodeWrapper.appendChild(nodeElement);
 
-        if (node.children.length > 0) {
+        if (node.children.length > 0 && !node.isCollapsed) {
             const childrenContainer = document.createElement('div');
             childrenContainer.className = 'children-container';
-            if (collapsedNodes.has(nodeId)) {
-                childrenContainer.classList.add('hidden');
-            }
             for (const childId of node.children) {
                 childrenContainer.appendChild(this.renderNode(childId, state));
             }
@@ -345,19 +296,13 @@ export class TabTreeView {
 
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
-            const movedTabIds = Array.from(state.tabsById.keys());
-            const parentMapSnapshot: Record<number, number | undefined> = {};
-            for (const node of state.tree.values()) {
-                parentMapSnapshot[node.bid] = node.parentId;
-            }
-            const collapsed = Array.from(state.collapsedNodes);
+            if (!state.windowId) return;
 
+            const movedNodeIds = Array.from(state.tree.keys());
             const dragData: DragData = {
                 type: 'window',
-                sourceStateId: state.id,
-                movedTabIds,
-                parentMapSnapshot,
-                collapsed,
+                sourceWindowId: state.windowId,
+                movedNodeIds,
             };
             this.currentDragData = dragData;
             event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
@@ -378,7 +323,7 @@ export class TabTreeView {
             nameSpan.textContent = `[Closed] ${state.name}`;
         }
         nameSpan.addEventListener('click', () => {
-            if (state.isClosed) return;
+            if (state.isClosed || !state.windowId) return;
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'group-name-input';
@@ -388,7 +333,7 @@ export class TabTreeView {
             input.select();
             const save = () => {
                 if (input.value.trim()) {
-                    this.sendMessage({ type: 'RENAME_WINDOW', payload: { stateId: state.id, newName: input.value.trim() } });
+                    this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId!, newName: input.value.trim() } });
                 }
                 header.replaceChild(nameSpan, input);
             };
@@ -434,9 +379,7 @@ export class TabTreeView {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !this.currentRenderState) return;
-
-            if (!state.windowId) return;
+            if (!dataTransfer || !this.currentRenderState || !state.windowId) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -444,10 +387,7 @@ export class TabTreeView {
                 if (!dragDataStr) return;
                 const dragData: DragData = JSON.parse(dragDataStr);
                 this.currentDragData = null;
-                if (dragData.sourceStateId !== this.currentRenderState.id) {
-                    this.sendMessage({ type: 'APPLY_PENDING_DATA', payload: { dragData, targetStateId: this.currentRenderState.id } });
-                }
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetTabId: -1, action: 'root', targetStateId: this.currentRenderState.id } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: state.id, action: 'root', targetWindowId: state.windowId } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
@@ -464,11 +404,11 @@ export class TabTreeView {
         window.removeEventListener('blur', this.removeContextMenu);
     }
 
-    private async copyUrl(tabId: number) {
+    private async copyUrl(nodeId: BruhId) {
         try {
-            const tab = this.currentRenderState?.tabsById.get(tabId);
-            if (tab?.url) {
-                await navigator.clipboard.writeText(tab.url);
+            const node = this.currentRenderState?.tree.get(nodeId);
+            if (node?.url) {
+                await navigator.clipboard.writeText(node.url);
             }
         } catch (e) {
             console.error('Failed to copy URL:', e);
@@ -536,18 +476,18 @@ export class TabTreeView {
         };
 
         if (state.isClosed) {
-            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { stateId: state.id } }));
+            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { windowId: state.windowId! } }));
         } else {
             createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: state.windowId! } }));
             createSeparator();
-            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { stateId: state.id } }));
+            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { windowId: state.windowId! } }));
         }
         createSeparator();
-        createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { stateId: state.id } }));
+        createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId! } }));
     }
 
-    private startNodeRename(nodeId: number) {
-        const nodeElementWrapper = this.container.querySelector<HTMLElement>(`[data-tab-id="${nodeId}"]`);
+    private startNodeRename(nodeId: BruhId) {
+        const nodeElementWrapper = this.container.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`);
         if (!nodeElementWrapper) return;
         const nodeElement = nodeElementWrapper.querySelector<HTMLElement>('.tree-node-content');
         const titleElement = nodeElement?.querySelector<HTMLElement>('.tree-node-title');
@@ -558,7 +498,7 @@ export class TabTreeView {
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'node-rename-input';
-        input.value = node.customTitle || node.title;
+        input.value = node.title;
 
         const save = () => {
             const newName = input.value.trim();
@@ -566,7 +506,7 @@ export class TabTreeView {
             if (nodeElement.contains(input)) {
                 nodeElement.replaceChild(titleElement, input);
             }
-            if (newName !== (node.customTitle || node.title)) {
+            if (newName !== node.title) {
                 this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId, newName } });
             }
         };
@@ -586,7 +526,7 @@ export class TabTreeView {
         input.select();
     }
 
-    private showContextMenu(x: number, y: number, tabId: number) {
+    private showContextMenu(x: number, y: number, nodeId: BruhId) {
         if (!this.currentRenderState) return;
         const menu = this.createContextMenu(x, y);
 
@@ -609,51 +549,47 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        const node = this.currentRenderState.tree.get(tabId);
-        const tab = this.currentRenderState.tabsById.get(tabId);
+        const node = this.currentRenderState.tree.get(nodeId);
+        if (!node) return;
 
-        if (node?.isGroup) {
-            createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(tabId));
-            createItem('Pop out to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'POP_OUT_GROUP', payload: { tabId } }));
+        if (node.isGroup) {
+            createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(nodeId));
+            createItem('Pop out to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'POP_OUT_GROUP', payload: { nodeId } }));
             createSeparator();
         }
 
         createItem('New Group Here', ICON_GROUP, () => {
-            if (this.currentRenderState?.windowId && tab) {
-                const parentId = node?.parentId;
-                const index = this.findLastDescendantIndex(tabId, this.currentRenderState.tree, this.currentRenderState.tabsById) + 1;
-                this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: this.currentRenderState.windowId, parentId, index } })
+            if (this.currentRenderState?.windowId) {
+                this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: this.currentRenderState.windowId, parentId: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { tabId } }));
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId } }));
         createSeparator();
 
-        if (tab?.discarded) {
-            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { tabId } }));
+        if (node.isDiscarded) {
+            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
         } else {
-            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { tabId } }));
+            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
         }
 
-        if (node && node.children.length > 0) {
-            if (!tab?.discarded) {
-                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { tabId } }));
-            }
+        if (node.children.length > 0 && !node.isDiscarded) {
+            createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { nodeId } }));
         }
         createSeparator();
 
-        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { tabId } }));
-        if (node && node.children.length > 0) {
-            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { tabId } }));
+        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId } }));
+        if (node.children.length > 0) {
+            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { nodeId } }));
         }
-        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootTabId: tabId } }));
+        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootNodeId: nodeId } }));
         createSeparator();
 
-        if (node && node.children.length > 0) {
-            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'FLATTEN_IMMEDIATE', payload: { tabId } }));
-            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'FLATTEN_TREE', payload: { tabId } }));
+        if (node.children.length > 0) {
+            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'FLATTEN_IMMEDIATE', payload: { nodeId } }));
+            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'FLATTEN_TREE', payload: { nodeId } }));
             createSeparator();
         }
 
-        createItem('Copy URL', ICON_COPY, () => this.copyUrl(tabId));
+        createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
     }
 }
