@@ -92,9 +92,8 @@ type ActionPayloads = {
     'DELETE_WINDOW_STATE': { windowId: WindowId };
     'FLATTEN_IMMEDIATE': { nodeId: BruhId };
     'FLATTEN_TREE': { nodeId: BruhId };
-    'CREATE_GROUP': { windowId: WindowId, parentId?: BruhId, index?: number };
+    'CREATE_GROUP': { windowId: WindowId, parentId: BruhId, index?: number };
     'RENAME_NODE': { nodeId: BruhId, newName: string };
-    'POP_OUT_GROUP': { nodeId: BruhId };
 };
 
 
@@ -126,8 +125,7 @@ export type BackgroundRequest =
     | Message<'FLATTEN_IMMEDIATE'>
     | Message<'FLATTEN_TREE'>
     | Message<'CREATE_GROUP'>
-    | Message<'RENAME_NODE'>
-    | Message<'POP_OUT_GROUP'>;
+    | Message<'RENAME_NODE'>;
 
 
 type ResponsePayloads = {

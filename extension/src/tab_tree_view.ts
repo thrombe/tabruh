@@ -139,7 +139,6 @@ export class TabTreeView {
 
 
         nodeElement.addEventListener('dragstart', (event) => {
-            if (!state.windowId) return;
             const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
 
             const dragData: DragData = {
@@ -296,11 +295,10 @@ export class TabTreeView {
 
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
-            if (!state.windowId) return;
-
             const movedNodeIds = Array.from(state.tree.keys());
             const dragData: DragData = {
                 type: 'window',
+                draggedNodeId: state.id,
                 sourceWindowId: state.windowId,
                 movedNodeIds,
             };
@@ -323,7 +321,7 @@ export class TabTreeView {
             nameSpan.textContent = `[Closed] ${state.name}`;
         }
         nameSpan.addEventListener('click', () => {
-            if (state.isClosed || !state.windowId) return;
+            if (state.isClosed) return;
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'group-name-input';
@@ -333,7 +331,7 @@ export class TabTreeView {
             input.select();
             const save = () => {
                 if (input.value.trim()) {
-                    this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId!, newName: input.value.trim() } });
+                    this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId, newName: input.value.trim() } });
                 }
                 header.replaceChild(nameSpan, input);
             };
@@ -379,7 +377,7 @@ export class TabTreeView {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !this.currentRenderState || !state.windowId) return;
+            if (!dataTransfer || !this.currentRenderState) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -476,14 +474,14 @@ export class TabTreeView {
         };
 
         if (state.isClosed) {
-            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { windowId: state.windowId! } }));
+            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { windowId: state.windowId } }));
         } else {
-            createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: state.windowId! } }));
+            createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: state.windowId, parentId: state.id } }));
             createSeparator();
-            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { windowId: state.windowId! } }));
+            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { windowId: state.windowId } }));
         }
         createSeparator();
-        createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId! } }));
+        createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId } }));
     }
 
     private startNodeRename(nodeId: BruhId) {
@@ -554,7 +552,6 @@ export class TabTreeView {
 
         if (node.isGroup) {
             createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(nodeId));
-            createItem('Pop out to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'POP_OUT_GROUP', payload: { nodeId } }));
             createSeparator();
         }
 

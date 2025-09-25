@@ -174,6 +174,8 @@ class App {
             parentId: pid,
             collapsed: old?.collapsed ?? false,
         } as Node);
+
+        return targetTree.get(id)! as Node & { type: "group" | "tab" };
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
@@ -350,7 +352,6 @@ class App {
                     case 'FLATTEN_TREE':
                     case 'CREATE_GROUP':
                     case 'RENAME_NODE':
-                    case 'POP_OUT_GROUP':
                     case 'FOCUS_TAB':
                         this._broadcast({ type: 'RENDER_ALL', payload: {} });
                         break;
@@ -505,7 +506,6 @@ class App {
                         n.collapsed = !n.collapsed;
                     } break;
                     case 'HANDLE_DROP': {
-                        console.log(JSON.parse(JSON.stringify(this.tree)));
                         const { dragData, targetNodeId, action, targetWindowId } = message.payload;
                         const targetNode = this.tree.get(targetNodeId);
                         const targetWin = this.windows.get(targetWindowId);
@@ -529,15 +529,31 @@ class App {
                         }
 
                         const tidsToMove: TabId[] = [];
+                        const draggedNode = this.tree.get(dragData.draggedNodeId)!;
+                        if (draggedNode.type == "window") {
+                            const groupTab = await browser.tabs.create({ windowId: targetWindowId, index, url: browser.runtime.getURL(`overview.html?view=group`), active: false });
+                            await browser.tabs.update(groupTab.id!, { url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`) });
+                            const newNodeId = this.get_tab_id(groupTab.id!);
+                            const newNode = this._set_tab(newNodeId, groupTab, "window");
+                            newNode.parentId = newParentId;
+                            newParentId = newNodeId;
+                            index += 1;
+                        }
+
                         for (const nodeId of dragData.movedNodeIds) {
                             const node = this.tree.get(nodeId);
                             if (node && (node.type === 'tab' || node.type === 'group')) {
-                                if (node.id === dragData.draggedNodeId) {
+                                if (draggedNode.type == "window") {
+                                    if (node.parentId == dragData.draggedNodeId) {
+                                        node.parentId = newParentId;
+                                    }
+                                } else if (node.id === dragData.draggedNodeId) {
                                     node.parentId = newParentId;
                                 }
                                 tidsToMove.push(node.tid!);
                             }
                         }
+
                         await browser.tabs.move(tidsToMove, { windowId: targetWindowId, index });
                     } break;
                     case 'FOCUS_TAB': {
@@ -671,27 +687,13 @@ class App {
                         const groupTab = await browser.tabs.create({ windowId, index, url: browser.runtime.getURL(`overview.html?view=group`), active: false });
                         await browser.tabs.update(groupTab.id!, { url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`) });
                         const newNodeId = this.get_tab_id(groupTab.id!);
-                        const newNode = this.tree.get(newNodeId)! as any;
-                        if (parentId) newNode.parentId = parentId;
+                        const newNode = this._set_tab(newNodeId, groupTab, "window");
+                        newNode.parentId = parentId;
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const node = this.tree.get(nodeId);
                         if (node) node.title = newName;
-                    } break;
-                    case 'POP_OUT_GROUP': {
-                        // TODO: might need some fix
-                        const node = this.tree.get(message.payload.nodeId);
-                        if (!node || node.type !== 'group' || !node.tid) return;
-                        const children = this._getChildrenMap().get(node.id) || [];
-                        const childrenTids = children.map(id => (this.tree.get(id) as any)?.tid).filter(tid => tid);
-                        const newWindow = await browser.windows.create({ tabId: node.tid });
-                        if (childrenTids.length > 0) await browser.tabs.move(childrenTids, { windowId: newWindow.id!, index: -1 });
-                        const newWinNodeId = this.get_window_id(newWindow.id!)!;
-                        for (const childId of children) {
-                            const childNode = this.tree.get(childId) as any;
-                            if (childNode) childNode.parentId = newWinNodeId;
-                        }
                     } break;
                     default:
                         throw utils.exhausted(message);
