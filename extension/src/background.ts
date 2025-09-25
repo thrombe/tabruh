@@ -237,21 +237,15 @@ class App {
         const win = this.windows.get(windowId);
         if (!win) return null;
 
-        const allNodesInWindow = Array.from(this.tree.values()).filter(n => {
-            if (n.type === 'window') return false;
-            const tab = win.tabs.find(t => t.id === (n as any).tid);
-            return !!tab;
-        });
-
         const childrenMap = this._getChildrenMap();
         const rootIds: BruhId[] = [];
         const uiTree: Map<BruhId, UiNode> = new Map();
         const tabsById = new Map(win.tabs.map(t => [t.id!, t]));
 
-        const nodesToRender = rootNodeId ? this._getSubtree(rootNodeId) : allNodesInWindow.map(n => n.id);
+        const nodesToRender = win.tabs.map(t => t.id).filter(id => id !== undefined);
 
         for (const nodeId of nodesToRender) {
-            const node = this.tree.get(nodeId);
+            const node = this.tree.get(this.get_tab_id(nodeId));
             if (!node || node.type === 'window') continue;
 
             const tab = tabsById.get(node.tid!);
@@ -282,9 +276,6 @@ class App {
             }
         }
 
-        const rootTabs = rootIds.map(id => ({ id, index: tabsById.get((this.tree.get(id) as any).tid)?.index ?? Infinity }));
-        rootTabs.sort((a, b) => a.index - b.index);
-
         const rootNode = rootNodeId ? this.tree.get(rootNodeId) : this.tree.get(win.id);
 
         return {
@@ -295,7 +286,7 @@ class App {
             creationTimestamp: win.ctime,
             tree: uiTree,
             tabsById,
-            rootIds: rootTabs.map(rt => rt.id),
+            rootIds,
         };
     }
 
