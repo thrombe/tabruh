@@ -60,6 +60,8 @@ export type UiStateForRender = {
 
 export type UiNode = {
     id: BruhId;
+    tid?: TabId;
+    tab_index: number;
     title: string;
     url?: string;
     favIconUrl?: string;
@@ -79,7 +81,7 @@ type ActionPayloads = {
     'CLOSE_SINGLE_TAB': { nodeId: BruhId };
     'TOGGLE_COLLAPSE': { nodeId: BruhId };
     'HANDLE_DROP': { dragData: DragData; targetNodeId: BruhId; action: DropAction; targetWindowId: WindowId };
-    'DUPLICATE_TAB_SMART': { nodeId: BruhId };
+    'DUPLICATE_TAB_SMART': { nodeId: BruhId, tabIndex?: number };
     'UNLOAD_TAB': { nodeId: BruhId };
     'UNLOAD_TREE': { nodeId: BruhId };
     'LOAD_TREE': { nodeId: BruhId };

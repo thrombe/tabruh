@@ -134,7 +134,7 @@ export class TabTreeView {
                     this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
                 }
             });
-            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
+            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id, node.tab_index); });
         }
 
 
@@ -524,7 +524,7 @@ export class TabTreeView {
         input.select();
     }
 
-    private showContextMenu(x: number, y: number, nodeId: BruhId) {
+    private showContextMenu(x: number, y: number, nodeId: BruhId, tab_index?: number) {
         if (!this.currentRenderState) return;
         const menu = this.createContextMenu(x, y);
 
@@ -560,7 +560,7 @@ export class TabTreeView {
                 this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: this.currentRenderState.windowId, parentId: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId } }));
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId, tabIndex: tab_index } }));
         createSeparator();
 
         if (node.isDiscarded) {
