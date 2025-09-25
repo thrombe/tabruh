@@ -412,16 +412,31 @@ class App {
                 let e = event.payload;
                 let t = e.tab;
                 let tbid = this.get_tab_id(e.tabId);
-                if (!this.get_window_id(t.windowId)) return;
+                let wbid = this.get_window_id(t.windowId);
+                if (!wbid) return;
+                let wid = t.windowId!;
 
                 this._set_tab(tbid, t, "old");
+
+                const nw = await browser.windows.get(wid, { populate: true });
+                this.windows.set(wid, {
+                    id: wbid,
+                    wid: wid,
+                    ctime: Date.now(),
+                    tabs: nw.tabs ?? [],
+                });
             } break;
             case 'tabMoved': {
                 let e = event.payload;
-                const w = this.windows.get(e.moveInfo.windowId);
-                if (!w) return;
-                const nw = await browser.windows.get(e.moveInfo.windowId, { populate: true });
-                w.tabs = nw.tabs ?? [];
+                let wid = e.moveInfo.windowId;
+                let wbid = this.get_window_id(wid);
+                const nw = await browser.windows.get(wid, { populate: true });
+                this.windows.set(wid, {
+                    id: wbid,
+                    wid: wid,
+                    ctime: Date.now(),
+                    tabs: nw.tabs ?? [],
+                });
             } break;
             case 'tabAttached': {
                 let e = event.payload;
