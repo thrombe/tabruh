@@ -1,5 +1,14 @@
 import { Mutex } from "async-mutex";
 
+export function exhausted(d: never) {
+    console.log(d)
+    throw new Error("unreachable: " + JSON.stringify(d));
+}
+
+export function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class Deque<T> {
     private buffer: (T | undefined)[];
     private capacity: number;
