@@ -330,6 +330,61 @@ class App {
         }
     }
 
+    private _broadcastUpdates(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tabCreated':
+            case 'tabRemoved':
+            case 'tabUpdated':
+            case 'tabMoved':
+            case 'tabAttached':
+            case 'tabDetached':
+            case 'tabActivated':
+            case 'windowCreated':
+            case 'windowRemoved':
+                this._broadcast({ type: 'RENDER_ALL', payload: {} });
+                break;
+
+            case 'portMessage':
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'GET_STATE_FOR_WINDOW':
+                    case 'GET_STATE_FOR_GROUP_VIEW':
+                    case 'GET_ALL_WINDOW_STATES':
+                        break;
+
+                    case 'TOGGLE_COLLAPSE':
+                    case 'HANDLE_DROP':
+                    case 'CLOSE_SUBTREE':
+                    case 'CLOSE_SINGLE_TAB':
+                    case 'DUPLICATE_TAB_SMART':
+                    case 'UNLOAD_TAB':
+                    case 'UNLOAD_TREE':
+                    case 'LOAD_TREE':
+                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
+                    case 'CREATE_TAB':
+                    case 'CREATE_TAB_FROM_URL':
+                    case 'RENAME_WINDOW':
+                    case 'CLOSE_WINDOW':
+                    case 'RESTORE_WINDOW':
+                    case 'DELETE_WINDOW_STATE':
+                    case 'FLATTEN_IMMEDIATE':
+                    case 'FLATTEN_TREE':
+                    case 'CREATE_GROUP':
+                    case 'RENAME_NODE':
+                    case 'POP_OUT_GROUP':
+                    case 'FOCUS_TAB':
+                        this._broadcast({ type: 'RENDER_ALL', payload: {} });
+                        break;
+
+                    default:
+                        throw utils.exhausted(message);
+                }
+                break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
     async _process_event(event: StateManagerEvent) {
         if (event.type == "portMessage") {
             console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
@@ -624,9 +679,6 @@ class App {
                     default:
                         throw utils.exhausted(message);
                 }
-
-                // TODO: nono
-                this._broadcast({ type: 'RENDER_ALL', payload: {} });
             } break;
             default:
                 throw utils.exhausted(event);
@@ -639,6 +691,7 @@ class App {
             if (!event) break;
 
             await this._process_event(event);
+            this._broadcastUpdates(event);
         }
     }
 }
