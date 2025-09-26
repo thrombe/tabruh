@@ -4,11 +4,12 @@ import { TabTreeView } from './tab_tree_view';
 import type { BackgroundRequest, BackgroundResponse, UiStateForRender } from './types';
 
 class OverviewPage {
-    private port: browser.Runtime.Port;
+    private port: browser.Runtime.Port | null = null;
     private container: HTMLElement;
     private views: Map<number, TabTreeView> = new Map();
     private viewMode: 'overview' | 'group' = 'overview';
     private groupViewNodeId?: number;
+    private hasConnected = false;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -23,18 +24,35 @@ class OverviewPage {
             this.viewMode = 'group';
             this.groupViewNodeId = parseInt(nodeId, 10);
             this.container.classList.add('group-view-mode');
-            const groupName = urlParams.get('name');
-            document.title = groupName ? decodeURIComponent(groupName) : "Tabruh Group";
+            document.title = "Tabruh Group";
         } else {
             this.viewMode = 'overview';
             document.title = "Tabruh Overview";
         }
 
-        this.port = browser.runtime.connect({ name: 'overview-connection' });
-        this.init();
+        this.setupConnectionListener();
     }
 
-    private async init() {
+    private setupConnectionListener() {
+        if (document.visibilityState === 'visible') {
+            this.connectAndInit();
+        } else {
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    this.connectAndInit();
+                }
+            }, { once: true });
+        }
+        window.addEventListener('focus', () => this.connectAndInit(), { once: true });
+    }
+
+    private connectAndInit() {
+        if (this.hasConnected) {
+            return;
+        }
+        this.hasConnected = true;
+
+        this.port = browser.runtime.connect({ name: 'overview-connection' });
         this.port.onMessage.addListener((message: BackgroundResponse) => this.handleMessage(message));
         this.port.onDisconnect.addListener(() => console.error("Overview page disconnected from background script."));
 
@@ -42,6 +60,10 @@ class OverviewPage {
     }
 
     private sendMessage(message: BackgroundRequest) {
+        if (!this.port) {
+            console.warn("Attempted to send message before port was connected.", message);
+            return;
+        }
         try {
             this.port.postMessage(message);
         } catch (e) {
@@ -95,7 +117,9 @@ class OverviewPage {
             windowViewWrapper.className = 'window-view';
             windowViewWrapper.dataset.stateId = state.id.toString();
             this.container.appendChild(windowViewWrapper);
-            view = new TabTreeView(windowViewWrapper, this.port);
+            if (!this.port) return;
+            const viewType = this.viewMode === 'group' ? 'group' : 'window';
+            view = new TabTreeView(windowViewWrapper, this.port, false, viewType);
             this.views.set(state.id, view);
         }
         view.render(state);

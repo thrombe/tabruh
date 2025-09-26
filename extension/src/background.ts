@@ -786,7 +786,27 @@ class App {
                         }
                     } break;
                     case 'CREATE_GROUP': {
-                        const { windowId, parentId, index } = message.payload;
+                        const { windowId, parentId } = message.payload;
+                        let index: number | undefined;
+
+                        const parentNode = this.tree.get(parentId);
+                        if (parentNode && parentNode.type !== 'window') {
+                            const orderedTabs = this._getOrderedTabList(windowId);
+                            const subtreeIds = new Set(this._getSubtree(parentId));
+
+                            let lastDescendantBrowserIndex = -1;
+                            for (let i = orderedTabs.length - 1; i >= 0; i--) {
+                                if (subtreeIds.has(orderedTabs[i])) {
+                                    lastDescendantBrowserIndex = i;
+                                    break;
+                                }
+                            }
+
+                            if (lastDescendantBrowserIndex !== -1) {
+                                index = lastDescendantBrowserIndex + 1;
+                            }
+                        }
+
                         const newNodeId = this.bruhid++;
                         const newName = this.getOrGenerateGroupName(newNodeId);
                         const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}&name=${encodeURIComponent(newName)}`);
@@ -805,10 +825,10 @@ class App {
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const node = this.tree.get(nodeId);
-                        if (node && (node.type === 'group')) {
+                        if (node && (node.type === 'group' || node.type === 'window')) {
                             node.title = newName;
                             this.groupNames.set(node.id, newName);
-                            if (node.tid) {
+                            if (node.type === 'group' && node.tid) {
                                 const newUrl = browser.runtime.getURL(`overview.html?view=group&id=${node.id}&name=${encodeURIComponent(newName)}`);
                                 await browser.tabs.update(node.tid, { url: newUrl });
                                 node.url = newUrl;

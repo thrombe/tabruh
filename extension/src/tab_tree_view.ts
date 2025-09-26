@@ -26,11 +26,13 @@ export class TabTreeView {
     private currentRenderState: UiStateForRender | null = null;
     private currentDragData: DragData | null = null;
     private isSidebar: boolean;
+    private viewType: 'window' | 'group';
 
-    constructor(container: HTMLElement, port: browser.Runtime.Port, isSidebar: boolean = false) {
+    constructor(container: HTMLElement, port: browser.Runtime.Port, isSidebar: boolean = false, viewType: 'window' | 'group' = 'window') {
         this.container = container;
         this.port = port;
         this.isSidebar = isSidebar;
+        this.viewType = viewType;
         this.container.classList.add('tab-tree-view-container');
     }
 
@@ -331,7 +333,11 @@ export class TabTreeView {
             input.select();
             const save = () => {
                 if (input.value.trim()) {
-                    this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId, newName: input.value.trim() } });
+                    if (this.viewType === 'group') {
+                        this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId: state.id, newName: input.value.trim() } });
+                    } else {
+                        this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId, newName: input.value.trim() } });
+                    }
                 }
                 header.replaceChild(nameSpan, input);
             };
