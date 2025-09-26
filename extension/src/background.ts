@@ -288,10 +288,17 @@ class App {
         const uiTree: Map<BruhId, UiNode> = new Map();
         const tabsById = new Map(win.tabs.map(t => [t.id!, t]));
 
-        const nodesToRender = win.tabs.map(t => t.id).filter(id => id !== undefined);
+        let nodeIdsToIterate: BruhId[];
+        if (rootNodeId) {
+            nodeIdsToIterate = this._getSubtree(rootNodeId);
+        } else {
+            nodeIdsToIterate = win.tabs.map(t => this.get_tab_id(t.id!));
+        }
 
-        for (const nodeId of nodesToRender) {
-            const node = this.tree.get(this.get_tab_id(nodeId));
+        for (const bruhId of nodeIdsToIterate) {
+            if (rootNodeId && bruhId === rootNodeId) continue;
+
+            const node = this.tree.get(bruhId);
             if (!node || node.type === 'window') continue;
 
             const tab = tabsById.get(node.tid!);
@@ -328,7 +335,7 @@ class App {
             id: rootNodeId || win.id,
             windowId: win.wid,
             name: rootNode?.title || '',
-            isClosed: false, // This model doesn't handle closed windows yet
+            isClosed: false,
             creationTimestamp: win.ctime,
             tree: uiTree,
             tabsById,
@@ -600,22 +607,18 @@ class App {
                         const tidsToMove: TabId[] = [];
                         const draggedNode = this.tree.get(dragData.draggedNodeId)!;
                         if (draggedNode.type == "window") {
+                            const newNodeId = this.bruhid++;
+                            const preferredName = this.groupNames.get(draggedNode.id);
+                            const newName = this.getOrGenerateGroupName(newNodeId, preferredName);
+                            const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}&name=${encodeURIComponent(newName)}`);
+
                             const groupTab = await browser.tabs.create({
                                 windowId: targetWindowId,
                                 index,
-                                url: browser.runtime.getURL(`overview.html?view=group`),
+                                url,
                                 active: false,
                             });
-                            await browser.tabs.update(groupTab.id!, {
-                                url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`),
-                            });
-
-                            const newNodeId = this.get_tab_id(groupTab.id!);
-                            const preferredName = this.groupNames.get(draggedNode.id);
-                            if (preferredName) {
-                                this.groupNames.set(newNodeId, preferredName);
-                            }
-
+                            this.tab_id_map.set(groupTab.id!, newNodeId);
                             const groupNode = this._set_tab(newNodeId, groupTab, "window");
                             groupNode.parentId = newParentId;
 
@@ -784,16 +787,18 @@ class App {
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId, index } = message.payload;
+                        const newNodeId = this.bruhid++;
+                        const newName = this.getOrGenerateGroupName(newNodeId);
+                        const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}&name=${encodeURIComponent(newName)}`);
+
                         const groupTab = await browser.tabs.create({
                             windowId,
                             index,
-                            url: browser.runtime.getURL(`overview.html?view=group`),
+                            url,
                             active: false,
                         });
-                        await browser.tabs.update(groupTab.id!, {
-                            url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`),
-                        });
-                        const newNodeId = this.get_tab_id(groupTab.id!);
+                        this.tab_id_map.set(groupTab.id!, newNodeId);
+
                         const newNode = this._set_tab(newNodeId, groupTab, "window");
                         newNode.parentId = parentId;
                     } break;
@@ -803,6 +808,11 @@ class App {
                         if (node && (node.type === 'group')) {
                             node.title = newName;
                             this.groupNames.set(node.id, newName);
+                            if (node.tid) {
+                                const newUrl = browser.runtime.getURL(`overview.html?view=group&id=${node.id}&name=${encodeURIComponent(newName)}`);
+                                await browser.tabs.update(node.tid, { url: newUrl });
+                                node.url = newUrl;
+                            }
                         }
                     } break;
                     default:

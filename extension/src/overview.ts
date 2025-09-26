@@ -23,6 +23,11 @@ class OverviewPage {
             this.viewMode = 'group';
             this.groupViewNodeId = parseInt(nodeId, 10);
             this.container.classList.add('group-view-mode');
+            const groupName = urlParams.get('name');
+            document.title = groupName ? decodeURIComponent(groupName) : "Tabruh Group";
+        } else {
+            this.viewMode = 'overview';
+            document.title = "Tabruh Overview";
         }
 
         this.port = browser.runtime.connect({ name: 'overview-connection' });
