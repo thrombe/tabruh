@@ -387,7 +387,7 @@ class App {
                     tabs: nw.tabs ?? [],
                 });
 
-                this._set_tab(tbid, t, "opener");
+                this._set_tab(tbid, t, "old");
             } break;
             case 'tabRemoved': {
                 let e = event.payload;
@@ -530,7 +530,8 @@ class App {
                         const orderedTabs = this._getOrderedTabList(targetWindowId);
 
                         const lastDescendantIndex = orderedTabs.lastIndexOf(this._getSubtree(targetNodeId).pop()!);
-                        const currentIndex = orderedTabs.indexOf(dragData.draggedNodeId);
+                        let currentIndex = orderedTabs.indexOf(dragData.draggedNodeId);
+                        currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
                         const targetIndex = orderedTabs.indexOf(targetNodeId);
                         switch (action) {
                             case 'above':
@@ -555,10 +556,18 @@ class App {
                         const tidsToMove: TabId[] = [];
                         const draggedNode = this.tree.get(dragData.draggedNodeId)!;
                         if (draggedNode.type == "window") {
-                            const groupTab = await browser.tabs.create({ windowId: targetWindowId, index, url: browser.runtime.getURL(`overview.html?view=group`), active: false, openerTabId: newParentId });
-                            await browser.tabs.update(groupTab.id!, { url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`) });
+                            const groupTab = await browser.tabs.create({
+                                windowId: targetWindowId,
+                                index,
+                                url: browser.runtime.getURL(`overview.html?view=group`),
+                                active: false,
+                            });
+                            await browser.tabs.update(groupTab.id!, {
+                                url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`),
+                            });
                             const newNodeId = this.get_tab_id(groupTab.id!);
-                            this._set_tab(newNodeId, groupTab, "opener");
+                            const groupNode = this._set_tab(newNodeId, groupTab, "window");
+                            groupNode.parentId = newParentId;
 
                             newParentId = newNodeId;
                             index += 1;
@@ -739,7 +748,10 @@ class App {
                 await this._process_event(event);
                 this._broadcastUpdates(event);
             } catch (e) {
-                console.error(e);
+                console.error('Caught an error:', e);
+                if (e instanceof Error) {
+                    console.error(e.stack);
+                }
             }
         }
     }
