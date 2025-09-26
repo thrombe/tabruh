@@ -620,12 +620,11 @@ class App {
                         if (!node || (node.type !== 'tab' && node.type !== 'group')) return;
                         const win = Array.from(this.windows.values()).find(w => w.tabs.some(t => t.id === node.tid));
                         if (!win) return;
-                        const parent = this.tree.get(node.parentId);
-                        const opener = parent?.type == "tab" || parent?.type == "group" ? parent.tid : undefined;
                         let index = message.payload.tabIndex === undefined ? undefined : message.payload.tabIndex + 1;
-                        const newTab = await browser.tabs.create({ windowId: win.wid, url: node.url, active: false, openerTabId: opener, index: index });
+                        const newTab = await browser.tabs.create({ windowId: win.wid, url: node.url, active: false, index: index });
                         const newNodeId = this.get_tab_id(newTab.id!);
-                        this._set_tab(newNodeId, newTab, "opener");
+                        const newNode = this._set_tab(newNodeId, newTab, "window");
+                        newNode.parentId = node.parentId;
                     } break;
                     case 'UNLOAD_TAB': {
                         const node = this.tree.get(message.payload.nodeId);
@@ -719,11 +718,18 @@ class App {
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId, index } = message.payload;
-                        const pnode = this.tree.get(parentId)!;
-                        const groupTab = await browser.tabs.create({ windowId, index, url: browser.runtime.getURL(`overview.html?view=group`), active: false, openerTabId: pnode.type == "window" ? undefined : pnode.tid });
-                        await browser.tabs.update(groupTab.id!, { url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`) });
+                        const groupTab = await browser.tabs.create({
+                            windowId,
+                            index,
+                            url: browser.runtime.getURL(`overview.html?view=group`),
+                            active: false,
+                        });
+                        await browser.tabs.update(groupTab.id!, {
+                            url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`),
+                        });
                         const newNodeId = this.get_tab_id(groupTab.id!);
-                        this._set_tab(newNodeId, groupTab, "opener");
+                        const newNode = this._set_tab(newNodeId, groupTab, "window");
+                        newNode.parentId = parentId;
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
