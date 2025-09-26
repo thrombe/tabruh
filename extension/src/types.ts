@@ -23,17 +23,14 @@ export type Node = {
     url: string,
     parentId: BruhId,
     collapsed: boolean,
-    isCustomNamed: boolean,
 } | {
     type: "window",
     wid: WindowId,
-    isCustomNamed: boolean,
 });
 
 export type BruhWindow = {
     id: BruhId,
     wid: WindowId,
-    ctime: number,
     tabs: browser.Tabs.Tab[],
 };
 
@@ -53,8 +50,8 @@ export type UiStateForRender = {
     id: BruhId;
     windowId: WindowId;
     name: string;
+    isCustomNamed: boolean;
     isClosed: boolean;
-    isCustomNamed: boolean,
     creationTimestamp: number;
     tree: Map<BruhId, UiNode>;
     tabsById: Map<TabId, browser.Tabs.Tab>;

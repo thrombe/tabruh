@@ -14,6 +14,8 @@ import type {
     BruhId,
 } from './types'; import * as utils from './utils';
 
+type GroupAttrs = { name: string; ctime: number; isCustomNamed: boolean; };
+
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
     eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
@@ -22,7 +24,7 @@ class App {
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
     tab_id_map: Map<TabId, BruhId> = new Map();
-    groupNames: Map<BruhId, string> = new Map();
+    groupAttrs: Map<BruhId, GroupAttrs> = new Map();
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -87,7 +89,7 @@ class App {
 
     private generateUniqueGroupName(): string {
         let name: string;
-        const existingNames = new Set(Array.from(this.groupNames.values()));
+        const existingNames = new Set(Array.from(this.groupAttrs.values()).map(attr => attr.name));
 
         do {
             const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
@@ -98,19 +100,18 @@ class App {
         return name;
     }
 
-    private getOrGenerateGroupName(id: BruhId, preferredName?: string): string {
-        if (this.groupNames.has(id)) {
-            return this.groupNames.get(id)!;
+    private getOrGenerateGroupAttrs(id: BruhId, ctime?: number, preferredName?: string): GroupAttrs {
+        if (this.groupAttrs.has(id)) {
+            return this.groupAttrs.get(id)!;
         }
 
-        if (preferredName) {
-            this.groupNames.set(id, preferredName);
-            return preferredName;
-        }
-
-        const newName = this.generateUniqueGroupName();
-        this.groupNames.set(id, newName);
-        return newName;
+        const newAttrs: GroupAttrs = {
+            name: preferredName || this.generateUniqueGroupName(),
+            ctime: ctime || Date.now(),
+            isCustomNamed: !!preferredName,
+        };
+        this.groupAttrs.set(id, newAttrs);
+        return newAttrs;
     }
 
     get_tab_id(tid: TabId): BruhId;
@@ -148,15 +149,14 @@ class App {
             this.windows.set(wid, {
                 id: id,
                 wid: wid,
-                ctime: creationTime++,
                 tabs: w.tabs ?? [],
             });
+            const attrs = this.getOrGenerateGroupAttrs(id, creationTime++);
             tree.set(id, {
                 type: "window",
                 id: id,
-                title: this.getOrGenerateGroupName(id),
+                title: attrs.name,
                 wid: wid,
-                isCustomNamed: false,
             });
         }
 
@@ -184,7 +184,7 @@ class App {
 
         let title: string;
         if (isGroup) {
-            title = this.getOrGenerateGroupName(id);
+            title = this.getOrGenerateGroupAttrs(id).name;
         } else {
             title = tab.title ?? "Untitled";
         }
@@ -215,7 +215,6 @@ class App {
                 favIconUrl: tab.favIconUrl,
                 parentId: pid,
                 collapsed: oldNodeAsGroup?.collapsed ?? false,
-                isCustomNamed: oldNodeAsGroup?.isCustomNamed ?? false,
             });
         } else {
             targetTree.set(id, {
@@ -230,7 +229,7 @@ class App {
             });
         }
 
-        return targetTree.get(id)! as Node & ({ type: "group" } | { type: "tab" });
+        return targetTree.get(id)! as Node & ({ type: "tab" } | { type: "group" });
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
@@ -347,14 +346,18 @@ class App {
         }
 
         const rootNode = rootNodeId ? this.tree.get(rootNodeId) : this.tree.get(win.id);
+        const rootId = rootNodeId || win.id;
+        const attrs = this.groupAttrs.get(rootId);
+
+        if (!rootNode || !attrs) return null;
 
         return {
-            id: rootNodeId || win.id,
+            id: rootId,
             windowId: win.wid,
-            name: rootNode?.title || '',
-            isCustomNamed: (rootNode?.type === 'window' || rootNode?.type === 'group') ? rootNode.isCustomNamed : false,
+            name: attrs.name,
+            isCustomNamed: attrs.isCustomNamed,
             isClosed: false,
-            creationTimestamp: win.ctime,
+            creationTimestamp: attrs.ctime,
             tree: uiTree,
             tabsById,
             rootIds,
@@ -448,7 +451,6 @@ class App {
                 this.windows.set(wid, {
                     id: wbid,
                     wid: wid,
-                    ctime: Date.now(),
                     tabs: nw.tabs ?? [],
                 });
 
@@ -458,8 +460,11 @@ class App {
                 let e = event.payload;
                 const bruhId = this.tab_id_map.get(e.tabId);
                 if (bruhId) {
+                    const node = this.tree.get(bruhId);
+                    if (node && node.type === 'group') {
+                        this.groupAttrs.delete(bruhId);
+                    }
                     this.tree.delete(bruhId);
-                    this.groupNames.delete(bruhId);
                 }
                 this.tab_id_map.delete(e.tabId);
 
@@ -489,7 +494,6 @@ class App {
                 this.windows.set(wid, {
                     id: wbid,
                     wid: wid,
-                    ctime: Date.now(),
                     tabs: nw.tabs ?? [],
                 });
             } break;
@@ -501,7 +505,6 @@ class App {
                 this.windows.set(wid, {
                     id: wbid,
                     wid: wid,
-                    ctime: Date.now(),
                     tabs: nw.tabs ?? [],
                 });
             } break;
@@ -513,7 +516,6 @@ class App {
                 this.windows.set(wid, {
                     id: wbid,
                     wid: wid,
-                    ctime: Date.now(),
                     tabs: nw.tabs ?? [],
                 });
             } break;
@@ -548,16 +550,16 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
-                    ctime: Date.now(),
                 });
-                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid), isCustomNamed: false });
+                const attrs = this.getOrGenerateGroupAttrs(wbid, Date.now());
+                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: attrs.name });
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
                 const win = this.windows.get(wid);
                 if (win) {
                     this.tree.delete(win.id);
-                    this.groupNames.delete(win.id);
+                    this.groupAttrs.delete(win.id);
                     this.windows.delete(wid);
                 }
             } break;
@@ -625,10 +627,9 @@ class App {
                         const tidsToMove: TabId[] = [];
                         const draggedNode = this.tree.get(dragData.draggedNodeId)!;
                         if (draggedNode.type == "window") {
-                            const oldIsCustomNamed = draggedNode.isCustomNamed;
+                            const oldAttrs = this.groupAttrs.get(draggedNode.id)!;
                             const newNodeId = this.bruhid++;
-                            const preferredName = this.groupNames.get(draggedNode.id);
-                            let _ = this.getOrGenerateGroupName(newNodeId, preferredName);
+                            this.groupAttrs.set(newNodeId, { ...oldAttrs });
                             const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
 
                             const groupTab = await browser.tabs.create({
@@ -637,9 +638,8 @@ class App {
                                 url,
                                 active: false,
                             });
-                            const groupNode = this._set_tab(newNodeId, groupTab, "window") as Node & { type: 'group' };
+                            const groupNode = this._set_tab(newNodeId, groupTab, "window");
                             groupNode.parentId = newParentId;
-                            groupNode.isCustomNamed = oldIsCustomNamed;
 
                             newParentId = newNodeId;
                             index += 1;
@@ -724,18 +724,21 @@ class App {
 
                         let wid = newWindow.id!;
                         let wbid = this.get_window_id(wid);
-                        const oldIsCustomNamed = (node.type === 'group' || node.type === 'window') ? node.isCustomNamed : false;
 
-                        const preferredName = (node && node.type === 'group') ? this.groupNames.get(node.id) : undefined;
-                        const name = this.getOrGenerateGroupName(wbid, preferredName);
+                        const oldAttrs = (node.type === 'group') ? this.groupAttrs.get(node.id) : undefined;
+                        const newName = oldAttrs ? oldAttrs.name : this.generateUniqueGroupName();
 
                         this.windows.set(wid, {
                             id: wbid,
                             wid: wid,
                             tabs: [],
-                            ctime: Date.now(),
                         });
-                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: name, isCustomNamed: oldIsCustomNamed });
+                        this.groupAttrs.set(wbid, {
+                            name: newName,
+                            ctime: oldAttrs?.ctime ?? Date.now(),
+                            isCustomNamed: oldAttrs?.isCustomNamed ?? false
+                        });
+                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: newName });
 
                         if (node.type === 'window') return;
 
@@ -783,10 +786,11 @@ class App {
                         const { windowId, newName } = message.payload;
                         const winNodeId = this.get_window_id(windowId);
                         const winNode = this.tree.get(winNodeId);
-                        if (winNode && winNode.type === 'window') {
+                        const attrs = this.groupAttrs.get(winNodeId);
+                        if (winNode && attrs) {
                             winNode.title = newName;
-                            winNode.isCustomNamed = true;
-                            this.groupNames.set(winNode.id, newName);
+                            attrs.name = newName;
+                            attrs.isCustomNamed = true;
                         }
                     } break;
                     case 'CLOSE_WINDOW': {
@@ -820,7 +824,7 @@ class App {
                         const { windowId, parentId } = message.payload;
 
                         const newNodeId = this.bruhid++;
-                        let _ = this.getOrGenerateGroupName(newNodeId);
+                        this.getOrGenerateGroupAttrs(newNodeId);
                         const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
 
                         const orderedTabs = this._getOrderedTabList(windowId);
@@ -841,10 +845,11 @@ class App {
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const node = this.tree.get(nodeId);
-                        if (node && (node.type === 'group' || node.type === 'window')) {
+                        const attrs = this.groupAttrs.get(nodeId);
+                        if (node && (node.type === 'group' || node.type === 'window') && attrs) {
                             node.title = newName;
-                            node.isCustomNamed = true;
-                            this.groupNames.set(node.id, newName);
+                            attrs.name = newName;
+                            attrs.isCustomNamed = true;
                         }
                     } break;
                     default:
