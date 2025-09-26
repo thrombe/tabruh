@@ -23,9 +23,11 @@ export type Node = {
     url: string,
     parentId: BruhId,
     collapsed: boolean,
+    isCustomNamed: boolean,
 } | {
     type: "window",
     wid: WindowId,
+    isCustomNamed: boolean,
 });
 
 export type BruhWindow = {
@@ -52,6 +54,7 @@ export type UiStateForRender = {
     windowId: WindowId;
     name: string;
     isClosed: boolean;
+    isCustomNamed: boolean,
     creationTimestamp: number;
     tree: Map<BruhId, UiNode>;
     tabsById: Map<TabId, browser.Tabs.Tab>;

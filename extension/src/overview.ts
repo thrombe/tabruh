@@ -81,14 +81,11 @@ class OverviewPage {
 
     private sortWindowStates(states: UiStateForRender[]): UiStateForRender[] {
         return states.sort((a, b) => {
-            const aIsNamed = !/^Window \d+$/.test(a.name);
-            const bIsNamed = !/^Window \d+$/.test(b.name);
-
             if (a.isClosed !== b.isClosed) {
                 return a.isClosed ? 1 : -1;
             }
-            if (aIsNamed !== bIsNamed) {
-                return aIsNamed ? -1 : 1;
+            if (a.isCustomNamed !== b.isCustomNamed) {
+                return a.isCustomNamed ? -1 : 1;
             }
             return a.creationTimestamp - b.creationTimestamp;
         });

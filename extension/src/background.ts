@@ -156,6 +156,7 @@ class App {
                 id: id,
                 title: this.getOrGenerateGroupName(id),
                 wid: wid,
+                isCustomNamed: false,
             });
         }
 
@@ -178,7 +179,7 @@ class App {
 
     _set_tab(id: BruhId, tab: browser.Tabs.Tab, parent: "window" | "old" | "opener", tree: NodeTree | undefined = undefined) {
         const targetTree = tree ?? this.tree;
-        const old = this.tree.get(id) as (Node & { type: "tab" | "group" }) | undefined;
+        const old = this.tree.get(id) as (Node & ({ type: "tab" } | { type: "group" })) | undefined;
         const isGroup = this._isGroupTab(tab);
 
         let title: string;
@@ -203,18 +204,33 @@ class App {
 
         this.tab_id_map.set(tab.id!, id);
 
-        targetTree.set(id, {
-            type: isGroup ? "group" : "tab",
-            id: id,
-            tid: tab.id!,
-            url: tab.url!,
-            title: title,
-            favIconUrl: tab.favIconUrl,
-            parentId: pid,
-            collapsed: old?.collapsed ?? false,
-        } as Node);
+        if (isGroup) {
+            const oldNodeAsGroup = old?.type === 'group' ? old : undefined;
+            targetTree.set(id, {
+                type: "group",
+                id: id,
+                tid: tab.id!,
+                url: tab.url!,
+                title: title,
+                favIconUrl: tab.favIconUrl,
+                parentId: pid,
+                collapsed: oldNodeAsGroup?.collapsed ?? false,
+                isCustomNamed: oldNodeAsGroup?.isCustomNamed ?? false,
+            });
+        } else {
+            targetTree.set(id, {
+                type: "tab",
+                id: id,
+                tid: tab.id!,
+                url: tab.url!,
+                title: title,
+                favIconUrl: tab.favIconUrl,
+                parentId: pid,
+                collapsed: old?.collapsed ?? false,
+            });
+        }
 
-        return targetTree.get(id)! as Node & { type: "group" | "tab" };
+        return targetTree.get(id)! as Node & ({ type: "group" } | { type: "tab" });
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
@@ -336,6 +352,7 @@ class App {
             id: rootNodeId || win.id,
             windowId: win.wid,
             name: rootNode?.title || '',
+            isCustomNamed: (rootNode?.type === 'window' || rootNode?.type === 'group') ? rootNode.isCustomNamed : false,
             isClosed: false,
             creationTimestamp: win.ctime,
             tree: uiTree,
@@ -533,7 +550,7 @@ class App {
                     tabs: nw.tabs ?? [],
                     ctime: Date.now(),
                 });
-                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid) });
+                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid), isCustomNamed: false });
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
@@ -608,6 +625,7 @@ class App {
                         const tidsToMove: TabId[] = [];
                         const draggedNode = this.tree.get(dragData.draggedNodeId)!;
                         if (draggedNode.type == "window") {
+                            const oldIsCustomNamed = draggedNode.isCustomNamed;
                             const newNodeId = this.bruhid++;
                             const preferredName = this.groupNames.get(draggedNode.id);
                             let _ = this.getOrGenerateGroupName(newNodeId, preferredName);
@@ -619,8 +637,9 @@ class App {
                                 url,
                                 active: false,
                             });
-                            const groupNode = this._set_tab(newNodeId, groupTab, "window");
+                            const groupNode = this._set_tab(newNodeId, groupTab, "window") as Node & { type: 'group' };
                             groupNode.parentId = newParentId;
+                            groupNode.isCustomNamed = oldIsCustomNamed;
 
                             newParentId = newNodeId;
                             index += 1;
@@ -705,6 +724,7 @@ class App {
 
                         let wid = newWindow.id!;
                         let wbid = this.get_window_id(wid);
+                        const oldIsCustomNamed = (node.type === 'group' || node.type === 'window') ? node.isCustomNamed : false;
 
                         const preferredName = (node && node.type === 'group') ? this.groupNames.get(node.id) : undefined;
                         const name = this.getOrGenerateGroupName(wbid, preferredName);
@@ -715,7 +735,7 @@ class App {
                             tabs: [],
                             ctime: Date.now(),
                         });
-                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: name });
+                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: name, isCustomNamed: oldIsCustomNamed });
 
                         if (node.type === 'window') return;
 
@@ -763,8 +783,9 @@ class App {
                         const { windowId, newName } = message.payload;
                         const winNodeId = this.get_window_id(windowId);
                         const winNode = this.tree.get(winNodeId);
-                        if (winNode) {
+                        if (winNode && winNode.type === 'window') {
                             winNode.title = newName;
+                            winNode.isCustomNamed = true;
                             this.groupNames.set(winNode.id, newName);
                         }
                     } break;
@@ -822,6 +843,7 @@ class App {
                         const node = this.tree.get(nodeId);
                         if (node && (node.type === 'group' || node.type === 'window')) {
                             node.title = newName;
+                            node.isCustomNamed = true;
                             this.groupNames.set(node.id, newName);
                         }
                     } break;
