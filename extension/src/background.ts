@@ -537,7 +537,7 @@ class App {
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
-                const win = Array.from(this.windows.values()).find(w => w.wid === wid);
+                const win = this.windows.get(wid);
                 if (win) {
                     this.tree.delete(win.id);
                     this.groupNames.delete(win.id);
@@ -553,8 +553,8 @@ class App {
                         if (state) this._post(port, { type: 'STATE_UPDATE', payload: { state } });
                     } break;
                     case 'GET_STATE_FOR_GROUP_VIEW': {
-                        const rootNode = this.tree.get(message.payload.nodeId);
-                        if (rootNode && (rootNode.type === 'tab' || rootNode.type === 'group')) {
+                        const rootNode = this.tree.get(message.payload.nodeId)!;
+                        if (rootNode.type === 'tab' || rootNode.type === 'group') {
                             const tab = Array.from(this.windows.values()).flatMap(w => w.tabs).find(t => t.id === rootNode.tid);
                             if (tab?.windowId) {
                                 const state = this._buildUiStateForRender(tab.windowId, message.payload.nodeId);

@@ -26,7 +26,7 @@ class TabTreeSidebar {
 
         this.view = new TabTreeView(container, this.port, true, 'window');
 
-        this.port.onMessage.addListener((message: BackgroundResponse) => this.handleMessage(message));
+        this.port.onMessage.addListener(message => this.handleMessage(message as BackgroundResponse));
         this.port.onDisconnect.addListener(() => console.error("Sidebar disconnected from background script."));
 
         this.requestState();

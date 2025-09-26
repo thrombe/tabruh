@@ -53,7 +53,7 @@ class OverviewPage {
         this.hasConnected = true;
 
         this.port = browser.runtime.connect({ name: 'overview-connection' });
-        this.port.onMessage.addListener((message: BackgroundResponse) => this.handleMessage(message));
+        this.port.onMessage.addListener(message => this.handleMessage(message as BackgroundResponse));
         this.port.onDisconnect.addListener(() => console.error("Overview page disconnected from background script."));
 
         this.requestInitialState();
