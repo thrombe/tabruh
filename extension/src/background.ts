@@ -214,8 +214,14 @@ class App {
 
     private _getChildrenMap(): Map<BruhId, BruhId[]> {
         const map = new Map<BruhId, BruhId[]>();
-        for (const node of this.tree.values()) {
-            if (node.type === 'tab' || node.type === 'group') {
+        for (const [_, w] of this.windows) {
+            for (const tid of w.tabs) {
+                const tbid = this.get_tab_id(tid.id);
+                if (!tbid) continue;
+
+                const node = this.tree.get(tbid);
+                if (!node || node.type === 'window') continue;
+
                 if (!map.has(node.parentId)) {
                     map.set(node.parentId, []);
                 }
@@ -523,17 +529,27 @@ class App {
                         let index = -1;
                         const orderedTabs = this._getOrderedTabList(targetWindowId);
 
-                        if (action === 'above' || action === 'below') {
-                            newParentId = (targetNode as any).parentId;
-                            const targetIndex = orderedTabs.indexOf(targetNodeId);
-                            index = (action === 'above') ? targetIndex : targetIndex + 1;
-                        } else if (action === 'inside') {
-                            newParentId = targetNodeId;
-                            const lastDescendantIndex = orderedTabs.lastIndexOf(this._getSubtree(targetNodeId).pop()!);
-                            index = lastDescendantIndex + 1;
-                        } else { // root
-                            newParentId = targetWin.id;
-                            index = -1;
+                        const lastDescendantIndex = orderedTabs.lastIndexOf(this._getSubtree(targetNodeId).pop()!);
+                        const currentIndex = orderedTabs.indexOf(dragData.draggedNodeId);
+                        const targetIndex = orderedTabs.indexOf(targetNodeId);
+                        switch (action) {
+                            case 'above':
+                                newParentId = (targetNode as any).parentId;
+                                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
+                                break;
+                            case 'below':
+                                newParentId = (targetNode as any).parentId;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                                break;
+                            case 'root':
+                                newParentId = targetWin.id;
+                                index = targetWin.tabs.length;
+                                break;
+                            case 'inside':
+                            default:
+                                newParentId = targetNode.id;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                                break;
                         }
 
                         const tidsToMove: TabId[] = [];
@@ -591,7 +607,6 @@ class App {
                         await browser.tabs.remove(node.tid!);
                     } break;
                     case 'DUPLICATE_TAB_SMART': {
-                        console.log(message);
                         const node = this.tree.get(message.payload.nodeId);
                         if (!node || (node.type !== 'tab' && node.type !== 'group')) return;
                         const win = Array.from(this.windows.values()).find(w => w.tabs.some(t => t.id === node.tid));
