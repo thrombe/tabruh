@@ -22,6 +22,10 @@ class App {
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
     tab_id_map: Map<TabId, BruhId> = new Map();
+    groupNames: Map<BruhId, string> = new Map();
+
+    private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
+    private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     static async init() {
         let self = new App();
@@ -81,6 +85,35 @@ class App {
         });
     }
 
+    private generateUniqueGroupName(): string {
+        let name: string;
+        const existingNames = new Set(Array.from(this.groupNames.values()));
+
+        do {
+            const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
+            const noun = this.nouns[Math.floor(Math.random() * this.nouns.length)];
+            name = `${adj} ${noun}`;
+        } while (existingNames.has(name));
+
+        return name;
+    }
+
+    private getOrGenerateGroupName(id: BruhId, preferredName?: string): string {
+        if (this.groupNames.has(id)) {
+            return this.groupNames.get(id)!;
+        }
+
+        const existingNames = new Set(Array.from(this.groupNames.values()));
+        if (preferredName && !existingNames.has(preferredName)) {
+            this.groupNames.set(id, preferredName);
+            return preferredName;
+        }
+
+        const newName = this.generateUniqueGroupName();
+        this.groupNames.set(id, newName);
+        return newName;
+    }
+
     get_tab_id(tid: TabId): BruhId;
     get_tab_id(tid: TabId | undefined): BruhId | undefined;
     get_tab_id(tid: TabId | undefined): BruhId | undefined {
@@ -122,7 +155,7 @@ class App {
             tree.set(id, {
                 type: "window",
                 id: id,
-                title: `Window ${id}`,
+                title: this.getOrGenerateGroupName(id),
                 wid: wid,
             });
         }
@@ -147,6 +180,14 @@ class App {
     _set_tab(id: BruhId, tab: browser.Tabs.Tab, parent: "window" | "old" | "opener", tree: NodeTree | undefined = undefined) {
         const targetTree = tree ?? this.tree;
         const old = this.tree.get(id) as (Node & { type: "tab" | "group" }) | undefined;
+        const isGroup = this._isGroupTab(tab);
+
+        let title: string;
+        if (isGroup) {
+            title = this.getOrGenerateGroupName(id);
+        } else {
+            title = tab.title ?? "Untitled";
+        }
 
         const w = this.windows.get(tab.windowId!)!;
         let pid: BruhId;
@@ -162,14 +203,13 @@ class App {
         }
 
         this.tab_id_map.set(tab.id!, id);
-        const isGroup = this._isGroupTab(tab);
 
         targetTree.set(id, {
             type: isGroup ? "group" : "tab",
             id: id,
             tid: tab.id!,
             url: tab.url!,
-            title: tab.title ?? "Untitled",
+            title: title,
             favIconUrl: tab.favIconUrl,
             parentId: pid,
             collapsed: old?.collapsed ?? false,
@@ -392,7 +432,10 @@ class App {
             case 'tabRemoved': {
                 let e = event.payload;
                 const bruhId = this.tab_id_map.get(e.tabId);
-                if (bruhId) this.tree.delete(bruhId);
+                if (bruhId) {
+                    this.tree.delete(bruhId);
+                    this.groupNames.delete(bruhId);
+                }
                 this.tab_id_map.delete(e.tabId);
 
                 if (!e.removeInfo.isWindowClosing) {
@@ -482,13 +525,14 @@ class App {
                     tabs: nw.tabs ?? [],
                     ctime: Date.now(),
                 });
-                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: `Window ${wid}` });
+                this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid) });
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
                 const win = Array.from(this.windows.values()).find(w => w.wid === wid);
                 if (win) {
                     this.tree.delete(win.id);
+                    this.groupNames.delete(win.id);
                     this.windows.delete(wid);
                 }
             } break;
@@ -565,7 +609,13 @@ class App {
                             await browser.tabs.update(groupTab.id!, {
                                 url: browser.runtime.getURL(`overview.html?view=group&id=${this.get_tab_id(groupTab.id!)}`),
                             });
+
                             const newNodeId = this.get_tab_id(groupTab.id!);
+                            const preferredName = this.groupNames.get(draggedNode.id);
+                            if (preferredName) {
+                                this.groupNames.set(newNodeId, preferredName);
+                            }
+
                             const groupNode = this._set_tab(newNodeId, groupTab, "window");
                             groupNode.parentId = newParentId;
 
@@ -646,35 +696,42 @@ class App {
                     } break;
                     case 'MOVE_SUBTREE_TO_NEW_WINDOW': {
                         const tids = this._getSubtree(message.payload.rootNodeId).map(id => (this.tree.get(id) as any)?.tid).filter(tid => tid !== undefined);
+                        const node = this.tree.get(message.payload.rootNodeId)!;
                         const newWindow = await browser.windows.create({ tabId: tids.shift() });
                         if (tids.length > 0) await browser.tabs.move(tids, { windowId: newWindow.id!, index: 1 });
 
                         let wid = newWindow.id!;
                         let wbid = this.get_window_id(wid);
+
+                        const preferredName = (node && node.type === 'group') ? this.groupNames.get(node.id) : undefined;
+                        if (preferredName) {
+                            this.groupNames.set(wbid, preferredName);
+                        }
+
                         this.windows.set(wid, {
                             id: wbid,
                             wid: wid,
                             tabs: [],
                             ctime: Date.now(),
                         });
-                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: `Window ${wid}` });
+                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid) });
 
-                        const tbid = message.payload.rootNodeId;
-                        const node = this.tree.get(tbid)!;
                         if (node.type === 'window') return;
 
                         if (node.type === "group") {
                             for (let id of tids) {
                                 const child = this.tree.get(this.get_tab_id(id))!;
                                 if (child.type == "window") continue;
-                                if (child.parentId == tbid) {
+                                if (child.parentId == node.id) {
                                     child.parentId = wbid;
                                 }
                             }
-
                             await browser.tabs.remove(node.tid!);
                         } else {
-                            node.parentId = wbid;
+                            const tabNode = this.tree.get(this.get_tab_id(node.tid!))!;
+                            if (tabNode.type !== 'window') {
+                                tabNode.parentId = wbid;
+                            }
                         }
                     } break;
                     case 'CREATE_TAB': {
@@ -693,7 +750,10 @@ class App {
                         const { windowId, newName } = message.payload;
                         const winNodeId = this.get_window_id(windowId);
                         const winNode = this.tree.get(winNodeId);
-                        if (winNode) winNode.title = newName;
+                        if (winNode) {
+                            winNode.title = newName;
+                            this.groupNames.set(winNode.id, newName);
+                        }
                     } break;
                     case 'CLOSE_WINDOW': {
                         await browser.windows.remove(message.payload.windowId);
@@ -740,7 +800,10 @@ class App {
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const node = this.tree.get(nodeId);
-                        if (node) node.title = newName;
+                        if (node && (node.type === 'group')) {
+                            node.title = newName;
+                            this.groupNames.set(node.id, newName);
+                        }
                     } break;
                     default:
                         throw utils.exhausted(message);
