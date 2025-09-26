@@ -1,5 +1,41 @@
 import { Mutex } from "async-mutex";
 
+/*
+declare global {
+    interface Map<K, V> {
+        expect(key: K, message?: string): V;
+    }
+}
+
+Map.prototype.expect = function <K, V>(this: Map<K, V>, key: K, message?: string): V {
+    const v = this.get(key);
+    if (v === undefined) {
+        throw new Error(message ?? `Key ${String(key)} not found`);
+    }
+    return v;
+};
+
+declare global {
+  interface Object {
+    expect<K extends string>(this: { [key: string]: any }, key: K, message?: string): any;
+  }
+}
+
+Object.defineProperty(Object.prototype, "expect", {
+  value: function (key: string, message?: string) {
+    // `this` is the object instance
+    const v = (this as any)[key];
+    if (v === undefined || v === null) {
+      throw new Error(message ?? `Property ${key} missing`);
+    }
+    return v;
+  },
+  writable: true,
+  enumerable: false,
+  configurable: true,
+});
+*/
+
 export function exhausted(d: never) {
     console.log(d)
     throw new Error("unreachable: " + JSON.stringify(d));
