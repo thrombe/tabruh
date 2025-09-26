@@ -620,8 +620,14 @@ class App {
                         if (!node || (node.type !== 'tab' && node.type !== 'group')) return;
                         const win = Array.from(this.windows.values()).find(w => w.tabs.some(t => t.id === node.tid));
                         if (!win) return;
-                        let index = message.payload.tabIndex === undefined ? undefined : message.payload.tabIndex + 1;
-                        const newTab = await browser.tabs.create({ windowId: win.wid, url: node.url, active: false, index: index });
+                        // spawn it above the duplicated
+                        let index = message.payload.tabIndex === undefined ? undefined : message.payload.tabIndex;
+                        const newTab = await browser.tabs.create({
+                            windowId: win.wid,
+                            url: node.url,
+                            active: false,
+                            index: index,
+                        });
                         const newNodeId = this.get_tab_id(newTab.id!);
                         const newNode = this._set_tab(newNodeId, newTab, "window");
                         newNode.parentId = node.parentId;
