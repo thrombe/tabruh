@@ -103,8 +103,7 @@ class App {
             return this.groupNames.get(id)!;
         }
 
-        const existingNames = new Set(Array.from(this.groupNames.values()));
-        if (preferredName && !existingNames.has(preferredName)) {
+        if (preferredName) {
             this.groupNames.set(id, preferredName);
             return preferredName;
         }
@@ -233,20 +232,22 @@ class App {
 
     private _getSubtree(rootId: BruhId): BruhId[] {
         const subtree: BruhId[] = [];
-        const queue: BruhId[] = [rootId];
+        const stack: BruhId[] = [rootId];
         const visited = new Set<BruhId>();
 
         const childrenMap = this._getChildrenMap();
 
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            if (visited.has(currentId)) continue;
+        while (stack.length > 0) {
+            const currentId = stack.pop()!;
+            if (visited.has(currentId)) {
+                continue;
+            }
             visited.add(currentId);
             subtree.push(currentId);
 
             const children = childrenMap.get(currentId) || [];
-            for (const childId of children) {
-                queue.push(childId);
+            for (let i = children.length - 1; i >= 0; i--) {
+                stack.push(children[i]!);
             }
         }
         return subtree;
@@ -594,7 +595,7 @@ class App {
                                 index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
                                 break;
                             case 'root':
-                                newParentId = targetWin.id;
+                                newParentId = targetNode.id;
                                 index = targetWin.tabs.length;
                                 break;
                             case 'inside':
@@ -609,8 +610,8 @@ class App {
                         if (draggedNode.type == "window") {
                             const newNodeId = this.bruhid++;
                             const preferredName = this.groupNames.get(draggedNode.id);
-                            const newName = this.getOrGenerateGroupName(newNodeId, preferredName);
-                            const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}&name=${encodeURIComponent(newName)}`);
+                            let _ = this.getOrGenerateGroupName(newNodeId, preferredName);
+                            const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
 
                             const groupTab = await browser.tabs.create({
                                 windowId: targetWindowId,
@@ -618,7 +619,6 @@ class App {
                                 url,
                                 active: false,
                             });
-                            this.tab_id_map.set(groupTab.id!, newNodeId);
                             const groupNode = this._set_tab(newNodeId, groupTab, "window");
                             groupNode.parentId = newParentId;
 
@@ -707,9 +707,7 @@ class App {
                         let wbid = this.get_window_id(wid);
 
                         const preferredName = (node && node.type === 'group') ? this.groupNames.get(node.id) : undefined;
-                        if (preferredName) {
-                            this.groupNames.set(wbid, preferredName);
-                        }
+                        const name = this.getOrGenerateGroupName(wbid, preferredName);
 
                         this.windows.set(wid, {
                             id: wbid,
@@ -717,7 +715,7 @@ class App {
                             tabs: [],
                             ctime: Date.now(),
                         });
-                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: this.getOrGenerateGroupName(wbid) });
+                        this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: name });
 
                         if (node.type === 'window') return;
 
@@ -738,16 +736,28 @@ class App {
                         }
                     } break;
                     case 'CREATE_TAB': {
-                        await browser.tabs.create({ windowId: message.payload.windowId });
+                        const { windowId, parentId } = message.payload;
+
+                        const orderedTabs = this._getOrderedTabList(windowId);
+                        const lastDescendantId = this._getSubtree(parentId).pop()!;
+                        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
+                        const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
+                        const newTab = await browser.tabs.create({ windowId, index, active: false });
+                        const newNodeId = this.get_tab_id(newTab.id!);
+                        const node = this._set_tab(newNodeId, newTab, "window");
+                        node.parentId = parentId;
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
-                        const { url, windowId, index, parentId } = message.payload;
-                        const newTab = await browser.tabs.create({ url, windowId, index, active: false });
-                        if (parentId) {
-                            const newNodeId = this.get_tab_id(newTab.id!);
-                            const newNode = this.tree.get(newNodeId)! as any;
-                            newNode.parentId = parentId;
-                        }
+                        const { url, windowId, parentId } = message.payload;
+
+                        const orderedTabs = this._getOrderedTabList(windowId);
+                        const lastDescendantId = this._getSubtree(parentId).pop()!;
+                        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
+                        const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
+                        const newTab = await browser.tabs.create({ windowId, index, active: false });
+                        const newNodeId = this.get_tab_id(newTab.id!);
+                        const node = this._set_tab(newNodeId, newTab, "window");
+                        node.parentId = parentId;
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;
@@ -787,29 +797,16 @@ class App {
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
-                        let index: number | undefined;
-
-                        const parentNode = this.tree.get(parentId);
-                        if (parentNode && parentNode.type !== 'window') {
-                            const orderedTabs = this._getOrderedTabList(windowId);
-                            const subtreeIds = new Set(this._getSubtree(parentId));
-
-                            let lastDescendantBrowserIndex = -1;
-                            for (let i = orderedTabs.length - 1; i >= 0; i--) {
-                                if (subtreeIds.has(orderedTabs[i])) {
-                                    lastDescendantBrowserIndex = i;
-                                    break;
-                                }
-                            }
-
-                            if (lastDescendantBrowserIndex !== -1) {
-                                index = lastDescendantBrowserIndex + 1;
-                            }
-                        }
 
                         const newNodeId = this.bruhid++;
-                        const newName = this.getOrGenerateGroupName(newNodeId);
-                        const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}&name=${encodeURIComponent(newName)}`);
+                        let _ = this.getOrGenerateGroupName(newNodeId);
+                        const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
+
+                        const orderedTabs = this._getOrderedTabList(windowId);
+                        const lastDescendantId = this._getSubtree(parentId).pop()!;
+                        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
+                        const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
+
 
                         const groupTab = await browser.tabs.create({
                             windowId,
@@ -817,8 +814,6 @@ class App {
                             url,
                             active: false,
                         });
-                        this.tab_id_map.set(groupTab.id!, newNodeId);
-
                         const newNode = this._set_tab(newNodeId, groupTab, "window");
                         newNode.parentId = parentId;
                     } break;
@@ -828,11 +823,6 @@ class App {
                         if (node && (node.type === 'group' || node.type === 'window')) {
                             node.title = newName;
                             this.groupNames.set(node.id, newName);
-                            if (node.type === 'group' && node.tid) {
-                                const newUrl = browser.runtime.getURL(`overview.html?view=group&id=${node.id}&name=${encodeURIComponent(newName)}`);
-                                await browser.tabs.update(node.tid, { url: newUrl });
-                                node.url = newUrl;
-                            }
                         }
                     } break;
                     default:

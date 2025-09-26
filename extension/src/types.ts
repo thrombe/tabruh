@@ -86,15 +86,15 @@ type ActionPayloads = {
     'UNLOAD_TREE': { nodeId: BruhId };
     'LOAD_TREE': { nodeId: BruhId };
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootNodeId: BruhId };
-    'CREATE_TAB': { windowId: WindowId };
-    'CREATE_TAB_FROM_URL': { url: string; windowId: WindowId; index?: number; parentId?: BruhId };
+    'CREATE_TAB': { windowId: WindowId, parentId: BruhId };
+    'CREATE_TAB_FROM_URL': { url: string; windowId: WindowId; parentId: BruhId };
     'RENAME_WINDOW': { windowId: WindowId; newName: string };
     'CLOSE_WINDOW': { windowId: WindowId };
     'RESTORE_WINDOW': { windowId: WindowId };
     'DELETE_WINDOW_STATE': { windowId: WindowId };
     'FLATTEN_IMMEDIATE': { nodeId: BruhId };
     'FLATTEN_TREE': { nodeId: BruhId };
-    'CREATE_GROUP': { windowId: WindowId, parentId: BruhId, index?: number };
+    'CREATE_GROUP': { windowId: WindowId, parentId: BruhId };
     'RENAME_NODE': { nodeId: BruhId, newName: string };
 };
 

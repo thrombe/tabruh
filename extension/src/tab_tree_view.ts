@@ -221,7 +221,7 @@ export class TabTreeView {
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id } });
             }
         });
 
@@ -365,9 +365,10 @@ export class TabTreeView {
         button.className = 'add-tab-button';
         button.textContent = '+';
         button.addEventListener('click', () => {
-            if (state.windowId) {
-                this.sendMessage({ type: 'CREATE_TAB', payload: { windowId: state.windowId } });
-            }
+            this.sendMessage({
+                type: 'CREATE_TAB',
+                payload: { windowId: state.windowId, parentId: state.id }
+            });
         });
 
         button.addEventListener('dragover', (event) => {
@@ -391,11 +392,20 @@ export class TabTreeView {
                 if (!dragDataStr) return;
                 const dragData: DragData = JSON.parse(dragDataStr);
                 this.currentDragData = null;
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: state.id, action: 'root', targetWindowId: state.windowId } });
+
+                this.sendMessage({
+                    type: 'HANDLE_DROP', payload: {
+                        dragData,
+                        targetNodeId: state.id,
+                        action: this.viewType == "group" ? 'inside' : 'root',
+                        targetWindowId: state.windowId,
+                    }
+                });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, index: -1 } });
+
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id } });
             }
         });
         return button;
