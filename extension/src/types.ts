@@ -134,14 +134,12 @@ type ResponsePayloads = {
     'STATE_UPDATE': { state: UiStateForRender; };
     'ALL_STATES_UPDATE': { states: UiStateForRender[] };
     'RENDER_ALL': {};
-    'STATE_REMOVED': { windowId: WindowId };
 };
 
 export type BackgroundResponse =
     | { type: 'STATE_UPDATE'; payload: ResponsePayloads['STATE_UPDATE'] }
     | { type: 'ALL_STATES_UPDATE'; payload: ResponsePayloads['ALL_STATES_UPDATE'] }
     | { type: 'RENDER_ALL'; payload: ResponsePayloads['RENDER_ALL'] }
-    | { type: 'STATE_REMOVED'; payload: ResponsePayloads['STATE_REMOVED'] };
 
 export type BrowserEvent =
     | { type: 'tabCreated', payload: browser.Tabs.Tab }

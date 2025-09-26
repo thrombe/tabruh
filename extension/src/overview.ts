@@ -6,7 +6,7 @@ import type { BackgroundRequest, BackgroundResponse, UiStateForRender } from './
 class OverviewPage {
     private port: browser.Runtime.Port;
     private container: HTMLElement;
-    private views: Map<string, TabTreeView> = new Map();
+    private views: Map<number, TabTreeView> = new Map();
     private viewMode: 'overview' | 'group' = 'overview';
     private groupViewNodeId?: number;
 
@@ -88,20 +88,12 @@ class OverviewPage {
         if (!view) {
             const windowViewWrapper = document.createElement('div');
             windowViewWrapper.className = 'window-view';
-            windowViewWrapper.dataset.stateId = state.id;
+            windowViewWrapper.dataset.stateId = state.id.toString();
             this.container.appendChild(windowViewWrapper);
             view = new TabTreeView(windowViewWrapper, this.port);
             this.views.set(state.id, view);
         }
         view.render(state);
-    }
-
-    private removeStateView(stateId: string) {
-        if (this.views.has(stateId)) {
-            const wrapper = this.container.querySelector(`[data-state-id='${stateId}']`);
-            wrapper?.remove();
-            this.views.delete(stateId);
-        }
     }
 
     private handleMessage(message: BackgroundResponse) {
@@ -121,12 +113,6 @@ class OverviewPage {
             }
             case 'RENDER_ALL': {
                 this.requestInitialState();
-                break;
-            }
-            case 'STATE_REMOVED': {
-                if (this.viewMode === 'overview') {
-                    this.removeStateView(message.payload.stateId);
-                }
                 break;
             }
         }
