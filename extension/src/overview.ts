@@ -134,6 +134,10 @@ class OverviewPage {
                 if (this.viewMode === 'group') {
                     document.title = message.payload.state.name;
                     this.renderGroupLayout(message.payload.state);
+                } else {
+                    // This can happen if a RENAME action triggers a RENDER_ALL, but the background only sends a STATE_UPDATE for the affected window.
+                    // To ensure correct sorting, we should just refresh everything.
+                    this.requestInitialState();
                 }
                 break;
             }
