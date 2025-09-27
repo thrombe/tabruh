@@ -25,6 +25,7 @@ class App {
     windows: Map<WindowId, BruhWindow> = new Map();
     tab_id_map: Map<TabId, BruhId> = new Map();
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
+    closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -444,14 +445,20 @@ class App {
             } break;
             case 'tabRemoved': {
                 let e = event.payload;
-                const bruhId = this.tab_id_map.get(e.tabId);
-                if (bruhId) {
-                    this.groupAttrs.delete(bruhId);
-                    this.tree.delete(bruhId);
-                }
-                this.tab_id_map.delete(e.tabId);
 
-                if (!e.removeInfo.isWindowClosing) {
+                if (e.removeInfo.isWindowClosing) {
+                    if (!this.closing_window_tabs.has(e.removeInfo.windowId)) {
+                        this.closing_window_tabs.set(e.removeInfo.windowId, new Set());
+                    }
+                    this.closing_window_tabs.get(e.removeInfo.windowId)!.add(e.tabId);
+                } else {
+                    const bruhId = this.tab_id_map.get(e.tabId);
+                    if (bruhId) {
+                        this.groupAttrs.delete(bruhId);
+                        this.tree.delete(bruhId);
+                    }
+                    this.tab_id_map.delete(e.tabId);
+
                     const w = this.windows.get(e.removeInfo.windowId);
                     if (w) {
                         try {
@@ -539,12 +546,33 @@ class App {
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
-                const win = this.windows.get(wid);
-                if (win) {
-                    this.tree.delete(win.id);
-                    this.groupAttrs.delete(win.id);
-                    this.windows.delete(wid);
+                const win = this.windows.get(wid)!;
+
+                // when the only tab on a window closes, you can't tell the difference between window close vs tab close.
+                //  so what we can do here is - treat single tab window closes as non restorable closes.
+                //  just keep track of all closed tabs for that window with .isWindowClosing on tabRemoved
+                //  and check how many items it has on windowRemoved
+                if (this.closing_window_tabs.has(wid)) {
+                    const tabs = this.closing_window_tabs.get(wid)!;
+                    if (tabs.size <= 1) {
+                        this.closing_window_tabs.delete(wid);
+                        for (let tid of tabs) {
+                            let tbid = this.tab_id_map.get(tid);
+                            if (tbid) {
+                                this.groupAttrs.delete(tbid);
+                                this.tab_id_map.delete(tid);
+                                this.tree.delete(tbid);
+                            }
+                        }
+                    } else {
+                        // don't delete window stuff
+                        return;
+                    }
                 }
+
+                this.tree.delete(win.id);
+                this.groupAttrs.delete(win.id);
+                this.windows.delete(wid);
             } break;
             case 'portMessage': {
                 let port = event.payload.port;
