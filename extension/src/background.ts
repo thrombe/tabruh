@@ -151,6 +151,7 @@ class App {
                 id: id,
                 wid: wid,
                 tabs: w.tabs ?? [],
+                closed: false,
             });
             const attrs = this.getOrGenerateGroupAttrs(id, creationTime++);
             tree.set(id, {
@@ -439,6 +440,7 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
+                    closed: false,
                 });
 
                 this._set_tab(tbid, t, "old");
@@ -485,6 +487,7 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
+                    closed: false,
                 });
             } break;
             case 'tabMoved': {
@@ -496,6 +499,7 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
+                    closed: false,
                 });
             } break;
             case 'tabAttached': {
@@ -507,6 +511,7 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
+                    closed: false,
                 });
             } break;
             case 'tabDetached': {
@@ -540,6 +545,7 @@ class App {
                     id: wbid,
                     wid: wid,
                     tabs: nw.tabs ?? [],
+                    closed: false,
                 });
                 const attrs = this.getOrGenerateGroupAttrs(wbid, Date.now());
                 this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: attrs.name });
@@ -565,7 +571,8 @@ class App {
                             }
                         }
                     } else {
-                        // don't delete window stuff
+                        // mark deleted and done
+                        win.closed = true;
                         return;
                     }
                 }
@@ -743,6 +750,7 @@ class App {
                             id: wbid,
                             wid: wid,
                             tabs: [],
+                            closed: false,
                         });
                         this.groupAttrs.set(wbid, newAttrs);
                         this.tree.set(wbid, { type: 'window', id: wbid, wid: wid, title: newAttrs.name });
@@ -807,7 +815,15 @@ class App {
                         // This needs a proper implementation for handling closed states, which are currently not stored.
                     } break;
                     case 'DELETE_WINDOW_STATE': {
-                        await browser.windows.remove(message.payload.windowId);
+                        const wid = message.payload.windowId;
+                        const win = this.windows.get(wid)!;
+                        if (win.closed) {
+                            this.windows.delete(win.wid);
+                            this.tree.delete(win.id);
+                            this.groupAttrs.delete(win.id);
+                        } else {
+                            await browser.windows.remove(message.payload.windowId);
+                        }
                     } break;
                     case 'FLATTEN_IMMEDIATE': {
                         const node = this.tree.get(message.payload.nodeId);
