@@ -87,7 +87,7 @@ class OverviewPage {
             if (a.isCustomNamed !== b.isCustomNamed) {
                 return a.isCustomNamed ? -1 : 1;
             }
-            return a.creationTimestamp - b.creationTimestamp;
+            return a.generation - b.generation;
         });
     }
 
