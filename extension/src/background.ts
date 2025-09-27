@@ -15,7 +15,7 @@ import type {
     BruhId,
 } from './types'; import * as utils from './utils';
 
-type GroupAttrs = { name: string; ctime: number; isCustomNamed: boolean; };
+type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -33,7 +33,7 @@ class App {
 
     static async init() {
         let self = new App();
-        self.tree = await self.get_tree();
+        await self.init_tree();
         return self;
     }
 
@@ -96,131 +96,166 @@ class App {
         return name;
     }
 
-    private getOrGenerateGroupAttrs(id: BruhId, ctime?: number, preferredName?: string): GroupAttrs {
+    private getOrGenerateGroupAttrs(id: BruhId, generation?: number, preferredName?: string): GroupAttrs {
         if (this.groupAttrs.has(id)) {
             return this.groupAttrs.get(id)!;
         }
 
         const newAttrs: GroupAttrs = {
             name: preferredName || this.generateUniqueGroupName(),
-            ctime: ctime || Date.now(),
+            generation: generation || id,
             isCustomNamed: !!preferredName,
         };
         this.groupAttrs.set(id, newAttrs);
         return newAttrs;
     }
 
-    get_tab_id(tid: TabId): BruhId;
-    get_tab_id(tid: TabId | undefined): BruhId | undefined;
-    get_tab_id(tid: TabId | undefined): BruhId | undefined {
-        if (tid === undefined) return undefined;
-        let tab = this.tabs.get(tid);
-        if (tab) {
-            return tab.id;
+    get_tab(tid: TabId): { tab: BruhTab, node: Node & { type: "tab" | "group" } } {
+        const tab = this.tabs.get(tid);
+        if (!tab) throw Error(`tab with tid ${tid} does not exist`);
+        const node = this.tree.get(tab.id);
+        if (!node) throw Error(`tab(${tid}) node with bid ${tab.id} does not exist`);
+        // @ts-ignore
+        return { tab, node: node };
+    }
+
+    get_window(wid: WindowId): { win: BruhWindow, node: Node & { type: "window" } } {
+        const win = this.windows.get(wid);
+        if (!win) throw Error(`window with wid: ${wid} does not exist`);
+        const node = this.tree.get(win.id);
+        if (!node) throw Error(`window(${wid}) node with bid ${win.id} does not exist`);
+        // @ts-ignore
+        return { win, node: this.tree.get(win.id) };
+    }
+
+    get_node(bid: BruhId): { node: Node & { type: "window" }, win: BruhWindow } | { node: Node & { type: "tab" | "group" }, tab: BruhTab } {
+        const node = this.tree.get(bid);
+        if (!node) throw Error(`node with bid ${bid} does not exist`);
+        if (node.type == "window") {
+            return this.get_window(node.wid);
         } else {
-            const bid = this.bruhid++;
-            this.tabs.set(tid, { id: bid, tid: tid, closed: false });
-            return bid;
+            return this.get_tab(node.tid);
         }
     }
 
-    get_window_id(wid: WindowId): BruhId;
-    get_window_id(wid: WindowId | undefined): BruhId | undefined;
-    get_window_id(wid: WindowId | undefined): BruhId | undefined {
-        if (wid === undefined) return undefined;
-        let w = this.windows.get(wid);
-        if (w) return w.id;
-        const bid = this.bruhid++;
-        return bid;
+    save_tab(tab: browser.Tabs.Tab, parent: "window" | "opener"): { tab: BruhTab, node: Node & { type: "tab" | "group" } } {
+        if (tab.id === undefined || tab.windowId === undefined) throw Error(`tab does not have an id or windowId? ${tab.title}`);
+        const old = this.tabs.get(tab.id);
+        if (old) {
+            old.wid = tab.windowId;
+            return this.get_tab(old.tid);
+        } else {
+            const new_tab = {
+                id: this.bruhid++,
+                tid: tab.id,
+                wid: tab.windowId,
+                closed: false,
+            };
+            this.tabs.set(tab.id, new_tab);
+
+            const isGroup = this._isGroupTab(tab);
+
+            let title: string;
+            if (isGroup) {
+                title = this.getOrGenerateGroupAttrs(new_tab.id).name;
+            } else {
+                title = tab.title ?? "Untitled";
+            }
+
+            const w = this.windows.get(tab.windowId!)!;
+            let pid: BruhId;
+            if (parent === "opener" && tab.openerTabId !== undefined) {
+                const openerTab = this.get_tab(tab.openerTabId);
+                pid = openerTab.tab.id;
+            } else {
+                pid = w.id;
+            }
+
+            const node = {
+                id: new_tab.id,
+                title: title,
+                favIconUrl: tab.favIconUrl,
+                type: isGroup ? "group" : "tab",
+                tid: tab.id,
+                url: tab.url ?? "",
+                parentId: pid,
+                collapsed: false,
+            } as Node;
+            this.tree.set(new_tab.id, node);
+            return {
+                tab: new_tab,
+                // @ts-ignore
+                node: node,
+            };
+        }
     }
 
-    remove_tab() {
+    save_window(win: browser.Windows.Window): { win: BruhWindow, node: Node & { type: "window" } } {
+        if (win.id === undefined) throw Error(`window does not have id :/`);
+        const old = this.windows.get(win.id);
+        if (old) {
+            old.tabs = win.tabs ?? [];
+            return this.get_window(old.wid);
+        } else {
+            const new_window = {
+                id: this.bruhid++,
+                wid: win.id,
+                tabs: win.tabs ?? [],
+                closed: false,
+            };
+            this.windows.set(win.id, new_window);
 
+            const new_node = {
+                id: new_window.id,
+                title: this.getOrGenerateGroupAttrs(new_window.id).name,
+                type: "window",
+                wid: win.id,
+            } as Node;
+            this.tree.set(new_window.id, new_node);
+            return {
+                win: new_window,
+                // @ts-ignore
+                node: new_node,
+            };
+        }
     }
 
-    remove_window() {
-
+    remove_tab(tid: TabId) {
+        const tab = this.get_tab(tid);
+        this.groupAttrs.delete(tab.tab.id);
+        this.tree.delete(tab.tab.id);
+        this.tabs.delete(tab.tab.tid);
     }
 
-    async get_tree() {
-        let tree: NodeTree = new Map();
-        let creationTime = Date.now();
+    remove_window(wid: WindowId) {
+        const win = this.get_window(wid);
+        this.groupAttrs.delete(win.win.id);
+        this.tree.delete(win.win.id);
+        this.windows.delete(win.win.wid);
+    }
+
+    async init_tree() {
         let windows = await browser.windows.getAll({ windowTypes: ["normal"], populate: true });
         for (let w of windows) {
-            const id = this.get_window_id(w.id);
-            if (!id) continue;
-            const wid = w.id!;
-            this.windows.set(wid, {
-                id: id,
-                wid: wid,
-                tabs: w.tabs ?? [],
-                closed: false,
-            });
-            const attrs = this.getOrGenerateGroupAttrs(id, creationTime++);
-            tree.set(id, {
-                type: "window",
-                id: id,
-                title: attrs.name,
-                wid: wid,
-            });
+            const _ = this.save_window(w);
         }
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                let _ = this.get_tab_id(t.id);
+                // opener might not be present yet. so parent is set to "window"
+                let _ = this.save_tab(t, "window");
             }
         }
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                const id = this.get_tab_id(t.id);
-                if (!id || !this.get_window_id(t.windowId)) continue;
-                this._set_tab(id, t, "opener", tree);
+                const tab = this.get_tab(t.id!);
+                if (t.openerTabId !== undefined) {
+                    const opener = this.get_tab(t.openerTabId);
+                    tab.node.parentId = opener.node.id;
+                }
             }
         }
-
-        return tree;
-    }
-
-    _set_tab(id: BruhId, tab: browser.Tabs.Tab, parent: "window" | "old" | "opener", tree: NodeTree | undefined = undefined) {
-        const targetTree = tree ?? this.tree;
-        const old = this.tree.get(id) as (Node & ({ type: "tab" } | { type: "group" })) | undefined;
-        const isGroup = this._isGroupTab(tab);
-
-        let title: string;
-        if (isGroup) {
-            title = this.getOrGenerateGroupAttrs(id).name;
-        } else {
-            title = tab.title ?? "Untitled";
-        }
-
-        const w = this.windows.get(tab.windowId!)!;
-        let pid: BruhId;
-        if (parent === "old" && old) {
-            pid = old.parentId;
-        } else if (parent === "window") {
-            pid = w.id;
-        } else { // opener
-            const openerBruhId = this.get_tab_id(tab.openerTabId);
-            const openerNode = openerBruhId ? this.tree.get(openerBruhId) : undefined;
-            const openerTab = w.tabs.find(t => t.id === tab.openerTabId);
-            pid = openerBruhId && openerNode && openerTab ? openerBruhId : w.id;
-        }
-
-        this.tab_id_map.set(tab.id!, id);
-
-        targetTree.set(id, {
-            type: isGroup ? "group" : "tab",
-            id: id,
-            tid: tab.id!,
-            url: tab.url!,
-            title: title,
-            favIconUrl: tab.favIconUrl,
-            parentId: pid,
-            collapsed: old?.collapsed ?? false,
-        });
-
-        return targetTree.get(id)! as Node & ({ type: "tab" } | { type: "group" });
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
@@ -262,12 +297,8 @@ class App {
     private _getChildrenMap(): Map<BruhId, BruhId[]> {
         const map = new Map<BruhId, BruhId[]>();
         for (const [_, w] of this.windows) {
-            for (const tid of w.tabs) {
-                const tbid = this.get_tab_id(tid.id);
-                if (!tbid) continue;
-
-                const node = this.tree.get(tbid);
-                if (!node || node.type === 'window') continue;
+            for (const t of w.tabs) {
+                const node = this.get_tab(t.id!).node;
 
                 if (!map.has(node.parentId)) {
                     map.set(node.parentId, []);
@@ -279,10 +310,7 @@ class App {
     }
 
     private _getOrderedTabList(windowId: WindowId): BruhId[] {
-        const win = this.windows.get(windowId);
-        if (!win) return [];
-
-        return win.tabs.map(t => this.get_tab_id(t.id!));
+        return this.get_window(windowId).win.tabs.map(t => this.get_tab(t.id!).node.id);
     }
 
 

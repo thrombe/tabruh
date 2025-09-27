@@ -10,17 +10,18 @@ export type BruhId = number;
 export type Node = {
     id: BruhId
     title: string;
-    favIconUrl?: string;
 } & ({
     type: "tab",
     tid: TabId,
     url: string;
+    favIconUrl?: string;
     parentId: BruhId;
     collapsed: boolean,
 } | {
     type: "group",
-    tid?: TabId,
+    tid: TabId,
     url: string,
+    favIconUrl?: string;
     parentId: BruhId,
     collapsed: boolean,
 } | {
@@ -31,6 +32,7 @@ export type Node = {
 export type BruhTab = {
     id: BruhId,
     tid: TabId,
+    wid: WindowId,
     closed: boolean,
 };
 
