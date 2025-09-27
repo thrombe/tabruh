@@ -33,6 +33,9 @@ export type BruhTab = {
     id: BruhId,
     tid: TabId,
     wid: WindowId,
+    index: number,
+    discarded: boolean,
+    active: boolean,
     closed: boolean,
 };
 
@@ -61,9 +64,9 @@ export type UiStateForRender = {
     name: string;
     isCustomNamed: boolean;
     isClosed: boolean;
-    creationTimestamp: number;
+    generation: number;
     tree: Map<BruhId, UiNode>;
-    tabsById: Map<TabId, browser.Tabs.Tab>;
+    tabsById: Map<TabId, BruhTab>;
     rootIds: BruhId[];
 };
 
