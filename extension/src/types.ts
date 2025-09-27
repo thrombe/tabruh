@@ -28,9 +28,16 @@ export type Node = {
     wid: WindowId,
 });
 
+export type BruhTab = {
+    id: BruhId,
+    tid: TabId,
+    closed: boolean,
+};
+
 export type BruhWindow = {
     id: BruhId,
     wid: WindowId,
+    closed: boolean,
     tabs: browser.Tabs.Tab[],
 };
 
@@ -150,7 +157,8 @@ export type BrowserEvent =
     | { type: 'tabDetached', payload: { tabId: TabId, detachInfo: browser.Tabs.OnDetachedDetachInfoType } }
     | { type: 'tabActivated', payload: browser.Tabs.OnActivatedActiveInfoType }
     | { type: 'windowCreated', payload: browser.Windows.Window }
-    | { type: 'windowRemoved', payload: WindowId };
+    | { type: 'windowRemoved', payload: WindowId }
+    | { type: 'windowFocusChanged', payload: WindowId };
 
 export type PortMessageEvent = {
     type: 'portMessage',

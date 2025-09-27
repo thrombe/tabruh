@@ -9,6 +9,7 @@ import type {
     TabId,
     UiNode,
     UiStateForRender,
+    BruhTab,
     BruhWindow,
     WindowId,
     BruhId,
@@ -23,7 +24,7 @@ class App {
     bruhid: BruhId = 1;
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
-    tab_id_map: Map<TabId, BruhId> = new Map();
+    tabs: Map<TabId, BruhTab> = new Map();
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
 
@@ -50,41 +51,35 @@ class App {
                 this.ports.delete(port);
             });
         });
-
         browser.tabs.onCreated.addListener(async (tab) => {
             let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
         });
-
         browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
         });
-
         browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
         });
-
         browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
         });
-
         browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
         });
-
         browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
         });
-
         browser.tabs.onActivated.addListener(async (activeInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
         });
-
         browser.windows.onCreated.addListener(async (win) => {
             let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
         });
-
         browser.windows.onRemoved.addListener(async (windowId) => {
             let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
+        });
+        browser.windows.onFocusChanged.addListener(async (windowId) => {
+            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
         });
     }
 
@@ -119,13 +114,13 @@ class App {
     get_tab_id(tid: TabId | undefined): BruhId | undefined;
     get_tab_id(tid: TabId | undefined): BruhId | undefined {
         if (tid === undefined) return undefined;
-        let id = this.tab_id_map.get(tid);
-        if (id == undefined) {
-            const bid = this.bruhid++;
-            this.tab_id_map.set(tid, bid);
-            return bid;
+        let tab = this.tabs.get(tid);
+        if (tab) {
+            return tab.id;
         } else {
-            return id;
+            const bid = this.bruhid++;
+            this.tabs.set(tid, { id: bid, tid: tid, closed: false });
+            return bid;
         }
     }
 
@@ -137,6 +132,14 @@ class App {
         if (w) return w.id;
         const bid = this.bruhid++;
         return bid;
+    }
+
+    remove_tab() {
+
+    }
+
+    remove_window() {
+
     }
 
     async get_tree() {
@@ -934,61 +937,6 @@ async function main() {
                 url: browser.runtime.getURL("overview.html"),
             });
         }
-    });
-
-    browser.tabs.onActivated.addListener(async tab => {
-        // console.log("tab activated");
-        // console.log(tab);
-        // console.log(await browser.windows.get(tab.windowId));
-        // console.log(await browser.tabs.get(tab.previousTabId ?? 0));
-        // console.log(await browser.tabs.get(tab.tabId));
-
-        // console.log(await browser.tabs.update(tab.tabId, { active: true }));
-        // console.log(await browser.tabs.discard(tab.previousTabId ?? 0));
-    });
-    browser.tabs.onCreated.addListener(async tab => {
-        // console.log("tab created");
-        // console.log(tab);
-        // console.log(await browser.tabs.get(tab.openerTabId ?? 0));
-    });
-    browser.tabs.onUpdated.addListener(async id => {
-        // let tab = await browser.tabs.get(id);
-        // console.log("tab updated ", id, tab.status);
-        // console.log(tab);
-        // if (tab.status == "complete" && !tab.discarded && !tab.active) {
-        //     console.log("switch to " + tab.id);
-        //     console.log(await browser.tabs.update(tab.id, { active: true }));
-
-        //     if (tab.openerTabId) {
-        //         console.log("discard " + tab.openerTabId);
-        //         await browser.tabs.discard(tab.openerTabId);
-        //     }
-        // }
-    });
-
-    // Monitor completed navigation events and update
-    // stats accordingly.
-    browser.webNavigation.onCommitted.addListener(async (evt) => {
-        // if (evt.frameId !== 0) {
-        //     return;
-        // }
-        // console.log(await browser.tabs.query({ currentWindow: true }));
-
-        // console.log("new tab?")
-
-        // let transitionType = evt.transitionType;
-    });
-
-    browser.webNavigation.onCompleted.addListener(evt => {
-        // Filter out any sub-frame related navigation event
-        // if (evt.frameId !== 0) {
-        //     return;
-        // }
-
-        // const url = new URL(evt.url);
-        // console.log(url);
-    }, {
-        url: [{ schemes: ["http", "https"] }]
     });
 }
 
