@@ -168,7 +168,7 @@ class App {
         node.title = title;
     }
 
-    save_tab(tab: browser.Tabs.Tab, parent: "window" | "opener", id: BruhId | undefined = undefined): Readonly<BruhTab & Extract<Node, { type: "tab" | "group" }>> {
+    save_tab(tab: browser.Tabs.Tab, parent: "window" | "opener", options: { id?: BruhId, forceIsGroup?: boolean } = {}): Readonly<BruhTab & Extract<Node, { type: "tab" | "group" }>> {
         if (tab.id === undefined || tab.windowId === undefined) throw Error(`tab does not have an id or windowId? ${tab.title}`);
         const old = this.tabs.get(tab.id);
         if (old) {
@@ -183,7 +183,7 @@ class App {
             return this.get_tab(old.tid);
         } else {
             const new_tab = {
-                id: id !== undefined ? id : this.bruhid++,
+                id: options.id !== undefined ? options.id : this.bruhid++,
                 tid: tab.id,
                 wid: tab.windowId,
                 index: tab.index,
@@ -193,7 +193,7 @@ class App {
             };
             this.tabs.set(tab.id, new_tab);
 
-            const isGroup = this._isGroupTab(tab);
+            const isGroup = options.forceIsGroup || this._isGroupTab(tab);
 
             let title: string;
             if (isGroup) {
@@ -296,14 +296,15 @@ class App {
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
+        if (!tab.url) return false;
         try {
-            if (!tab.url) return false;
             const url = new URL(tab.url);
             return url.protocol === 'moz-extension:' &&
                 url.pathname.endsWith('/overview.html') &&
                 url.searchParams.has('view') &&
                 url.searchParams.get('view') === 'group';
         } catch (e) {
+            // URL constructor failed, likely not a valid/standard URL (e.g., about:blank, internal UUIDs)
             return false;
         }
     }
@@ -643,7 +644,7 @@ class App {
                             this.groupAttrs.set(newNodeId, { ...oldAttrs });
                             const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
                             const groupTab = await browser.tabs.create({ windowId: targetWindowId, index, url, active: false });
-                            const groupNode = this.save_tab(groupTab, "window", newNodeId);
+                            const groupNode = this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                             this.set_parent(groupNode.id, newParentId);
                             newParentId = groupNode.id;
                             index += 1;
@@ -689,11 +690,12 @@ class App {
                     case 'DUPLICATE_TAB_SMART': {
                         const node = this.get_node(message.payload.nodeId);
                         if (node.type === 'window') return;
+                        const isDuplicatingGroup = node.type === 'group';
                         const newTab = await browser.tabs.create({
                             windowId: node.wid, url: node.url, active: false,
                             index: message.payload.tabIndex,
                         });
-                        const newNode = this.save_tab(newTab, "window");
+                        const newNode = this.save_tab(newTab, "window", { forceIsGroup: isDuplicatingGroup });
                         this.set_parent(newNode.id, node.parentId);
                     } break;
                     case 'UNLOAD_TAB': {
@@ -812,7 +814,7 @@ class App {
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const groupTab = await browser.tabs.create({ windowId, index, url, active: false });
-                        const newNode = this.save_tab(groupTab, "window", newNodeId);
+                        const newNode = this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                         this.set_parent(newNode.id, parentId);
                     } break;
                     case 'RENAME_NODE': {
