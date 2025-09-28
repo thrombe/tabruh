@@ -27,6 +27,8 @@ class App {
     tabs: Map<TabId, BruhTab> = new Map();
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
+    restoring_tab_ids: Set<TabId> = new Set();
+    restoring_window_ids: Set<WindowId> = new Set();
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -489,6 +491,10 @@ class App {
         switch (event.type) {
             case 'tabCreated': {
                 const t = event.payload;
+                if (this.restoring_tab_ids.has(t.id!)) {
+                    this.restoring_tab_ids.delete(t.id!);
+                    return;
+                }
                 const win = await browser.windows.get(t.windowId!, { populate: true });
                 this.save_window(win);
                 this.save_tab(t, "opener");
@@ -548,8 +554,12 @@ class App {
                 }
             } break;
             case 'windowCreated': {
-                const win = await browser.windows.get(event.payload.id!, { populate: true });
-                this.save_window(win);
+                const bwin = event.payload;
+                if (this.restoring_window_ids.has(bwin.id!)) {
+                    this.restoring_window_ids.delete(bwin.id!);
+                    return;
+                }
+                this.save_window(bwin);
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
@@ -774,7 +784,51 @@ class App {
                         await browser.windows.remove(message.payload.windowId);
                     } break;
                     case 'RESTORE_WINDOW': {
-                        // TODO:
+                        const wid = message.payload.windowId;
+
+                        let old_to_new = new Map();
+                        const win = this.get_window(wid);
+                        const tabs = [...win.tabs];
+                        const win_attrs = this.groupAttrs.get(win.id)!;
+                        this.remove_window(win.wid);
+
+                        const new_bwin = await browser.windows.create({});
+                        const extra_tab = new_bwin.tabs![0]!;
+                        // this.restoring_tab_ids.add(extra_tab.id!);
+                        const new_win = this.save_window(new_bwin);
+                        this.groupAttrs.set(new_win.id, win_attrs);
+                        this.restoring_window_ids.add(new_win.wid);
+                        old_to_new.set(win.id, new_win.id);
+
+                        for (const btab of tabs) {
+                            const tab = this.get_tab(btab.id!);
+                            const attrs = this.groupAttrs.get(tab.id);
+                            this.remove_tab(tab.tid);
+
+                            const new_btab = await browser.tabs.create({
+                                windowId: new_win.wid,
+                                url: tab.url,
+                                index: tab.index,
+                                active: tab.active,
+                                discarded: !tab.active,
+                                // title can only be set for discarded tabs
+                                title: !tab.active ? tab.title : undefined,
+                            });
+                            const new_tab = this.save_tab(new_btab, "window", { forceIsGroup: tab.type == "group" });
+                            this.restoring_tab_ids.add(new_tab.tid);
+                            old_to_new.set(tab.id, new_tab.id);
+
+                            this.set_collapsed(new_tab.id, tab.collapsed);
+                            this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!);
+                            const new_tab_node = this.tree.get(new_tab.id)! as Node & { type: "tab" | "group" };
+                            new_tab_node.favIconUrl = tab.favIconUrl;
+                            if (attrs) {
+                                this.groupAttrs.set(new_tab.id, attrs);
+                            }
+                        }
+
+                        await browser.tabs.remove(extra_tab.id!);
+                        console.log(this.tree);
                     } break;
                     case 'DELETE_WINDOW_STATE': {
                         const wid = message.payload.windowId;
