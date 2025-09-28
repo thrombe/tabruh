@@ -794,7 +794,6 @@ class App {
 
                         const new_bwin = await browser.windows.create({});
                         const extra_tab = new_bwin.tabs![0]!;
-                        // this.restoring_tab_ids.add(extra_tab.id!);
                         const new_win = this.save_window(new_bwin);
                         this.groupAttrs.set(new_win.id, win_attrs);
                         this.restoring_window_ids.add(new_win.wid);
@@ -809,10 +808,10 @@ class App {
                                 windowId: new_win.wid,
                                 url: tab.url,
                                 index: tab.index,
-                                active: tab.active,
-                                discarded: !tab.active,
+                                active: false,
+                                discarded: true,
                                 // title can only be set for discarded tabs
-                                title: !tab.active ? tab.title : undefined,
+                                title: tab.title,
                             });
                             const new_tab = this.save_tab(new_btab, "window", { forceIsGroup: tab.type == "group" });
                             this.restoring_tab_ids.add(new_tab.tid);
@@ -825,10 +824,16 @@ class App {
                             if (attrs) {
                                 this.groupAttrs.set(new_tab.id, attrs);
                             }
+
+                            if (tab.active) {
+                                // NOTE: idk why uncommenting this line ruins everything
+                                //   but luckily everything works out nicely because on removing this extra tab, the last opened tab (i.e. new_tab)
+                                //   becomes active automatically
+                                // await browser.tabs.update(new_tab.tid, { active: true });
+                                await browser.tabs.remove(extra_tab.id!);
+                            }
                         }
 
-                        await browser.tabs.remove(extra_tab.id!);
-                        console.log(this.tree);
                     } break;
                     case 'DELETE_WINDOW_STATE': {
                         const wid = message.payload.windowId;
