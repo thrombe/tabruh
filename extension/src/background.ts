@@ -28,7 +28,6 @@ class App {
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
-    restoring_window_ids: Set<WindowId> = new Set();
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -181,7 +180,7 @@ class App {
             const node = this.tree.get(old.id) as Extract<Node, { type: "tab" | "group" }>;
             node.title = tab.title ?? node.title;
             node.url = tab.url ?? node.url;
-            node.favIconUrl = tab.favIconUrl;
+            node.favIconUrl = tab.favIconUrl ?? node.favIconUrl;
             return this.get_tab(old.tid);
         } else {
             const new_tab = {
@@ -554,11 +553,8 @@ class App {
                 }
             } break;
             case 'windowCreated': {
-                const bwin = event.payload;
-                if (this.restoring_window_ids.has(bwin.id!)) {
-                    this.restoring_window_ids.delete(bwin.id!);
-                    return;
-                }
+                // fetch the latest state (even though we get the Window object here)
+                const bwin = await browser.windows.get(event.payload.id!);
                 this.save_window(bwin);
             } break;
             case 'windowRemoved': {
@@ -796,7 +792,6 @@ class App {
                         const extra_tab = new_bwin.tabs![0]!;
                         const new_win = this.save_window(new_bwin);
                         this.groupAttrs.set(new_win.id, win_attrs);
-                        this.restoring_window_ids.add(new_win.wid);
                         old_to_new.set(win.id, new_win.id);
 
                         for (const btab of tabs) {
