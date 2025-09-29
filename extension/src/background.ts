@@ -312,6 +312,27 @@ class App {
         }
     }
 
+    // TODO: need to add this check before calling tabs.create anywhere.
+    // maybe just create a tab saying "sorry man. can't create this one for you"
+    private _isUrlFunny(url_str: string): boolean {
+        try {
+            const url = new URL(url_str);
+            if (url.protocol === "chrome-extension:") {
+                return true;
+            }
+            if (url.protocol === "chrome:") {
+                return true;
+            }
+            if (url.protocol === 'about:') {
+                return true;
+            }
+
+            return false;
+        } catch (e) {
+            return true;
+        }
+    }
+
     private _getSubtree(rootId: BruhId): BruhId[] {
         const subtree: BruhId[] = [];
         const stack: BruhId[] = [rootId];
@@ -496,14 +517,45 @@ class App {
                     this.restoring_tab_ids.delete(t.id!);
                     return;
                 }
-                this.save_tab(t, "opener");
-                const win = this.windows.get(t.windowId!);
-                if (win && t.id) {
-                    win.tabIds.splice(t.index, 0, t.id);
-                    for (let i = t.index + 1; i < win.tabIds.length; i++) {
-                        const tabToUpdate = this.tabs.get(win.tabIds[i]!);
-                        if (tabToUpdate) tabToUpdate.index = i;
+                let win = this.windows.get(t.windowId!);
+                if (!win) {
+                    const new_id = this.bruhid++;
+                    this.windows.set(t.windowId!, {
+                        id: new_id,
+                        wid: t.windowId!,
+                        closed: false,
+                        tabIds: [],
+                    });
+                    const attrs = this.getOrGenerateGroupAttrs(new_id);
+                    const new_node = {
+                        id: new_id,
+                        title: attrs.name,
+                        type: "window",
+                        wid: t.windowId!,
+                    } as Node;
+                    this.tree.set(new_id, new_node);
+
+                    win = this.windows.get(t.windowId!)!;
+                }
+
+                const tab = this.save_tab(t, "opener");
+                // TODO: what if an old tab changes it's url to a group?
+                // TODO: abstract this out into a function but better. also need the attrs and stuff
+                if (tab.type == "group") {
+                    const urlParams = new URL(tab.url).searchParams;
+                    const id = urlParams.get("id");
+                    if (urlParams.get("view") == "group" && id) {
+                        if (parseInt(id, 10) != tab.id) {
+                            const url = browser.runtime.getURL(`overview.html?view=group&id=${tab.id}`);
+                            await browser.tabs.update(tab.tid, { url: url });
+                        }
                     }
+                }
+
+                win.tabIds.splice(t.index, 0, t.id!);
+                for (let i = t.index + 1; i < win.tabIds.length; i++) {
+                    const tabToUpdate = this.tabs.get(win.tabIds[i]!);
+                    if (tabToUpdate) tabToUpdate.index = i;
                 }
             } break;
             case 'tabRemoved': {
@@ -739,6 +791,8 @@ class App {
                         await browser.tabs.remove(node.tid);
                     } break;
                     case 'DUPLICATE_TAB_SMART': {
+                        // TODO: maybe use browser.tabs.duplicate
+                        //  that api can duplicate tabs that the extension cannot otherwise create (about:processes)
                         const node = this.get_node(message.payload.nodeId);
                         if (node.type === 'window') return;
                         const isDuplicatingGroup = node.type === 'group';
@@ -857,9 +911,16 @@ class App {
                             const attrs = this.groupAttrs.get(tab.id);
                             const new_id = old_to_new.get(tab.id)!;
 
+                            let url = tab.url;
+                            if (tab.type == "group") {
+                                url = browser.runtime.getURL(`overview.html?view=group&id=${new_id}`);
+                            }
+                            if (this._isUrlFunny(url)) {
+                                url = browser.runtime.getURL(`funny.html?url=${encodeURIComponent(url)}`)
+                            }
                             const new_btab = await browser.tabs.create({
                                 windowId: new_win.wid,
-                                url: tab.type == "group" ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : tab.url,
+                                url: url,
                                 index: tab.index,
                                 active: false,
                                 discarded: true,
