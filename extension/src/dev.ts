@@ -8,7 +8,6 @@ async function main() {
 
     const IS_FF = lastArg.includes('irefox') || lastArg.includes('loorp') || lastArg.includes('zen');
     const cliOpts = {
-        // target: IS_FF ? 'firefox' : 'chromium',
         sourceDir: "./build",
         keepProfileChanges: true,
         devtools: true,
@@ -19,7 +18,9 @@ async function main() {
         cliOpts.firefoxProfile = './tmp/profile-' + path.basename(lastArg).split(".")[0];
         await fs.mkdir(cliOpts.firefoxProfile, { recursive: true });
     } else {
+        cliOpts.target = "chromium";
         cliOpts.chromiumBinary = lastArg;
+        cliOpts.args = ["--disable-features=WaylandFractionalScaleV1"];
         cliOpts.chromiumProfile = './tmp/profile-' + path.basename(lastArg).split(".")[0];
         await fs.mkdir(cliOpts.chromiumProfile, { recursive: true });
     }
