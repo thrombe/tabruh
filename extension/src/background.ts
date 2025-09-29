@@ -551,8 +551,6 @@ class App {
                     const bruhTab = this.tabs.get(t.id!)!;
                     bruhTab.active = t.active;
                 }
-
-                console.log(this.get_tab(e.tabId));
             } break;
             case 'windowCreated': {
                 // fetch the latest state (even though we get the Window object here)
@@ -651,7 +649,14 @@ class App {
                             const newNodeId = this.bruhid++;
                             this.groupAttrs.set(newNodeId, { ...oldAttrs });
                             const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
-                            const groupTab = await browser.tabs.create({ windowId: targetWindowId, index, url, active: false });
+                            const groupTab = await browser.tabs.create({
+                                windowId: targetWindowId,
+                                index,
+                                url,
+                                active: false,
+                                discarded: true,
+                                title: oldAttrs.name,
+                            });
                             const groupNode = this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                             this.set_parent(groupNode.id, newParentId);
                             newParentId = groupNode.id;
