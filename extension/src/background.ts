@@ -28,6 +28,7 @@ class App {
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
+    restoring_window_ids: Set<WindowId> = new Set();
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -588,7 +589,12 @@ class App {
                 }
             } break;
             case 'windowCreated': {
-                this.save_window(event.payload);
+                const win = event.payload;
+                if (this.restoring_window_ids.has(win.id!)) {
+                    this.restoring_window_ids.delete(win.id!);
+                    return;
+                }
+                this.save_window(win);
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
@@ -828,15 +834,19 @@ class App {
                         const win = this.get_window(wid);
                         const tabsToRestore = win.tabIds.map(tid => this.get_tab(tid));
                         const win_attrs = this.groupAttrs.get(win.id)!;
-                        this.remove_window(win.wid);
 
                         const new_bwin = await browser.windows.create({});
+                        this.restoring_window_ids.add(new_bwin.id!);
                         const extra_tab = new_bwin.tabs![0]!;
-                        const new_win = this.save_window(new_bwin);
-                        this.groupAttrs.set(new_win.id, win_attrs);
-                        old_to_new.set(win.id, new_win.id);
+                        this.save_window(new_bwin);
+                        const new_win = this.windows.get(new_bwin.id!)!;
 
-                        // it is totally possible to have parent elements after children in tab.tabs
+                        // Transfer attributes to the new window state
+                        this.groupAttrs.set(new_win.id, { ...win_attrs });
+                        old_to_new.set(win.id, new_win.id);
+                        this.set_title(new_win.id, win_attrs.name);
+
+                        // It is totally possible to have parent elements after children in tab.tabs
                         // so we pre-generate ids
                         for (const tab of tabsToRestore) {
                             const new_id = this.bruhid++;
@@ -845,22 +855,26 @@ class App {
 
                         for (const tab of tabsToRestore) {
                             const attrs = this.groupAttrs.get(tab.id);
-
                             const new_id = old_to_new.get(tab.id)!;
+
                             const new_btab = await browser.tabs.create({
                                 windowId: new_win.wid,
                                 url: tab.type == "group" ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : tab.url,
                                 index: tab.index,
                                 active: false,
                                 discarded: true,
-                                // title can only be set for discarded tabs
                                 title: tab.title,
                             });
+
+                            // Manually update our state, since tabCreated is guarded for restoring tabs.
                             if (attrs) {
                                 this.groupAttrs.set(new_id, { ...attrs });
                             }
                             const new_tab = this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
                             this.restoring_tab_ids.add(new_tab.tid);
+
+                            // Manually add the new tab to our window state.
+                            new_win.tabIds.splice(new_tab.index, 0, new_tab.tid);
 
                             this.set_collapsed(new_tab.id, tab.collapsed);
                             this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!);
@@ -868,23 +882,16 @@ class App {
                             new_tab_node.favIconUrl = tab.favIconUrl;
 
                             if (tab.active) {
-                                // NOTE: idk why uncommenting this line ruins everything
-                                //   but luckily everything works out nicely because on removing this extra tab, the last opened tab (i.e. new_tab)
-                                //   becomes active automatically
                                 // await browser.tabs.update(new_tab.tid, { active: true });
                                 await browser.tabs.remove(extra_tab.id!);
                             }
                         }
 
-                        // i think i saw the order of tabs randomishly change on restore. so i just set the index again to maybe fix the thing?
+                        // Now that the new window is fully created, remove the old one from state.
                         for (const tab of tabsToRestore) {
                             this.remove_tab(tab.tid);
-
-                            const new_id = old_to_new.get(tab.id)!;
-                            const new_node = this.get_node(new_id) as Node & { type: "tab" | "group" };
-                            let _ = await browser.tabs.move(new_node.tid, { index: tab.index });
                         }
-
+                        this.remove_window(wid);
                     } break;
                     case 'DELETE_WINDOW_STATE': {
                         const wid = message.payload.windowId;
