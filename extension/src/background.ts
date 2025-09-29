@@ -804,12 +804,19 @@ class App {
                         this.groupAttrs.set(new_win.id, win_attrs);
                         old_to_new.set(win.id, new_win.id);
 
+                        // it is totally possible to have parent elements after children in tab.tabs
+                        // so we pre-generate ids
+                        for (const btab of tabs) {
+                            const tab = this.get_tab(btab.id!);
+                            const new_id = this.bruhid++;
+                            old_to_new.set(tab.id, new_id);
+                        }
+
                         for (const btab of tabs) {
                             const tab = this.get_tab(btab.id!);
                             const attrs = this.groupAttrs.get(tab.id);
-                            this.remove_tab(tab.tid);
 
-                            const new_id = this.bruhid++;
+                            const new_id = old_to_new.get(tab.id)!;
                             const new_btab = await browser.tabs.create({
                                 windowId: new_win.wid,
                                 url: tab.type == "group" ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : tab.url,
@@ -824,7 +831,6 @@ class App {
                             }
                             const new_tab = this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
                             this.restoring_tab_ids.add(new_tab.tid);
-                            old_to_new.set(tab.id, new_tab.id);
 
                             this.set_collapsed(new_tab.id, tab.collapsed);
                             this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!);
@@ -838,6 +844,16 @@ class App {
                                 // await browser.tabs.update(new_tab.tid, { active: true });
                                 await browser.tabs.remove(extra_tab.id!);
                             }
+                        }
+
+                        // i think i saw the order of tabs randomishly change on restore. so i just set the index again to maybe fix the thing?
+                        for (const btab of tabs) {
+                            const tab = this.get_tab(btab.id!);
+                            this.remove_tab(tab.tid);
+
+                            const new_id = old_to_new.get(tab.id)!;
+                            const new_node = this.get_node(new_id) as Node & { type: "tab" | "group" };
+                            let _ = await browser.tabs.move(new_node.tid, { index: tab.index });
                         }
 
                     } break;
