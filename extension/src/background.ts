@@ -142,7 +142,7 @@ class App {
     set_parent(bid: BruhId, parentId: BruhId) {
         const node = this.tree.get(bid);
         if (!node || node.type === 'window') throw Error(`Cannot set parent for node bid: ${bid}`);
-        node.parentId = parentId;
+        node.parentId = this.get_node(parentId).id;
     }
 
     set_collapsed(bid: BruhId, collapsed: boolean) {
@@ -551,6 +551,8 @@ class App {
                     const bruhTab = this.tabs.get(t.id!)!;
                     bruhTab.active = t.active;
                 }
+
+                console.log(this.get_tab(e.tabId));
             } break;
             case 'windowCreated': {
                 // fetch the latest state (even though we get the Window object here)
@@ -697,11 +699,14 @@ class App {
                         const node = this.get_node(message.payload.nodeId);
                         if (node.type === 'window') return;
                         const isDuplicatingGroup = node.type === 'group';
+                        const new_id = this.bruhid++;
                         const newTab = await browser.tabs.create({
-                            windowId: node.wid, url: node.url, active: false,
+                            windowId: node.wid,
+                            url: isDuplicatingGroup ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : node.url,
+                            active: false,
                             index: message.payload.tabIndex,
                         });
-                        const newNode = this.save_tab(newTab, "window", { forceIsGroup: isDuplicatingGroup });
+                        const newNode = this.save_tab(newTab, "window", { id: new_id, forceIsGroup: isDuplicatingGroup });
                         this.set_parent(newNode.id, node.parentId);
                     } break;
                     case 'UNLOAD_TAB': {
@@ -799,16 +804,20 @@ class App {
                             const attrs = this.groupAttrs.get(tab.id);
                             this.remove_tab(tab.tid);
 
+                            const new_id = this.bruhid++;
                             const new_btab = await browser.tabs.create({
                                 windowId: new_win.wid,
-                                url: tab.url,
+                                url: tab.type == "group" ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : tab.url,
                                 index: tab.index,
                                 active: false,
                                 discarded: true,
                                 // title can only be set for discarded tabs
                                 title: tab.title,
                             });
-                            const new_tab = this.save_tab(new_btab, "window", { forceIsGroup: tab.type == "group" });
+                            if (attrs) {
+                                this.groupAttrs.set(new_id, { ...attrs });
+                            }
+                            const new_tab = this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
                             this.restoring_tab_ids.add(new_tab.tid);
                             old_to_new.set(tab.id, new_tab.id);
 
@@ -816,9 +825,6 @@ class App {
                             this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!);
                             const new_tab_node = this.tree.get(new_tab.id)! as Node & { type: "tab" | "group" };
                             new_tab_node.favIconUrl = tab.favIconUrl;
-                            if (attrs) {
-                                this.groupAttrs.set(new_tab.id, attrs);
-                            }
 
                             if (tab.active) {
                                 // NOTE: idk why uncommenting this line ruins everything
