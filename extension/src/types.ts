@@ -43,7 +43,7 @@ export type BruhWindow = {
     id: BruhId,
     wid: WindowId,
     closed: boolean,
-    tabs: browser.Tabs.Tab[],
+    tabIds: TabId[],
 };
 
 export type NodeTree = Map<BruhId, Node>;

@@ -205,7 +205,7 @@ class App {
 
             const w = this.get_window(tab.windowId!);
             let pid: BruhId;
-            if (parent === "opener" && tab.openerTabId !== undefined) {
+            if (parent === "opener" && tab.openerTabId !== undefined && this.tabs.has(tab.openerTabId)) {
                 const openerTab = this.get_tab(tab.openerTabId);
                 pid = openerTab.id;
             } else {
@@ -232,13 +232,12 @@ class App {
         if (win.id === undefined) throw Error(`window does not have id :/`);
         const old = this.windows.get(win.id);
         if (old) {
-            old.tabs = win.tabs ?? [];
             return this.get_window(old.wid);
         } else {
             const new_window = {
                 id: this.bruhid++,
                 wid: win.id,
-                tabs: win.tabs ?? [],
+                tabIds: [],
                 closed: false,
             };
             this.windows.set(win.id, new_window);
@@ -275,7 +274,9 @@ class App {
     async init_tree() {
         let windows = await browser.windows.getAll({ windowTypes: ["normal"], populate: true });
         for (let w of windows) {
-            let _ = this.save_window(w);
+            this.save_window(w);
+            const bruhWin = this.windows.get(w.id!)!;
+            bruhWin.tabIds = w.tabs?.map(t => t.id!).filter(t => t !== undefined) as TabId[] ?? [];
         }
 
         for (const win of windows) {
@@ -287,7 +288,7 @@ class App {
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                if (t.openerTabId !== undefined) {
+                if (t.openerTabId !== undefined && this.tabs.has(t.openerTabId)) {
                     const tab = this.get_tab(t.id!);
                     const opener = this.get_tab(t.openerTabId);
                     this.set_parent(tab.id, opener.id);
@@ -336,8 +337,8 @@ class App {
     private _getChildrenMap(): Map<BruhId, BruhId[]> {
         const map = new Map<BruhId, BruhId[]>();
         for (const [_, w] of this.windows) {
-            for (const t of w.tabs) {
-                const node = this.get_tab(t.id!);
+            for (const tid of w.tabIds) {
+                const node = this.get_tab(tid);
 
                 if (!map.has(node.parentId)) {
                     map.set(node.parentId, []);
@@ -349,7 +350,7 @@ class App {
     }
 
     private _getOrderedTabList(windowId: WindowId): BruhId[] {
-        return this.get_window(windowId).tabs.map(t => this.get_tab(t.id!).id);
+        return this.get_window(windowId).tabIds.map(tid => this.get_tab(tid).id);
     }
 
 
@@ -494,12 +495,20 @@ class App {
                     this.restoring_tab_ids.delete(t.id!);
                     return;
                 }
-                const win = await browser.windows.get(t.windowId!, { populate: true });
-                this.save_window(win);
                 this.save_tab(t, "opener");
+                const win = this.windows.get(t.windowId!);
+                if (win && t.id) {
+                    win.tabIds.splice(t.index, 0, t.id);
+                    for (let i = t.index + 1; i < win.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(win.tabIds[i]!);
+                        if (tabToUpdate) tabToUpdate.index = i;
+                    }
+                }
             } break;
             case 'tabRemoved': {
                 const e = event.payload;
+                const tabToRemove = this.tabs.get(e.tabId);
+
                 if (e.removeInfo.isWindowClosing) {
                     if (!this.closing_window_tabs.has(e.removeInfo.windowId)) {
                         this.closing_window_tabs.set(e.removeInfo.windowId, new Set());
@@ -507,55 +516,79 @@ class App {
                     this.closing_window_tabs.get(e.removeInfo.windowId)!.add(e.tabId);
                     this.set_tab_closed(e.tabId, true);
                 } else {
-                    this.remove_tab(e.tabId);
-                    if (this.windows.has(e.removeInfo.windowId)) {
-                        try {
-                            const nw = await browser.windows.get(e.removeInfo.windowId, { populate: true });
-                            this.save_window(nw);
-                        } catch (err) { /* Window might already be closed */ }
+                    if (tabToRemove) {
+                        const win = this.windows.get(tabToRemove.wid);
+                        if (win) {
+                            const oldIndex = win.tabIds.indexOf(e.tabId);
+                            if (oldIndex > -1) {
+                                win.tabIds.splice(oldIndex, 1);
+                                for (let i = oldIndex; i < win.tabIds.length; i++) {
+                                    const tabToUpdate = this.tabs.get(win.tabIds[i]!);
+                                    if (tabToUpdate) tabToUpdate.index = i;
+                                }
+                            }
+                        }
                     }
+                    this.remove_tab(e.tabId);
                 }
             } break;
             case 'tabUpdated': {
                 const t = event.payload.tab;
-                const win = await browser.windows.get(t.windowId!, { populate: true });
-                this.save_window(win);
                 this.save_tab(t, "opener");
             } break;
             case 'tabMoved': {
-                const e = event.payload;
-                const nw = await browser.windows.get(e.moveInfo.windowId, { populate: true });
-                this.save_window(nw);
-                const t = await browser.tabs.get(e.tabId);
-                this.save_tab(t, "opener");
+                const { tabId, moveInfo } = event.payload;
+                const win = this.windows.get(moveInfo.windowId);
+                if (win) {
+                    const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
+                    win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
+                    for (let i = 0; i < win.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(win.tabIds[i]!);
+                        if (tabToUpdate) tabToUpdate.index = i;
+                    }
+                }
             } break;
             case 'tabAttached': {
-                const e = event.payload;
-                const tab = await browser.tabs.get(e.tabId);
-                this.save_tab(tab, 'window');
-                const newWin = await browser.windows.get(e.attachInfo.newWindowId, { populate: true });
-                this.save_window(newWin);
+                const { tabId, attachInfo } = event.payload;
+                const tab = this.tabs.get(tabId);
+                if (tab) {
+                    const newWin = this.windows.get(attachInfo.newWindowId);
+                    if (newWin) {
+                        tab.wid = attachInfo.newWindowId;
+                        newWin.tabIds.splice(attachInfo.newPosition, 0, tabId);
+                        for (let i = 0; i < newWin.tabIds.length; i++) {
+                            const tabToUpdate = this.tabs.get(newWin.tabIds[i]!);
+                            if (tabToUpdate) tabToUpdate.index = i;
+                        }
+                    }
+                }
             } break;
             case 'tabDetached': {
-                const e = event.payload;
-                try {
-                    const oldWin = await browser.windows.get(e.detachInfo.oldWindowId, { populate: true });
-                    this.save_window(oldWin);
-                } catch (e) { console.warn(e); }
+                const { tabId, detachInfo } = event.payload;
+                const oldWin = this.windows.get(detachInfo.oldWindowId);
+                if (oldWin) {
+                    const oldIndex = oldWin.tabIds.indexOf(tabId);
+                    if (oldIndex > -1) {
+                        oldWin.tabIds.splice(oldIndex, 1);
+                        for (let i = oldIndex; i < oldWin.tabIds.length; i++) {
+                            const tabToUpdate = this.tabs.get(oldWin.tabIds[i]!);
+                            if (tabToUpdate) tabToUpdate.index = i;
+                        }
+                    }
+                }
             } break;
             case 'tabActivated': {
                 const e = event.payload;
-                const win = await browser.windows.get(e.windowId, { populate: true });
-                this.save_window(win);
-                for (const t of win.tabs ?? []) {
-                    const bruhTab = this.tabs.get(t.id!)!;
-                    bruhTab.active = t.active;
+                const win = this.windows.get(e.windowId);
+                if (win) {
+                    for (const tid of win.tabIds) {
+                        const tab = this.tabs.get(tid);
+                        if (tab) tab.active = (tab.tid === e.tabId);
+                    }
                 }
             } break;
             case 'windowCreated': {
-                // fetch the latest state (even though we get the Window object here)
-                const bwin = await browser.windows.get(event.payload.id!);
-                this.save_window(bwin);
+                this.save_window(event.payload);
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
@@ -635,7 +668,7 @@ class App {
                                 break;
                             case 'root':
                                 newParentId = targetNode.id;
-                                index = targetWin.tabs.length;
+                                index = targetWin.tabIds.length;
                                 break;
                             case 'inside':
                             default:
@@ -680,7 +713,6 @@ class App {
                     } break;
                     case 'FOCUS_TAB': {
                         const node = this.get_node(message.payload.nodeId);
-                        console.log(node);
                         if (node.type === 'window') throw Error(`cannot focus 'window' node`);
                         await browser.tabs.update(node.tid, { active: true });
                     } break;
@@ -794,7 +826,7 @@ class App {
 
                         let old_to_new = new Map();
                         const win = this.get_window(wid);
-                        const tabs = [...win.tabs];
+                        const tabsToRestore = win.tabIds.map(tid => this.get_tab(tid));
                         const win_attrs = this.groupAttrs.get(win.id)!;
                         this.remove_window(win.wid);
 
@@ -806,14 +838,12 @@ class App {
 
                         // it is totally possible to have parent elements after children in tab.tabs
                         // so we pre-generate ids
-                        for (const btab of tabs) {
-                            const tab = this.get_tab(btab.id!);
+                        for (const tab of tabsToRestore) {
                             const new_id = this.bruhid++;
                             old_to_new.set(tab.id, new_id);
                         }
 
-                        for (const btab of tabs) {
-                            const tab = this.get_tab(btab.id!);
+                        for (const tab of tabsToRestore) {
                             const attrs = this.groupAttrs.get(tab.id);
 
                             const new_id = old_to_new.get(tab.id)!;
@@ -847,8 +877,7 @@ class App {
                         }
 
                         // i think i saw the order of tabs randomishly change on restore. so i just set the index again to maybe fix the thing?
-                        for (const btab of tabs) {
-                            const tab = this.get_tab(btab.id!);
+                        for (const tab of tabsToRestore) {
                             this.remove_tab(tab.tid);
 
                             const new_id = old_to_new.get(tab.id)!;
@@ -861,8 +890,8 @@ class App {
                         const wid = message.payload.windowId;
                         const win = this.get_window(wid);
                         if (win.closed) {
-                            for (let tab of win.tabs) {
-                                this.remove_tab(tab.id!);
+                            for (let tid of win.tabIds) {
+                                this.remove_tab(tid);
                             }
                             this.remove_window(wid);
                         } else {
