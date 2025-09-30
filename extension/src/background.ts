@@ -173,7 +173,7 @@ class App {
     async save_tab(
         tab: browser.Tabs.Tab,
         parent: "window" | "opener",
-        options: { id?: BruhId, forceIsGroup?: boolean } = {},
+        options: { id?: BruhId, forceIsGroup?: boolean, updateComplete?: boolean } = {},
     ): Promise<BruhTab & Extract<Node, { type: "group" | "tab" }>> {
         if (tab.id === undefined || tab.windowId === undefined) throw Error(`tab does not have an id or windowId? ${tab.title}`);
         const old = this.tabs.get(tab.id);
@@ -184,23 +184,26 @@ class App {
             old.discarded = tab.discarded ?? false;
             const node = this.tree.get(old.id) as Extract<Node, { type: "tab" | "group" }>;
             node.title = tab.title ?? node.title;
-            node.url = tab.url ?? node.url;
             node.favIconUrl = tab.favIconUrl ?? node.favIconUrl;
+            node.url = tab.url ?? "";
 
-            const urlParams = new URL(node.url).searchParams;
-            const id = urlParams.get("id");
-            if (urlParams.get("view") == "group" && id) {
-                if (parseInt(id, 10) != node.id) {
-                    const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
-                    await browser.tabs.update(node.tid, { url: url });
-                }
-            }
             node.type = this._isGroupTab(tab) ? "group" : "tab";
             if (node.type == "group") {
                 if (!this.groupAttrs.has(node.id)) {
                     node.title = this.getOrGenerateGroupAttrs(node.id).name;
                 }
             }
+            try {
+                const urlParams = new URL(tab.url!).searchParams;
+                const id = urlParams.get("id");
+                if (urlParams.get("view") == "group" && id && options.updateComplete) {
+                    if (parseInt(id, 10) != node.id) {
+                        const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
+                        console.log(tab.url, node.url, url, node.id, parseInt(id, 10));
+                        await browser.tabs.update(node.tid, { url: url });
+                    }
+                }
+            } catch (e) { }
 
             return this.get_tab(old.tid);
         } else {
@@ -605,7 +608,7 @@ class App {
             } break;
             case 'tabUpdated': {
                 const t = event.payload.tab;
-                await this.save_tab(t, "opener");
+                await this.save_tab(t, "opener", { updateComplete: event.payload.changeInfo.status == "complete" });
             } break;
             case 'tabMoved': {
                 const { tabId, moveInfo } = event.payload;
