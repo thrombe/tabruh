@@ -170,7 +170,11 @@ class App {
         node.title = title;
     }
 
-    save_tab(tab: browser.Tabs.Tab, parent: "window" | "opener", options: { id?: BruhId, forceIsGroup?: boolean } = {}): Readonly<BruhTab & Extract<Node, { type: "tab" | "group" }>> {
+    async save_tab(
+        tab: browser.Tabs.Tab,
+        parent: "window" | "opener",
+        options: { id?: BruhId, forceIsGroup?: boolean } = {},
+    ): Promise<BruhTab & Extract<Node, { type: "group" | "tab" }>> {
         if (tab.id === undefined || tab.windowId === undefined) throw Error(`tab does not have an id or windowId? ${tab.title}`);
         const old = this.tabs.get(tab.id);
         if (old) {
@@ -182,6 +186,22 @@ class App {
             node.title = tab.title ?? node.title;
             node.url = tab.url ?? node.url;
             node.favIconUrl = tab.favIconUrl ?? node.favIconUrl;
+
+            const urlParams = new URL(node.url).searchParams;
+            const id = urlParams.get("id");
+            if (urlParams.get("view") == "group" && id) {
+                if (parseInt(id, 10) != node.id) {
+                    const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
+                    await browser.tabs.update(node.tid, { url: url });
+                }
+            }
+            node.type = this._isGroupTab(tab) ? "group" : "tab";
+            if (node.type == "group") {
+                if (!this.groupAttrs.has(node.id)) {
+                    node.title = this.getOrGenerateGroupAttrs(node.id).name;
+                }
+            }
+
             return this.get_tab(old.tid);
         } else {
             const new_tab = {
@@ -222,8 +242,19 @@ class App {
                 favIconUrl: tab.favIconUrl,
                 parentId: pid,
                 collapsed: false,
-            } as Node;
+            } as Node & { type: "group" | "tab" };
             this.tree.set(new_tab.id, node);
+
+            if (isGroup) {
+                const urlParams = new URL(node.url).searchParams;
+                const id = urlParams.get("id");
+                if (urlParams.get("view") == "group" && id) {
+                    if (parseInt(id, 10) != node.id) {
+                        const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
+                        await browser.tabs.update(node.tid, { url: url });
+                    }
+                }
+            }
 
             return this.get_tab(new_tab.tid);
         }
@@ -283,7 +314,7 @@ class App {
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
                 // opener might not be set yet, so parent param is "window"
-                let _ = this.save_tab(t, "window");
+                let _ = await this.save_tab(t, "window");
             }
         }
 
@@ -538,20 +569,7 @@ class App {
                     win = this.windows.get(t.windowId!)!;
                 }
 
-                const tab = this.save_tab(t, "opener");
-                // TODO: what if an old tab changes it's url to a group?
-                // TODO: abstract this out into a function but better. also need the attrs and stuff
-                if (tab.type == "group") {
-                    const urlParams = new URL(tab.url).searchParams;
-                    const id = urlParams.get("id");
-                    if (urlParams.get("view") == "group" && id) {
-                        if (parseInt(id, 10) != tab.id) {
-                            const url = browser.runtime.getURL(`overview.html?view=group&id=${tab.id}`);
-                            await browser.tabs.update(tab.tid, { url: url });
-                        }
-                    }
-                }
-
+                await this.save_tab(t, "opener");
                 win.tabIds.splice(t.index, 0, t.id!);
                 for (let i = t.index + 1; i < win.tabIds.length; i++) {
                     const tabToUpdate = this.tabs.get(win.tabIds[i]!);
@@ -587,7 +605,7 @@ class App {
             } break;
             case 'tabUpdated': {
                 const t = event.payload.tab;
-                this.save_tab(t, "opener");
+                await this.save_tab(t, "opener");
             } break;
             case 'tabMoved': {
                 const { tabId, moveInfo } = event.payload;
@@ -748,7 +766,7 @@ class App {
                                 discarded: true,
                                 title: oldAttrs.name,
                             });
-                            const groupNode = this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
+                            const groupNode = await this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                             this.set_parent(groupNode.id, newParentId);
                             newParentId = groupNode.id;
                             index += 1;
@@ -803,7 +821,7 @@ class App {
                             active: false,
                             index: message.payload.tabIndex,
                         });
-                        const newNode = this.save_tab(newTab, "window", { id: new_id, forceIsGroup: isDuplicatingGroup });
+                        const newNode = await this.save_tab(newTab, "window", { id: new_id, forceIsGroup: isDuplicatingGroup });
                         this.set_parent(newNode.id, node.parentId);
                     } break;
                     case 'UNLOAD_TAB': {
@@ -857,7 +875,7 @@ class App {
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const newTab = await browser.tabs.create({ windowId, index, active: false });
-                        const node = this.save_tab(newTab, "window");
+                        const node = await this.save_tab(newTab, "window");
                         this.set_parent(node.id, parentId);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
@@ -867,7 +885,7 @@ class App {
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const newTab = await browser.tabs.create({ windowId, url, index, active: false });
-                        const node = this.save_tab(newTab, "window");
+                        const node = await this.save_tab(newTab, "window");
                         this.set_parent(node.id, parentId);
                     } break;
                     case 'RENAME_WINDOW': {
@@ -931,7 +949,7 @@ class App {
                             if (attrs) {
                                 this.groupAttrs.set(new_id, { ...attrs });
                             }
-                            const new_tab = this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
+                            const new_tab = await this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
                             this.restoring_tab_ids.add(new_tab.tid);
 
                             // Manually add the new tab to our window state.
@@ -992,7 +1010,7 @@ class App {
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const groupTab = await browser.tabs.create({ windowId, index, url, active: false });
-                        const newNode = this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
+                        const newNode = await this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                         this.set_parent(newNode.id, parentId);
                     } break;
                     case 'RENAME_NODE': {
