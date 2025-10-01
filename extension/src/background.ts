@@ -170,6 +170,36 @@ class App {
         node.title = title;
     }
 
+    private _getGroupUrl(id: BruhId): string {
+        const attrs = this.groupAttrs.get(id)!;
+        const params = new URLSearchParams();
+        params.set('view', 'group');
+        params.set('id', String(id));
+        params.set('name', attrs.name);
+        params.set('isCustomNamed', String(attrs.isCustomNamed));
+        params.set('generation', String(attrs.generation));
+        return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
+    }
+
+    private _parseGroupUrlAttrs(url: string): Omit<GroupAttrs, 'generation'> & { generation?: number } | null {
+        try {
+            const urlObj = new URL(url);
+            if (urlObj.protocol === 'moz-extension:' &&
+                urlObj.pathname.endsWith('/overview.html') &&
+                urlObj.searchParams.get('view') === 'group') {
+                const name = urlObj.searchParams.get('name');
+                const isCustomNamed = urlObj.searchParams.get('isCustomNamed') === 'true';
+                const generationStr = urlObj.searchParams.get('generation');
+                const generation = generationStr ? parseInt(generationStr, 10) : undefined;
+
+                if (name) {
+                    return { name, isCustomNamed, generation };
+                }
+            }
+        } catch (e) { /* Invalid URL */ }
+        return null;
+    }
+
     async save_tab(
         tab: browser.Tabs.Tab,
         parent: "window" | "opener",
@@ -187,25 +217,32 @@ class App {
             node.favIconUrl = tab.favIconUrl ?? node.favIconUrl;
             node.url = tab.url ?? "";
 
-            node.type = this._isGroupTab(tab) ? "group" : "tab";
-            if (node.type == "group") {
-                if (!this.groupAttrs.has(node.id)) {
+            const wasGroup = node.type === 'group';
+            const isGroup = this._isGroupTab(tab);
+
+            if (isGroup && !wasGroup) {
+                node.type = 'group';
+                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
+                if (parsedAttrs) {
+                    const attrs = this.getOrGenerateGroupAttrs(node.id, parsedAttrs.generation, parsedAttrs.name);
+                    attrs.isCustomNamed = parsedAttrs.isCustomNamed;
+                    node.title = attrs.name;
+                } else {
                     node.title = this.getOrGenerateGroupAttrs(node.id).name;
                 }
+            } else if (!isGroup && wasGroup) {
+                node.type = 'tab';
             }
-            try {
-                const urlParams = new URL(tab.url!).searchParams;
-                const id = urlParams.get("id");
-                if (urlParams.get("view") == "group" && id) {
-                    if (parseInt(id, 10) != node.id) {
-                        const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
-                        node.url = url;
-                        if (options.updateComplete) {
-                            await browser.tabs.update(node.tid, { url: url });
-                        }
-                    }
+
+            if (isGroup) {
+                const expectedUrl = this._getGroupUrl(node.id);
+                if (tab.url !== expectedUrl && options.updateComplete) {
+                    try {
+                        await browser.tabs.update(node.tid, { url: expectedUrl });
+                        node.url = expectedUrl;
+                    } catch (e) { console.error(`Failed to update group URL for tid ${node.tid}`, e); }
                 }
-            } catch (e) { }
+            }
 
             return this.get_tab(old.tid);
         } else {
@@ -224,7 +261,14 @@ class App {
 
             let title: string;
             if (isGroup) {
-                title = this.getOrGenerateGroupAttrs(new_tab.id).name;
+                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
+                if (parsedAttrs) {
+                    const attrs = this.getOrGenerateGroupAttrs(new_tab.id, parsedAttrs.generation, parsedAttrs.name);
+                    attrs.isCustomNamed = parsedAttrs.isCustomNamed;
+                    title = attrs.name;
+                } else {
+                    title = this.getOrGenerateGroupAttrs(new_tab.id).name;
+                }
             } else {
                 title = tab.title ?? "Untitled";
             }
@@ -251,14 +295,11 @@ class App {
             this.tree.set(new_tab.id, node);
 
             if (isGroup) {
-                const urlParams = new URL(node.url).searchParams;
-                const id = urlParams.get("id");
-                if (urlParams.get("view") == "group" && id) {
-                    if (parseInt(id, 10) != node.id) {
-                        const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
-                        await browser.tabs.update(node.tid, { url: url });
-                    }
-                }
+                const correctUrl = this._getGroupUrl(new_tab.id);
+                try {
+                    await browser.tabs.update(new_tab.tid, { url: correctUrl });
+                    node.url = correctUrl;
+                } catch (e) { console.error(e); }
             }
 
             return this.get_tab(new_tab.tid);
@@ -766,7 +807,8 @@ class App {
                             const oldAttrs = this.groupAttrs.get(draggedNode.id)!;
                             const newNodeId = this.bruhid++;
                             this.groupAttrs.set(newNodeId, { ...oldAttrs });
-                            const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
+                            const url = this._getGroupUrl(newNodeId);
+
                             const groupTab = await browser.tabs.create({
                                 windowId: targetWindowId,
                                 index,
@@ -823,10 +865,17 @@ class App {
                         const node = this.get_node(message.payload.nodeId);
                         if (node.type === 'window') return;
                         const isDuplicatingGroup = node.type === 'group';
-                        const new_id = this.bruhid++;
+                        let url = node.url;
+                        let new_id: BruhId | undefined = undefined;
+
+                        if (isDuplicatingGroup) {
+                            new_id = this.bruhid++;
+                            this.getOrGenerateGroupAttrs(new_id); // Create new attrs for the new group
+                            url = this._getGroupUrl(new_id);
+                        }
                         const newTab = await browser.tabs.create({
                             windowId: node.wid,
-                            url: isDuplicatingGroup ? browser.runtime.getURL(`overview.html?view=group&id=${new_id}`) : node.url,
+                            url: url,
                             active: false,
                             index: message.payload.tabIndex,
                         });
@@ -911,7 +960,7 @@ class App {
                     case 'RESTORE_WINDOW': {
                         const wid = message.payload.windowId;
 
-                        let old_to_new = new Map();
+                        let old_to_new = new Map<BruhId, BruhId>();
                         const win = this.get_window(wid);
                         const tabsToRestore = win.tabIds.map(tid => this.get_tab(tid));
                         const win_attrs = this.groupAttrs.get(win.id)!;
@@ -940,7 +989,10 @@ class App {
 
                             let url = tab.url;
                             if (tab.type == "group") {
-                                url = browser.runtime.getURL(`overview.html?view=group&id=${new_id}`);
+                                if (attrs) {
+                                    this.groupAttrs.set(new_id, { ...attrs });
+                                }
+                                url = this._getGroupUrl(new_id);
                             }
                             if (this._isUrlFunny(url)) {
                                 url = browser.runtime.getURL(`funny.html?url=${encodeURIComponent(url)}`)
@@ -953,15 +1005,9 @@ class App {
                                 discarded: true,
                                 title: tab.title,
                             });
+                            this.restoring_tab_ids.add(new_btab.id!);
 
-                            // Manually update our state, since tabCreated is guarded for restoring tabs.
-                            if (attrs) {
-                                this.groupAttrs.set(new_id, { ...attrs });
-                            }
                             const new_tab = await this.save_tab(new_btab, "window", { id: new_id, forceIsGroup: tab.type == "group" });
-                            this.restoring_tab_ids.add(new_tab.tid);
-
-                            // Manually add the new tab to our window state.
                             new_win.tabIds.splice(new_tab.index, 0, new_tab.tid);
 
                             this.set_collapsed(new_tab.id, tab.collapsed);
@@ -1013,7 +1059,7 @@ class App {
                         const { windowId, parentId } = message.payload;
                         const newNodeId = this.bruhid++;
                         const attrs = this.getOrGenerateGroupAttrs(newNodeId);
-                        const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
+                        const url = this._getGroupUrl(newNodeId);
                         const orderedTabs = this._getOrderedTabList(windowId);
                         const lastDescendantId = this._getSubtree(parentId).pop()!;
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
@@ -1029,6 +1075,10 @@ class App {
                         this.set_title(node.id, newName);
                         attrs.name = newName;
                         attrs.isCustomNamed = true;
+                        if (node.type === 'group') {
+                            const newUrl = this._getGroupUrl(node.id);
+                            try { await browser.tabs.update(node.tid, { url: newUrl }); } catch (e) { console.error(e) }
+                        }
                     } break;
                     default:
                         throw utils.exhausted(message);
