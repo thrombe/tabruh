@@ -280,10 +280,8 @@ class App {
                 const expectedUrl = this._getGroupUrl(node.id);
                 const urlAttrs = this._parseGroupUrlAttrs(tab.url!);
                 if (urlAttrs?.id !== node.id && options.updateComplete) {
-                    try {
-                        await browser.tabs.update(node.tid, { url: expectedUrl });
-                        node.url = expectedUrl;
-                    } catch (e) { console.error(`Failed to update group URL for tid ${node.tid}`, e); }
+                    await browser.tabs.update(node.tid, { url: expectedUrl });
+                    node.url = expectedUrl;
                 }
             }
 
@@ -339,10 +337,8 @@ class App {
             if (isGroup) {
                 const correctUrl = this._getGroupUrl(new_tab.id);
                 if (node.url !== correctUrl) {
-                    try {
-                        await browser.tabs.update(new_tab.tid, { url: correctUrl });
-                        node.url = correctUrl;
-                    } catch (e) { console.error(e); }
+                    await browser.tabs.update(new_tab.tid, { url: correctUrl });
+                    node.url = correctUrl;
                 }
             }
 
@@ -1086,7 +1082,7 @@ class App {
                         attrs.isCustomNamed = true;
                         if (node.type === 'group') {
                             const newUrl = this._getGroupUrl(node.id);
-                            try { await browser.tabs.update(node.tid, { url: newUrl }); } catch (e) { console.error(e) }
+                            await browser.tabs.update(node.tid, { url: newUrl });
                         }
                     } break;
                     default:
