@@ -19,12 +19,13 @@ class OverviewPage {
         const urlParams = new URLSearchParams(window.location.search);
         const view = urlParams.get('view');
         const nodeId = urlParams.get('id');
+        const group_name = urlParams.get('name');
 
         if (view === 'group' && nodeId) {
             this.viewMode = 'group';
             this.groupViewNodeId = parseInt(nodeId, 10);
             this.container.classList.add('group-view-mode');
-            document.title = "Tabruh Group";
+            document.title = group_name ?? "Tabruh Group";
         } else {
             this.viewMode = 'overview';
             document.title = "Tabruh Overview";
