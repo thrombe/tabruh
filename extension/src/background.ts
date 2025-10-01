@@ -170,6 +170,41 @@ class App {
         node.title = title;
     }
 
+    private _isGroupTab(tab: browser.Tabs.Tab): boolean {
+        if (!tab.url) return false;
+        try {
+            const url = new URL(tab.url);
+            return url.protocol === 'moz-extension:' &&
+                url.pathname.endsWith('/overview.html') &&
+                url.searchParams.has('view') &&
+                url.searchParams.get('view') === 'group';
+        } catch (e) {
+            // URL constructor failed, likely not a valid/standard URL (e.g., about:blank, internal UUIDs)
+            return false;
+        }
+    }
+
+    // TODO: need to add this check before calling tabs.create anywhere.
+    // maybe just create a tab saying "sorry man. can't create this one for you"
+    private _isUrlFunny(url_str: string): boolean {
+        try {
+            const url = new URL(url_str);
+            if (url.protocol === "chrome-extension:") {
+                return true;
+            }
+            if (url.protocol === "chrome:") {
+                return true;
+            }
+            if (url.protocol === 'about:') {
+                return true;
+            }
+
+            return false;
+        } catch (e) {
+            return true;
+        }
+    }
+
     private _getGroupUrl(id: BruhId): string {
         const attrs = this.groupAttrs.get(id)!;
         const params = new URLSearchParams();
@@ -181,7 +216,7 @@ class App {
         return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
     }
 
-    private _parseGroupUrlAttrs(url: string): GroupAttrs | null {
+    private _parseGroupUrlAttrs(url: string): { attrs: GroupAttrs, id: BruhId } | null {
         try {
             const urlObj = new URL(url);
             if (urlObj.protocol === 'moz-extension:' &&
@@ -191,12 +226,13 @@ class App {
                 const name = urlObj.searchParams.get('name');
                 const isCustomNamedStr = urlObj.searchParams.get('isCustomNamed');
                 const generationStr = urlObj.searchParams.get('generation');
+                const id = parseInt(urlObj.searchParams.get('id')!, 10);
 
                 if (name && isCustomNamedStr && generationStr) {
                     const isCustomNamed = isCustomNamedStr === 'true';
                     const generation = parseInt(generationStr, 10);
                     if (!isNaN(generation)) {
-                        return { name, isCustomNamed, generation };
+                        return { attrs: { name, isCustomNamed, generation }, id, };
                     }
                 }
             }
@@ -225,8 +261,9 @@ class App {
             const isGroup = this._isGroupTab(tab);
 
             if (isGroup && !wasGroup) {
+                // @ts-ignore // not sure why it is yelling here.
                 node.type = 'group';
-                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
+                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!)?.attrs;
                 if (parsedAttrs) {
                     const attrs = this.getOrGenerateGroupAttrs(node.id);
                     Object.assign(attrs, parsedAttrs);
@@ -235,12 +272,14 @@ class App {
                     node.title = this.getOrGenerateGroupAttrs(node.id).name;
                 }
             } else if (!isGroup && wasGroup) {
+                // @ts-ignore // not sure why it is yelling here.
                 node.type = 'tab';
             }
 
             if (isGroup) {
                 const expectedUrl = this._getGroupUrl(node.id);
-                if (tab.url !== expectedUrl && options.updateComplete) {
+                const urlAttrs = this._parseGroupUrlAttrs(tab.url!);
+                if (urlAttrs?.id !== node.id && options.updateComplete) {
                     try {
                         await browser.tabs.update(node.tid, { url: expectedUrl });
                         node.url = expectedUrl;
@@ -265,7 +304,7 @@ class App {
 
             let title: string;
             if (isGroup) {
-                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
+                const parsedAttrs = this._parseGroupUrlAttrs(tab.url!)?.attrs;
                 if (parsedAttrs) {
                     this.groupAttrs.set(new_tab.id, { ...parsedAttrs });
                     title = parsedAttrs.name;
@@ -377,41 +416,6 @@ class App {
                     this.set_parent(tab.id, opener.id);
                 }
             }
-        }
-    }
-
-    private _isGroupTab(tab: browser.Tabs.Tab): boolean {
-        if (!tab.url) return false;
-        try {
-            const url = new URL(tab.url);
-            return url.protocol === 'moz-extension:' &&
-                url.pathname.endsWith('/overview.html') &&
-                url.searchParams.has('view') &&
-                url.searchParams.get('view') === 'group';
-        } catch (e) {
-            // URL constructor failed, likely not a valid/standard URL (e.g., about:blank, internal UUIDs)
-            return false;
-        }
-    }
-
-    // TODO: need to add this check before calling tabs.create anywhere.
-    // maybe just create a tab saying "sorry man. can't create this one for you"
-    private _isUrlFunny(url_str: string): boolean {
-        try {
-            const url = new URL(url_str);
-            if (url.protocol === "chrome-extension:") {
-                return true;
-            }
-            if (url.protocol === "chrome:") {
-                return true;
-            }
-            if (url.protocol === 'about:') {
-                return true;
-            }
-
-            return false;
-        } catch (e) {
-            return true;
         }
     }
 
