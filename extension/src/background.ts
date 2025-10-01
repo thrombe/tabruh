@@ -181,19 +181,23 @@ class App {
         return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
     }
 
-    private _parseGroupUrlAttrs(url: string): Omit<GroupAttrs, 'generation'> & { generation?: number } | null {
+    private _parseGroupUrlAttrs(url: string): GroupAttrs | null {
         try {
             const urlObj = new URL(url);
             if (urlObj.protocol === 'moz-extension:' &&
                 urlObj.pathname.endsWith('/overview.html') &&
                 urlObj.searchParams.get('view') === 'group') {
-                const name = urlObj.searchParams.get('name');
-                const isCustomNamed = urlObj.searchParams.get('isCustomNamed') === 'true';
-                const generationStr = urlObj.searchParams.get('generation');
-                const generation = generationStr ? parseInt(generationStr, 10) : undefined;
 
-                if (name) {
-                    return { name, isCustomNamed, generation };
+                const name = urlObj.searchParams.get('name');
+                const isCustomNamedStr = urlObj.searchParams.get('isCustomNamed');
+                const generationStr = urlObj.searchParams.get('generation');
+
+                if (name && isCustomNamedStr && generationStr) {
+                    const isCustomNamed = isCustomNamedStr === 'true';
+                    const generation = parseInt(generationStr, 10);
+                    if (!isNaN(generation)) {
+                        return { name, isCustomNamed, generation };
+                    }
                 }
             }
         } catch (e) { /* Invalid URL */ }
@@ -224,8 +228,8 @@ class App {
                 node.type = 'group';
                 const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
                 if (parsedAttrs) {
-                    const attrs = this.getOrGenerateGroupAttrs(node.id, parsedAttrs.generation, parsedAttrs.name);
-                    attrs.isCustomNamed = parsedAttrs.isCustomNamed;
+                    const attrs = this.getOrGenerateGroupAttrs(node.id);
+                    Object.assign(attrs, parsedAttrs);
                     node.title = attrs.name;
                 } else {
                     node.title = this.getOrGenerateGroupAttrs(node.id).name;
@@ -263,9 +267,8 @@ class App {
             if (isGroup) {
                 const parsedAttrs = this._parseGroupUrlAttrs(tab.url!);
                 if (parsedAttrs) {
-                    const attrs = this.getOrGenerateGroupAttrs(new_tab.id, parsedAttrs.generation, parsedAttrs.name);
-                    attrs.isCustomNamed = parsedAttrs.isCustomNamed;
-                    title = attrs.name;
+                    this.groupAttrs.set(new_tab.id, { ...parsedAttrs });
+                    title = parsedAttrs.name;
                 } else {
                     title = this.getOrGenerateGroupAttrs(new_tab.id).name;
                 }
@@ -296,10 +299,12 @@ class App {
 
             if (isGroup) {
                 const correctUrl = this._getGroupUrl(new_tab.id);
-                try {
-                    await browser.tabs.update(new_tab.tid, { url: correctUrl });
-                    node.url = correctUrl;
-                } catch (e) { console.error(e); }
+                if (node.url !== correctUrl) {
+                    try {
+                        await browser.tabs.update(new_tab.tid, { url: correctUrl });
+                        node.url = correctUrl;
+                    } catch (e) { console.error(e); }
+                }
             }
 
             return this.get_tab(new_tab.tid);
