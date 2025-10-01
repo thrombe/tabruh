@@ -196,11 +196,13 @@ class App {
             try {
                 const urlParams = new URL(tab.url!).searchParams;
                 const id = urlParams.get("id");
-                if (urlParams.get("view") == "group" && id && options.updateComplete) {
+                if (urlParams.get("view") == "group" && id) {
                     if (parseInt(id, 10) != node.id) {
                         const url = browser.runtime.getURL(`overview.html?view=group&id=${node.id}`);
-                        console.log(tab.url, node.url, url, node.id, parseInt(id, 10));
-                        await browser.tabs.update(node.tid, { url: url });
+                        node.url = url;
+                        if (options.updateComplete) {
+                            await browser.tabs.update(node.tid, { url: url });
+                        }
                     }
                 }
             } catch (e) { }
@@ -703,6 +705,10 @@ class App {
                         if (state) this._post(port, { type: 'STATE_UPDATE', payload: { state } });
                     } break;
                     case 'GET_STATE_FOR_GROUP_VIEW': {
+                        if (!this.tree.has(message.payload.nodeId)) {
+                            // tab urls have node ids, so dead group state can be requested if it's url is loaded after it is dead
+                            return;
+                        }
                         const rootNode = this.get_node(message.payload.nodeId);
                         if (rootNode.type !== 'group') throw Error(`node bid: ${rootNode.id} is not a 'group'`);
                         this._post(port, { type: 'STATE_UPDATE', payload: { state: this._buildUiStateForRender(rootNode.wid, message.payload.nodeId) } });
