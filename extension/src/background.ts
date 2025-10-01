@@ -1012,13 +1012,13 @@ class App {
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
                         const newNodeId = this.bruhid++;
-                        this.getOrGenerateGroupAttrs(newNodeId);
+                        const attrs = this.getOrGenerateGroupAttrs(newNodeId);
                         const url = browser.runtime.getURL(`overview.html?view=group&id=${newNodeId}`);
                         const orderedTabs = this._getOrderedTabList(windowId);
                         const lastDescendantId = this._getSubtree(parentId).pop()!;
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
-                        const groupTab = await browser.tabs.create({ windowId, index, url, active: false });
+                        const groupTab = await browser.tabs.create({ windowId, index, url, active: false, discarded: true, title: attrs.name });
                         const newNode = await this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
                         this.set_parent(newNode.id, parentId);
                     } break;
