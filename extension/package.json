@@ -1,8 +1,9 @@
 {
   "name": "tabruh",
   "scripts": {
-    "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
-    "dev": "bun x tsx ./src/dev.ts --"
+    "build": "rm -f ./buiild && rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
+    "pkg-build": "bun run build && bun x tsx ./src/dev.ts build",
+    "dev": "bun x tsx ./src/dev.ts"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.6",
