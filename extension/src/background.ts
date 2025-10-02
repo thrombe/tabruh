@@ -19,9 +19,15 @@ import manifest from './manifest.jsonc';
 type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
 type Config = {
-    log_events: boolean,
+    dbg: {
+        log_events: boolean,
+        log_sessions: boolean,
+    },
     available_apis: {
-        sessions: boolean,
+        session_values: boolean,
+    },
+    features: {
+        restore_strategy: "SessionsValues" | "SessionHistory",
     },
 };
 
@@ -43,10 +49,17 @@ class App {
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     constructor() {
+        const session_values = browser.sessions.setWindowValue !== undefined;
         this.config = {
-            log_events: false,
+            dbg: {
+                log_events: true,
+                log_sessions: true,
+            },
             available_apis: {
-                sessions: browser.sessions.setWindowValue !== undefined,
+                session_values: session_values,
+            },
+            features: {
+                restore_strategy: session_values ? "SessionsValues" : "SessionHistory",
             },
         };
     }
@@ -105,8 +118,10 @@ class App {
             let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
         });
         browser.sessions.onChanged.addListener(async () => {
-            const sessions = await browser.sessions.getRecentlyClosed({ maxResults: 5 });
-            console.log(sessions);
+            const sessions = await browser.sessions.getRecentlyClosed();
+            if (this.config.dbg.log_sessions) {
+                console.log(sessions);
+            }
         });
     }
 
@@ -611,7 +626,7 @@ class App {
     }
 
     async _process_event(event: StateManagerEvent) {
-        if (this.config.log_events) {
+        if (this.config.dbg.log_events) {
             if (event.type == "portMessage") {
                 console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
             } else {
