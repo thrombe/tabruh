@@ -19,6 +19,7 @@ import manifest from './manifest.jsonc';
 type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
 type Config = {
+    log_events: boolean,
     available_apis: {
         sessions: boolean,
     },
@@ -43,6 +44,7 @@ class App {
 
     constructor() {
         this.config = {
+            log_events: false,
             available_apis: {
                 sessions: browser.sessions.setWindowValue !== undefined,
             },
@@ -101,6 +103,10 @@ class App {
         });
         browser.windows.onFocusChanged.addListener(async (windowId) => {
             let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
+        });
+        browser.sessions.onChanged.addListener(async () => {
+            const sessions = await browser.sessions.getRecentlyClosed({ maxResults: 5 });
+            console.log(sessions);
         });
     }
 
@@ -605,10 +611,12 @@ class App {
     }
 
     async _process_event(event: StateManagerEvent) {
-        if (event.type == "portMessage") {
-            console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
-        } else {
-            console.log(Date.now(), event.type, event.payload);
+        if (this.config.log_events) {
+            if (event.type == "portMessage") {
+                console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
+            } else {
+                console.log(Date.now(), event.type, event.payload);
+            }
         }
 
         switch (event.type) {
