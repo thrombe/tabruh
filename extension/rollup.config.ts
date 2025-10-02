@@ -53,6 +53,13 @@ const config: RollupOptions = {
         entryFileNames: '[name].js',
         assetFileNames: '[name].[extname]',
     },
+    watch: {
+        include: 'src/**',
+        chokidar: {
+            // - [rollup.watch stops watching after first change. · Issue #1666 · rollup/rollup](https://github.com/rollup/rollup/issues/1666)
+            usePolling: true,
+        },
+    },
     plugins: [
         watchStaticAssets(),
         postcss(
@@ -157,9 +164,6 @@ const config: RollupOptions = {
     ],
     // If your extension code uses browser APIs, you may need to externalize certain modules
     external: [],
-    watch: {
-        include: 'src/**'
-    }
 };
 
 export default config;
