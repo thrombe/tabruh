@@ -13,7 +13,8 @@ import type {
     BruhWindow,
     WindowId,
     BruhId,
-} from './types'; import * as utils from './utils';
+} from './types';
+import * as utils from './utils';
 import manifest from './manifest.jsonc';
 
 type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
@@ -30,12 +31,17 @@ type Config = {
         restore_strategy: "SessionsValues" | "SessionHistory",
     },
 };
+type UserConfig = {
+    // TODO:
+    open_sidebar_on_new_windows: boolean,
+};
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
     eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
 
     config: Config;
+    user_config: UserConfig;
     bruhid: BruhId = 1;
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
@@ -61,6 +67,10 @@ class App {
             features: {
                 restore_strategy: session_values ? "SessionsValues" : "SessionHistory",
             },
+        };
+
+        this.user_config = {
+            open_sidebar_on_new_windows: false,
         };
     }
 
