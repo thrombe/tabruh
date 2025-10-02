@@ -12,6 +12,8 @@ import stripJsonComments from 'strip-json-comments';
 import { globSync } from 'glob';
 import url from 'url';
 import fs from 'fs/promises';
+// @ts-ignore
+import webExt from 'web-ext';
 
 const distDir = 'build';
 
@@ -113,6 +115,12 @@ const config: RollupOptions = {
                     source: manifestJson,
                 });
             }
+        },
+        {
+            name: "lint-manifest",
+            async buildStart() {
+                await webExt.cmd.lint({ sourceDir: "./build" }, { shouldExitProgram: false });
+            },
         },
     ],
     // If your extension code uses browser APIs, you may need to externalize certain modules

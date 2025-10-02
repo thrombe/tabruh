@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "browser_specific_settings": {
     "gecko": {
-      "id": "2697cb95-6fdc-47a5-b3bb-a1369863ad0b",
+      "id": "@tabruh.thrombe",
       // sessions.getTabValue/getWindowValue -> ff v57
-      "strict_min_version": "57",
+      // sidebarActions.toggle -> ff v73
+      "strict_min_version": "73.0",
     },
   },
   "permissions": [
