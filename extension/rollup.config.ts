@@ -8,8 +8,10 @@ import copy from 'rollup-plugin-copy';
 import postcss from 'rollup-plugin-postcss';
 import tailwindcss from '@tailwindcss/postcss';
 import autoprefixer from 'autoprefixer';
+import stripJsonComments from 'strip-json-comments';
 import { globSync } from 'glob';
 import url from 'url';
+import fs from 'fs/promises';
 
 const distDir = 'build';
 
@@ -65,19 +67,53 @@ const config: RollupOptions = {
             preferBuiltins: false
         }),
         commonjs(),
-        // json(),
         typescript({
             tsconfig: './tsconfig.json',
             sourceMap: true,
         }),
         copy({
             targets: [
-                { src: 'src/manifest.json', dest: distDir },
                 { src: 'src/sidebar.html', dest: distDir },
                 { src: 'src/overview.html', dest: distDir },
             ],
             hook: 'buildEnd',
-        })
+        }),
+        {
+            name: "clean-manifest-jsonc",
+            buildStart() {
+                // Make sure manifest.jsonc is watched so changes trigger rebuilds
+                this.addWatchFile(path.resolve("./src/manifest.jsonc"));
+            },
+            async generateBundle(_options, bundle) {
+                const manifestPath = path.resolve("./src/manifest.jsonc");
+                let raw: string;
+                try {
+                    raw = await fs.readFile(manifestPath, "utf-8");
+                } catch (err) {
+                    this.error(`Could not read manifest.jsonc: ${err}`);
+                    return;
+                }
+
+                // Strip comments + trailing commas
+                const cleaned = stripJsonComments(raw, { trailingCommas: true });
+
+                let manifestObj: any;
+                try {
+                    manifestObj = JSON.parse(cleaned);
+                } catch (err) {
+                    this.error(`Error parsing manifest.jsonc after stripping: ${err}`);
+                    return;
+                }
+
+                // Emit as clean JSON
+                const manifestJson = JSON.stringify(manifestObj, null, 2);
+                this.emitFile({
+                    type: "asset",
+                    fileName: "manifest.json",
+                    source: manifestJson,
+                });
+            }
+        },
     ],
     // If your extension code uses browser APIs, you may need to externalize certain modules
     external: [],

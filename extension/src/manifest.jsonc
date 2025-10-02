@@ -5,7 +5,8 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "2697cb95-6fdc-47a5-b3bb-a1369863ad0b",
-      "strict_min_version": "57"
+      // sessions.getTabValue/getWindowValue -> ff v57
+      "strict_min_version": "57",
     },
   },
   "permissions": [
@@ -19,22 +20,17 @@
     "<all_urls>",
     "menus",
     "sessions",
-    "storage"
+    "storage",
   ],
   "background": {
     "scripts": [ "background.js" ],
-    "type": "module"
+    "type": "module",
   },
   "sidebar_action": {
     "default_title": "Tabruh",
-    "default_panel": "sidebar.html"
+    "default_panel": "sidebar.html",
   },
   "browser_action": {
-    "default_title": "Tabruh"
+    "default_title": "Tabruh",
   },
-  "browser_specific_settings": {
-    "gecko": {
-      "strict_min_version": "50.0"
-    }
-  }
 }
