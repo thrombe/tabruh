@@ -629,7 +629,7 @@ class App {
             } break;
             case 'tabRemoved': {
                 const e = event.payload;
-                const tabToRemove = this.tabs.get(e.tabId)!;
+                const tabToRemove = this.get_tab(e.tabId);
 
                 if (e.removeInfo.isWindowClosing) {
                     if (!this.closing_window_tabs.has(e.removeInfo.windowId)) {
@@ -648,12 +648,7 @@ class App {
                     }
                     for (let i = 0; i < win.tabIds.length; i++) {
                         const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
-                        const nodeToUpdate = this.tree.get(tabToUpdate.id)! as Node & { type: "group" | "tab" };
-                        const nodeToRemove = this.tree.get(tabToRemove.id)! as Node & { type: "group" | "tab" };
-                        if (nodeToUpdate.parentId === tabToRemove.id) {
-                            nodeToUpdate.parentId = nodeToRemove.parentId;
-                        }
-
+                        this.set_parent(tabToUpdate.id, tabToRemove.parentId);
                     }
                     this.remove_tab(e.tabId);
                 }
