@@ -623,8 +623,8 @@ class App {
                 await this.save_tab(t, "opener");
                 win.tabIds.splice(t.index, 0, t.id!);
                 for (let i = t.index + 1; i < win.tabIds.length; i++) {
-                    const tabToUpdate = this.tabs.get(win.tabIds[i]!);
-                    if (tabToUpdate) tabToUpdate.index = i;
+                    const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
+                    tabToUpdate.index = i;
                 }
             } break;
             case 'tabRemoved': {
@@ -676,34 +676,30 @@ class App {
                         tab.wid = attachInfo.newWindowId;
                         newWin.tabIds.splice(attachInfo.newPosition, 0, tabId);
                         for (let i = 0; i < newWin.tabIds.length; i++) {
-                            const tabToUpdate = this.tabs.get(newWin.tabIds[i]!);
-                            if (tabToUpdate) tabToUpdate.index = i;
+                            const tabToUpdate = this.tabs.get(newWin.tabIds[i]!)!;
+                            tabToUpdate.index = i;
                         }
                     }
                 }
             } break;
             case 'tabDetached': {
                 const { tabId, detachInfo } = event.payload;
-                const oldWin = this.windows.get(detachInfo.oldWindowId);
-                if (oldWin) {
-                    const oldIndex = oldWin.tabIds.indexOf(tabId);
-                    if (oldIndex > -1) {
-                        oldWin.tabIds.splice(oldIndex, 1);
-                        for (let i = oldIndex; i < oldWin.tabIds.length; i++) {
-                            const tabToUpdate = this.tabs.get(oldWin.tabIds[i]!);
-                            if (tabToUpdate) tabToUpdate.index = i;
-                        }
+                const oldWin = this.windows.get(detachInfo.oldWindowId)!;
+                const oldIndex = oldWin.tabIds.indexOf(tabId);
+                if (oldIndex > -1) {
+                    oldWin.tabIds.splice(oldIndex, 1);
+                    for (let i = oldIndex; i < oldWin.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(oldWin.tabIds[i]!)!;
+                        tabToUpdate.index = i;
                     }
                 }
             } break;
             case 'tabActivated': {
                 const e = event.payload;
-                const win = this.windows.get(e.windowId);
-                if (win) {
-                    for (const tid of win.tabIds) {
-                        const tab = this.tabs.get(tid);
-                        if (tab) tab.active = (tab.tid === e.tabId);
-                    }
+                const win = this.windows.get(e.windowId)!;
+                for (const tid of win.tabIds) {
+                    const tab = this.tabs.get(tid);
+                    if (tab) tab.active = (tab.tid === e.tabId);
                 }
             } break;
             case 'windowCreated': {
