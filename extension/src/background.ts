@@ -595,6 +595,13 @@ class App {
         switch (event.type) {
             case 'tabCreated': {
                 const t = event.payload;
+                try {
+                    const old_val = await browser.sessions.getTabValue(t.id!, "bruh_id");
+                    console.log(old_val);
+                } catch (e) { console.error(e); }
+                try {
+                    await browser.sessions.setTabValue(t.id!, "bruh_id", "lmao + " + t.id?.toString());
+                } catch (e) { console.error(e); }
                 if (this.restoring_tab_ids.has(t.id!)) {
                     this.restoring_tab_ids.delete(t.id!);
                     return;
