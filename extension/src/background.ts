@@ -14,6 +14,7 @@ import type {
     WindowId,
     BruhId,
 } from './types'; import * as utils from './utils';
+import manifest from './manifest.jsonc';
 
 type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
@@ -49,6 +50,9 @@ class App {
     }
 
     static async init() {
+        const plugin_version = manifest["version"];
+        console.log(`tabruh loaded: v${plugin_version}`);
+
         let self = new App();
         await self.init_tree();
         return self;
@@ -1135,8 +1139,6 @@ class App {
 }
 
 async function main() {
-    console.log("tabruh loaded");
-
     let app = await App.init();
     await app.attach_listeners();
     let _ = app.process_events();

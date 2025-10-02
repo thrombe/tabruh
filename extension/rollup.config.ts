@@ -86,6 +86,38 @@ const config: RollupOptions = {
                 // Make sure manifest.jsonc is watched so changes trigger rebuilds
                 this.addWatchFile(path.resolve("./src/manifest.jsonc"));
             },
+            resolveId(importee, importer) {
+                // if someone does `import ... from "manifest.jsonc"` (relative or absolute),
+                // resolve it to our resolvedId
+                const sourcePath = "src/manifest.jsonc";
+                const resolvedId = path.resolve(sourcePath);
+                if (importee === sourcePath || importee.endsWith("/" + sourcePath)) {
+                    return resolvedId;
+                }
+                return null;
+            },
+            async load(id) {
+                const sourcePath = "src/manifest.jsonc";
+                const resolvedId = path.resolve(sourcePath);
+                // if this id matches our manifest.jsonc file
+                if (id === resolvedId) {
+                    const raw = await fs.readFile(resolvedId, "utf-8");
+                    const cleaned = stripJsonComments(raw, { trailingCommas: true });
+                    let manifestObj;
+                    try {
+                        manifestObj = JSON.parse(cleaned);
+                    } catch (err) {
+                        this.error(`Failed to parse manifest.jsonc: ${err}`);
+                    }
+                    // Return a JS module source exporting the object
+                    const code = `export default ${JSON.stringify(manifestObj)};`;
+                    return {
+                        code,
+                        map: { mappings: "" }
+                    };
+                }
+                return null;
+            },
             async generateBundle(_options, bundle) {
                 const manifestPath = path.resolve("./src/manifest.jsonc");
                 let raw: string;
