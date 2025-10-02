@@ -574,6 +574,16 @@ class App {
         this.windows.delete(win.wid);
     }
 
+    remove_node(bid: BruhId) {
+        const node = this.tree.get(bid);
+        if (!node) return;
+        if (node.type == "window") {
+            this.remove_window(node.wid);
+        } else {
+            this.remove_tab(node.tid);
+        }
+    }
+
     async init_tree() {
         const oldIdToNewIdMap = new Map<BruhId, BruhId>();
         const tabSessionDataMap = new Map<TabId, BruhTabSessionData>();
@@ -858,7 +868,7 @@ class App {
                     win = this.windows.get(t.windowId!)!;
                     nodesToSave.add(win.id);
 
-                    if (sessionData) this.remove_window(this.tree.get(sessionData.bruhId).wid);
+                    if (sessionData) this.remove_node(sessionData.bruhId);
                 }
 
                 const sessionData = await this._readTabState(t.id!);
@@ -866,25 +876,33 @@ class App {
                 nodesToSave.add(newTab.id);
                 nodesToSave.add(newTab.parentId);
 
-                if (sessionData) this.remove_tab(this.tree.get(sessionData.bruhId).tid);
+                if (sessionData) this.remove_node(sessionData.bruhId);
 
                 // TODO: sessiondata's ids are stale here
-                // TODO: children?
-                // if (sessionData) {
-                //     let parentIdToSet = win.id;
-                //     if (this.tree.has(sessionData.parentId)) {
-                //         parentIdToSet = sessionData.parentId;
-                //     } else {
-                //         for (const ancestorId of sessionData.ancestorIds) {
-                //             if (this.tree.has(ancestorId)) {
-                //                 parentIdToSet = ancestorId;
-                //                 break;
-                //             }
-                //         }
-                //     }
-                //     this.set_parent(newTab.id, parentIdToSet, false);
-                //     nodesToSave.add(parentIdToSet);
-                // }
+                if (sessionData) {
+                    let parentIdToSet = win.id;
+                    if (this.tree.has(sessionData.parentId)) {
+                        parentIdToSet = sessionData.parentId;
+                    } else {
+                        for (const ancestorId of sessionData.ancestorIds) {
+                            if (this.tree.has(ancestorId)) {
+                                parentIdToSet = ancestorId;
+                                break;
+                            }
+                        }
+                    }
+                    this.set_parent(newTab.id, parentIdToSet, false);
+                    nodesToSave.add(parentIdToSet);
+
+                    for (let child of sessionData.childrenIds) {
+                        if (!this.tree.has(child)) continue;
+                        const ctab = this.tree.get(child)! as Node & { type: "tab" | "group" };
+                        if (ctab.parentId === parentIdToSet) {
+                            this.set_parent(ctab.id, newTab.id, false);
+                            nodesToSave.add(ctab.id);
+                        }
+                    }
+                }
 
                 win.tabIds.splice(t.index, 0, t.id!);
                 for (let i = t.index + 1; i < win.tabIds.length; i++) {
@@ -1218,8 +1236,8 @@ class App {
                         const newTab = await browser.tabs.create({ windowId, index, active: false });
                         const node = this.save_tab(newTab, "window");
                         this.set_parent(node.id, parentId, false);
-                        nodesToSave.add(node.id);
-                        nodesToSave.add(parentId);
+                        // nodesToSave.add(node.id);
+                        // nodesToSave.add(parentId);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
@@ -1230,8 +1248,8 @@ class App {
                         const newTab = await browser.tabs.create({ windowId, url, index, active: false });
                         const node = this.save_tab(newTab, "window");
                         this.set_parent(node.id, parentId, false);
-                        nodesToSave.add(node.id);
-                        nodesToSave.add(parentId);
+                        // nodesToSave.add(node.id);
+                        // nodesToSave.add(parentId);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;
