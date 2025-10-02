@@ -13,6 +13,7 @@ import type {
     BruhWindow,
     WindowId,
     BruhId,
+    BruhSessionData,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -43,6 +44,7 @@ class App {
     config: Config;
     user_config: UserConfig;
     bruhid: BruhId = 1;
+    hierarchy_generation_id: number = 1;
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
     tabs: Map<TabId, BruhTab> = new Map();
@@ -50,6 +52,10 @@ class App {
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
     restoring_window_ids: Set<WindowId> = new Set();
+
+    private _appStateDirty: boolean = false;
+    private readonly session_data_key = "tabruh-state";
+    private readonly storage_key = "tabruh-app-state";
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -79,8 +85,66 @@ class App {
         console.log(`tabruh loaded: v${plugin_version}`);
 
         let self = new App();
+        await self._loadAppState();
         await self.init_tree();
         return self;
+    }
+
+    private async _saveAppState(): Promise<void> {
+        await browser.storage.local.set({
+            [this.storage_key]: {
+                bruhid: this.bruhid,
+                hgid: this.hierarchy_generation_id,
+            }
+        });
+    }
+
+    private async _loadAppState(): Promise<void> {
+        const data = await browser.storage.local.get(this.storage_key);
+        if (data && data[this.storage_key]) {
+            this.bruhid = data[this.storage_key].bruhid || 1;
+            this.hierarchy_generation_id = data[this.storage_key].hgid || 1;
+        }
+    }
+
+    private _incrementHgid(): void {
+        this.hierarchy_generation_id++;
+        this._appStateDirty = true;
+    }
+
+    private async _saveNodeState(nodeId: BruhId): Promise<void> {
+        try {
+            const node = this.get_node(nodeId);
+            if (node.type === 'window') {
+                return;
+            }
+
+            const data: BruhSessionData = {
+                bruhId: node.id,
+                parentId: node.parentId,
+                hgid: node.hierarchy_generation_id,
+            };
+            await browser.sessions.setTabValue(node.tid, this.session_data_key, data);
+        } catch (e) {
+            if (this.config.dbg.log_sessions) {
+                console.warn(`Failed to save session state for node ${nodeId}:`, e);
+            }
+        }
+    }
+
+    private async _readNodeState(tabId: TabId): Promise<BruhSessionData | null> {
+        try {
+            const data = await browser.sessions.getTabValue(tabId, this.session_data_key);
+            if (data && typeof data === 'object' && 'bruhId' in data) {
+                return data as BruhSessionData;
+            }
+            return null;
+        } catch (e) {
+            if (this.config.dbg.log_sessions) {
+                console.warn(`Failed to read session state for tab ${tabId}:`, e);
+            }
+            return null;
+        }
     }
 
     async attach_listeners() {
@@ -190,10 +254,19 @@ class App {
         }
     }
 
-    set_parent(bid: BruhId, parentId: BruhId) {
+    set_parent(bid: BruhId, parentId: BruhId, isManual: boolean = false) {
         const node = this.tree.get(bid);
         if (!node || node.type === 'window') throw Error(`Cannot set parent for node bid: ${bid}`);
+        if (node.parentId === parentId) return;
+
         node.parentId = this.get_node(parentId).id;
+
+        if (isManual) {
+            this._incrementHgid();
+            node.hierarchy_generation_id = this.hierarchy_generation_id;
+        }
+
+        this._saveNodeState(bid);
     }
 
     set_collapsed(bid: BruhId, collapsed: boolean) {
@@ -293,7 +366,7 @@ class App {
     async save_tab(
         tab: browser.Tabs.Tab,
         parent: "window" | "opener",
-        options: { id?: BruhId, forceIsGroup?: boolean, updateComplete?: boolean } = {},
+        options: { id?: BruhId, forceIsGroup?: boolean, updateComplete?: boolean, sessionData?: BruhSessionData } = {},
     ): Promise<BruhTab & Extract<Node, { type: "group" | "tab" }>> {
         if (tab.id === undefined || tab.windowId === undefined) throw Error(`tab does not have an id or windowId? ${tab.title}`);
         const old = this.tabs.get(tab.id);
@@ -337,8 +410,24 @@ class App {
 
             return this.get_tab(old.tid);
         } else {
+            const sessionData = options.sessionData;
+            let id: BruhId;
+            if (sessionData) {
+                id = sessionData.bruhId;
+            } else if (options.id !== undefined) {
+                id = options.id;
+            } else {
+                id = this.bruhid++;
+                this._appStateDirty = true;
+            }
+
+            if (this.bruhid <= id) {
+                this.bruhid = id + 1;
+                this._appStateDirty = true;
+            }
+
             const new_tab = {
-                id: options.id !== undefined ? options.id : this.bruhid++,
+                id: id,
                 tid: tab.id,
                 wid: tab.windowId,
                 index: tab.index,
@@ -381,6 +470,7 @@ class App {
                 favIconUrl: tab.favIconUrl,
                 parentId: pid,
                 collapsed: false,
+                hierarchy_generation_id: sessionData ? sessionData.hgid : 1,
             } as Node & { type: "group" | "tab" };
             this.tree.set(new_tab.id, node);
 
@@ -391,19 +481,32 @@ class App {
                     node.url = correctUrl;
                 }
             }
-
+            await this._saveNodeState(new_tab.id);
             return this.get_tab(new_tab.tid);
         }
     }
 
-    save_window(win: browser.Windows.Window) {
+    async save_window(win: browser.Windows.Window, options: { id?: BruhId, hgid?: number } = {}) {
         if (win.id === undefined) throw Error(`window does not have id :/`);
         const old = this.windows.get(win.id);
         if (old) {
             return this.get_window(old.wid);
         } else {
+            let id: BruhId;
+            if (options.id !== undefined) {
+                id = options.id;
+            } else {
+                id = this.bruhid++;
+                this._appStateDirty = true;
+            }
+
+            if (this.bruhid <= id) {
+                this.bruhid = id + 1;
+                this._appStateDirty = true;
+            }
+
             const new_window = {
-                id: this.bruhid++,
+                id: id,
                 wid: win.id,
                 tabIds: [],
                 closed: false,
@@ -416,6 +519,7 @@ class App {
                 title: attrs.name,
                 type: "window",
                 wid: win.id,
+                hierarchy_generation_id: options.hgid !== undefined ? options.hgid : 1,
             } as Node;
             this.tree.set(new_window.id, new_node);
 
@@ -442,24 +546,33 @@ class App {
     async init_tree() {
         let windows = await browser.windows.getAll({ windowTypes: ["normal"], populate: true });
         for (let w of windows) {
-            this.save_window(w);
+            await this.save_window(w);
             const bruhWin = this.windows.get(w.id!)!;
             bruhWin.tabIds = w.tabs?.map(t => t.id!).filter(t => t !== undefined) as TabId[] ?? [];
         }
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                // opener might not be set yet, so parent param is "window"
-                let _ = await this.save_tab(t, "window");
+                if (t.id === undefined) continue;
+                const sessionData = await this._readNodeState(t.id);
+                let _ = await this.save_tab(t, "window", { sessionData });
             }
         }
 
         for (const win of windows) {
             for (const t of win.tabs ?? []) {
-                if (t.openerTabId !== undefined && this.tabs.has(t.openerTabId)) {
-                    const tab = this.get_tab(t.id!);
+                if (t.id === undefined) continue;
+                const sessionData = await this._readNodeState(t.id);
+                const tab = this.tabs.get(t.id);
+                if (!tab) continue;
+
+                let parentId: BruhId | undefined = sessionData?.parentId;
+
+                if (parentId && this.tree.has(parentId)) {
+                    this.set_parent(tab.id, parentId, false);
+                } else if (t.openerTabId !== undefined && this.tabs.has(t.openerTabId)) {
                     const opener = this.get_tab(t.openerTabId);
-                    this.set_parent(tab.id, opener.id);
+                    this.set_parent(tab.id, opener.id, false);
                 }
             }
         }
@@ -647,23 +760,23 @@ class App {
         switch (event.type) {
             case 'tabCreated': {
                 const t = event.payload;
-                try {
-                    const old_val = await browser.sessions.getTabValue(t.id!, "bruh_id");
-                    console.log(old_val);
-                } catch (e) { console.error(e); }
-                try {
-                    await browser.sessions.setTabValue(t.id!, "bruh_id", "lmao + " + t.id?.toString());
-                } catch (e) { console.error(e); }
-                if (this.restoring_tab_ids.has(t.id!)) {
-                    this.restoring_tab_ids.delete(t.id!);
+                if (!t.id || !t.windowId) return;
+
+                const sessionData = await this._readNodeState(t.id);
+
+                if (this.restoring_tab_ids.has(t.id)) {
+                    this.restoring_tab_ids.delete(t.id);
                     return;
                 }
-                let win = this.windows.get(t.windowId!);
+                let win = this.windows.get(t.windowId);
                 if (!win) {
+                    // This can happen if a new window is created with a tab. The window event might not have been processed yet.
+                    // We'll create a placeholder window state.
                     const new_id = this.bruhid++;
-                    this.windows.set(t.windowId!, {
+                    this._appStateDirty = true;
+                    this.windows.set(t.windowId, {
                         id: new_id,
-                        wid: t.windowId!,
+                        wid: t.windowId,
                         closed: false,
                         tabIds: [],
                     });
@@ -672,18 +785,45 @@ class App {
                         id: new_id,
                         title: attrs.name,
                         type: "window",
-                        wid: t.windowId!,
+                        wid: t.windowId,
+                        hierarchy_generation_id: 1,
                     } as Node;
                     this.tree.set(new_id, new_node);
-
-                    win = this.windows.get(t.windowId!)!;
+                    win = this.windows.get(t.windowId)!;
                 }
 
-                await this.save_tab(t, "opener");
-                win.tabIds.splice(t.index, 0, t.id!);
-                for (let i = t.index + 1; i < win.tabIds.length; i++) {
-                    const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
-                    tabToUpdate.index = i;
+                const createdNode = await this.save_tab(t, "opener", { sessionData });
+
+                if (sessionData) {
+                    let parentId = sessionData.parentId;
+                    if (!this.tree.has(parentId)) {
+                        parentId = this.get_window(createdNode.wid).id;
+                    }
+                    this.set_parent(createdNode.id, parentId, false);
+
+                    const currentWin = this.windows.get(t.windowId)!;
+                    for (const otherTid of currentWin.tabIds) {
+                        if (otherTid === t.id) continue;
+                        const otherTab = this.tabs.get(otherTid);
+                        if (!otherTab) continue;
+
+                        const otherNode = this.get_node(otherTab.id);
+
+                        if (otherNode.parentId === parentId) {
+                            const otherSessionData = await this._readNodeState(otherTid);
+                            if (otherSessionData && otherSessionData.parentId === createdNode.id && otherNode.hierarchy_generation_id <= sessionData.hgid) {
+                                this.set_parent(otherNode.id, createdNode.id, false);
+                            }
+                        }
+                    }
+                }
+
+                if (!win.tabIds.includes(t.id)) {
+                    win.tabIds.splice(t.index, 0, t.id);
+                    for (let i = t.index + 1; i < win.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
+                        tabToUpdate.index = i;
+                    }
                 }
             } break;
             case 'tabRemoved': {
@@ -705,9 +845,9 @@ class App {
                         const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
                         tabToUpdate.index = i;
                     }
-                    for (let i = 0; i < win.tabIds.length; i++) {
-                        const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
-                        this.set_parent(tabToUpdate.id, tabToRemove.parentId);
+                    const children = this._getChildrenMap().get(tabToRemove.id) || [];
+                    for (const childId of children) {
+                        this.set_parent(childId, tabToRemove.parentId, false);
                     }
                     this.remove_tab(e.tabId);
                 }
@@ -763,18 +903,11 @@ class App {
             } break;
             case 'windowCreated': {
                 const win = event.payload;
-                try {
-                    const old_val = await browser.sessions.getWindowValue(win.id!, "bruh_id");
-                    console.log(old_val);
-                } catch (e) { console.error(e); }
-                try {
-                    await browser.sessions.setWindowValue(win.id!, "bruh_id", "lmao + " + win.id?.toString());
-                } catch (e) { console.error(e); }
                 if (this.restoring_window_ids.has(win.id!)) {
                     this.restoring_window_ids.delete(win.id!);
                     return;
                 }
-                this.save_window(win);
+                await this.save_window(win);
             } break;
             case 'windowRemoved': {
                 const wid = event.payload;
@@ -870,6 +1003,7 @@ class App {
                         if (draggedNode.type == "window") {
                             const oldAttrs = this.groupAttrs.get(draggedNode.id)!;
                             const newNodeId = this.bruhid++;
+                            this._appStateDirty = true;
                             this.groupAttrs.set(newNodeId, { ...oldAttrs });
                             const url = this._getGroupUrl(newNodeId);
 
@@ -882,7 +1016,7 @@ class App {
                                 title: oldAttrs.name,
                             });
                             const groupNode = await this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
-                            this.set_parent(groupNode.id, newParentId);
+                            this.set_parent(groupNode.id, newParentId, true);
                             newParentId = groupNode.id;
                             index += 1;
                         }
@@ -892,9 +1026,9 @@ class App {
                             const node = this.get_node(nodeId);
                             if (node.type === 'tab' || node.type === 'group') {
                                 if (draggedNode.type == "window") {
-                                    if (node.parentId == draggedNode.id) this.set_parent(node.id, newParentId);
+                                    if (node.parentId == draggedNode.id) this.set_parent(node.id, newParentId, true);
                                 } else if (node.id === draggedNode.id) {
-                                    this.set_parent(node.id, newParentId);
+                                    this.set_parent(node.id, newParentId, true);
                                 }
                                 tidsToMove.push(node.tid);
                             }
@@ -919,7 +1053,7 @@ class App {
                         if (node.type === 'window') throw Error(`cannot close single 'window' node`);
                         const children = this._getChildrenMap().get(node.id) || [];
                         for (const childId of children) {
-                            this.set_parent(childId, node.parentId);
+                            this.set_parent(childId, node.parentId, false);
                         }
                         await browser.tabs.remove(node.tid);
                     } break;
@@ -934,6 +1068,7 @@ class App {
 
                         if (isDuplicatingGroup) {
                             new_id = this.bruhid++;
+                            this._appStateDirty = true;
                             this.getOrGenerateGroupAttrs(new_id); // Create new attrs for the new group
                             url = this._getGroupUrl(new_id);
                         }
@@ -944,7 +1079,7 @@ class App {
                             index: message.payload.tabIndex,
                         });
                         const newNode = await this.save_tab(newTab, "window", { id: new_id, forceIsGroup: isDuplicatingGroup });
-                        this.set_parent(newNode.id, node.parentId);
+                        this.set_parent(newNode.id, node.parentId, false);
                     } break;
                     case 'UNLOAD_TAB': {
                         const node = this.get_node(message.payload.nodeId);
@@ -968,7 +1103,7 @@ class App {
                         if (tids.length > 0) await browser.tabs.move(tids, { windowId: newWindow.id!, index: 1 });
                         const fullNewWindow = await browser.windows.get(newWindow.id!, { populate: true });
 
-                        const win = this.save_window(fullNewWindow);
+                        const win = await this.save_window(fullNewWindow);
                         const oldAttrs = this.groupAttrs.get(node.id);
                         if (oldAttrs) {
                             const newAttrs = this.groupAttrs.get(win.id)!;
@@ -983,11 +1118,11 @@ class App {
                             for (let id of subtree) {
                                 const child = this.get_node(id);
                                 if (child.type === "window") throw Error(`child bid: ${child.id} of node bid: ${node.id} cannot be a window node`);
-                                if (child.parentId === node.id) this.set_parent(child.id, win.id);
+                                if (child.parentId === node.id) this.set_parent(child.id, win.id, true);
                             }
                             await browser.tabs.remove(node.tid);
                         } else if (node.type === "tab") {
-                            this.set_parent(node.id, win.id);
+                            this.set_parent(node.id, win.id, true);
                         }
                     } break;
                     case 'CREATE_TAB': {
@@ -998,7 +1133,7 @@ class App {
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const newTab = await browser.tabs.create({ windowId, index, active: false });
                         const node = await this.save_tab(newTab, "window");
-                        this.set_parent(node.id, parentId);
+                        this.set_parent(node.id, parentId, false);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
@@ -1008,7 +1143,7 @@ class App {
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const newTab = await browser.tabs.create({ windowId, url, index, active: false });
                         const node = await this.save_tab(newTab, "window");
-                        this.set_parent(node.id, parentId);
+                        this.set_parent(node.id, parentId, false);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;
@@ -1032,7 +1167,7 @@ class App {
                         const new_bwin = await browser.windows.create({});
                         this.restoring_window_ids.add(new_bwin.id!);
                         const extra_tab = new_bwin.tabs![0]!;
-                        this.save_window(new_bwin);
+                        await this.save_window(new_bwin);
                         const new_win = this.windows.get(new_bwin.id!)!;
 
                         // Transfer attributes to the new window state
@@ -1042,6 +1177,9 @@ class App {
 
                         // It is totally possible to have parent elements after children in tab.tabs
                         // so we pre-generate ids
+                        if (tabsToRestore.length > 0) {
+                            this._appStateDirty = true;
+                        }
                         for (const tab of tabsToRestore) {
                             const new_id = this.bruhid++;
                             old_to_new.set(tab.id, new_id);
@@ -1075,7 +1213,7 @@ class App {
                             new_win.tabIds.splice(new_tab.index, 0, new_tab.tid);
 
                             this.set_collapsed(new_tab.id, tab.collapsed);
-                            this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!);
+                            this.set_parent(new_tab.id, old_to_new.get(tab.parentId)!, false);
                             const new_tab_node = this.tree.get(new_tab.id)! as Node & { type: "tab" | "group" };
                             new_tab_node.favIconUrl = tab.favIconUrl;
 
@@ -1108,7 +1246,7 @@ class App {
                         if (node.type === 'window') return;
                         const children = this._getChildrenMap().get(node.id) || [];
                         for (const childId of children) {
-                            this.set_parent(childId, node.parentId);
+                            this.set_parent(childId, node.parentId, true);
                         }
                     } break;
                     case 'FLATTEN_TREE': {
@@ -1116,12 +1254,13 @@ class App {
                         if (node.type === 'window') return;
                         const descendants = this._getSubtree(node.id).filter(id => id !== node.id);
                         for (const descId of descendants) {
-                            this.set_parent(descId, node.parentId);
+                            this.set_parent(descId, node.parentId, true);
                         }
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
                         const newNodeId = this.bruhid++;
+                        this._appStateDirty = true;
                         const attrs = this.getOrGenerateGroupAttrs(newNodeId);
                         const url = this._getGroupUrl(newNodeId);
                         const orderedTabs = this._getOrderedTabList(windowId);
@@ -1130,7 +1269,7 @@ class App {
                         const index = lastDescendantIndex >= 0 ? lastDescendantIndex + 1 : undefined;
                         const groupTab = await browser.tabs.create({ windowId, index, url, active: false, discarded: true, title: attrs.name });
                         const newNode = await this.save_tab(groupTab, "window", { id: newNodeId, forceIsGroup: true });
-                        this.set_parent(newNode.id, parentId);
+                        this.set_parent(newNode.id, parentId, false);
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
@@ -1159,7 +1298,11 @@ class App {
             if (!event) break;
 
             try {
+                this._appStateDirty = false;
                 await this._process_event(event);
+                if (this._appStateDirty) {
+                    await this._saveAppState();
+                }
                 this._broadcastUpdates(event);
             } catch (e) {
                 console.error('Caught an error:', e);

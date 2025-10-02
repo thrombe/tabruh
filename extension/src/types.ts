@@ -7,9 +7,16 @@ export type BrowserId = TabId | WindowId;
 
 export type BruhId = number;
 
+export type BruhSessionData = {
+    bruhId: BruhId;
+    parentId: BruhId;
+    hgid: number;
+};
+
 export type Node = {
     id: BruhId
     title: string;
+    hierarchy_generation_id: number;
 } & ({
     type: "tab",
     tid: TabId,
