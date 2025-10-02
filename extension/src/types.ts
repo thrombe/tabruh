@@ -7,10 +7,23 @@ export type BrowserId = TabId | WindowId;
 
 export type BruhId = number;
 
-export type BruhSessionData = {
+export type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
+
+export type BruhTabSessionData = {
     bruhId: BruhId;
     parentId: BruhId;
+    ancestorIds: BruhId[];
+    childrenIds: BruhId[];
     hgid: number;
+    collapsed: boolean;
+    type: "tab" | "group";
+    groupAttrs?: GroupAttrs;
+};
+
+export type BruhWindowSessionData = {
+    bruhId: BruhId;
+    hgid: number;
+    groupAttrs: GroupAttrs;
 };
 
 export type Node = {
