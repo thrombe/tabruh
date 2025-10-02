@@ -629,7 +629,7 @@ class App {
             } break;
             case 'tabRemoved': {
                 const e = event.payload;
-                const tabToRemove = this.tabs.get(e.tabId);
+                const tabToRemove = this.tabs.get(e.tabId)!;
 
                 if (e.removeInfo.isWindowClosing) {
                     if (!this.closing_window_tabs.has(e.removeInfo.windowId)) {
@@ -638,18 +638,22 @@ class App {
                     this.closing_window_tabs.get(e.removeInfo.windowId)!.add(e.tabId);
                     this.set_tab_closed(e.tabId, true);
                 } else {
-                    if (tabToRemove) {
-                        const win = this.windows.get(tabToRemove.wid);
-                        if (win) {
-                            const oldIndex = win.tabIds.indexOf(e.tabId);
-                            if (oldIndex > -1) {
-                                win.tabIds.splice(oldIndex, 1);
-                                for (let i = oldIndex; i < win.tabIds.length; i++) {
-                                    const tabToUpdate = this.tabs.get(win.tabIds[i]!);
-                                    if (tabToUpdate) tabToUpdate.index = i;
-                                }
-                            }
+                    const win = this.windows.get(tabToRemove.wid)!;
+                    const oldIndex = win.tabIds.indexOf(e.tabId);
+                    if (oldIndex < 0) throw Error(`tab tid: ${e.tabId} not found in window wid: ${win.wid}`);
+                    win.tabIds.splice(oldIndex, 1);
+                    for (let i = oldIndex; i < win.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
+                        tabToUpdate.index = i;
+                    }
+                    for (let i = 0; i < win.tabIds.length; i++) {
+                        const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
+                        const nodeToUpdate = this.tree.get(tabToUpdate.id)! as Node & { type: "group" | "tab" };
+                        const nodeToRemove = this.tree.get(tabToRemove.id)! as Node & { type: "group" | "tab" };
+                        if (nodeToUpdate.parentId === tabToRemove.id) {
+                            nodeToUpdate.parentId = nodeToRemove.parentId;
                         }
+
                     }
                     this.remove_tab(e.tabId);
                 }
@@ -660,14 +664,12 @@ class App {
             } break;
             case 'tabMoved': {
                 const { tabId, moveInfo } = event.payload;
-                const win = this.windows.get(moveInfo.windowId);
-                if (win) {
-                    const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
-                    win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
-                    for (let i = 0; i < win.tabIds.length; i++) {
-                        const tabToUpdate = this.tabs.get(win.tabIds[i]!);
-                        if (tabToUpdate) tabToUpdate.index = i;
-                    }
+                const win = this.windows.get(moveInfo.windowId)!;
+                const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
+                win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
+                for (let i = 0; i < win.tabIds.length; i++) {
+                    const tabToUpdate = this.tabs.get(win.tabIds[i]!)!;
+                    tabToUpdate.index = i;
                 }
             } break;
             case 'tabAttached': {
