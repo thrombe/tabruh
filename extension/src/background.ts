@@ -17,10 +17,17 @@ import type {
 
 type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
+type Config = {
+    available_apis: {
+        sessions: boolean,
+    },
+};
+
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
     eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
 
+    config: Config;
     bruhid: BruhId = 1;
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
@@ -32,6 +39,14 @@ class App {
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
+
+    constructor() {
+        this.config = {
+            available_apis: {
+                sessions: browser.sessions.setWindowValue !== undefined,
+            },
+        };
+    }
 
     static async init() {
         let self = new App();
@@ -711,6 +726,13 @@ class App {
             } break;
             case 'windowCreated': {
                 const win = event.payload;
+                try {
+                    const old_val = await browser.sessions.getWindowValue(win.id!, "bruh_id");
+                    console.log(old_val);
+                } catch (e) { console.error(e); }
+                try {
+                    await browser.sessions.setWindowValue(win.id!, "bruh_id", "lmao + " + win.id?.toString());
+                } catch (e) { console.error(e); }
                 if (this.restoring_window_ids.has(win.id!)) {
                     this.restoring_window_ids.delete(win.id!);
                     return;
