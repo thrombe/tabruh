@@ -34,6 +34,7 @@ type Config = {
     },
 };
 type UserConfig = {
+    // TODO:
     open_sidebar_on_new_windows: boolean,
 };
 
@@ -493,8 +494,6 @@ class App {
         let parent = this.get_node(current.parentId).node;
         while (parent.type !== 'window') {
             ancestors.push(parent.id);
-            // This direct access is from the original user-provided method.
-            // It's kept for fidelity to the original logic, as changing it might alter behavior.
             parent = this.tree.get(parent.parentId)!;
         }
         // last ancestor is a window
@@ -558,7 +557,7 @@ class App {
     }
 
     private _createTabNode(tab: browser.Tabs.Tab): TabData {
-        const bruhId = this.bruhid++;
+        const bruhId = this.bruhid++ as BruhId;
         const tid = tab.id as TabId;
         const wid = tab.windowId as WindowId;
         let parentId: BruhId;
@@ -605,7 +604,7 @@ class App {
     }
 
     private _createWindowNode(win: browser.Windows.Window): WindowData {
-        const bruhId = this.bruhid++;
+        const bruhId = this.bruhid++ as BruhId;
         const wid = win.id as WindowId;
 
         const node: Extract<Node, { type: "window" }> = {
