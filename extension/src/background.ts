@@ -252,6 +252,63 @@ class App {
         }
     }
 
+    private _logEvent(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tabCreated':
+            case 'tabRemoved':
+            case 'tabMoved':
+            case 'tabAttached':
+            case 'tabDetached':
+            case 'windowCreated':
+            case 'windowRemoved':
+                console.log(Date.now(), event.type, event.payload);
+                break;
+
+            case 'tabActivated':
+            case 'tabUpdated':
+            case 'windowFocusChanged':
+                break;
+
+            case 'portMessage':
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'GET_STATE_FOR_WINDOW':
+                    case 'GET_STATE_FOR_GROUP_VIEW':
+                    case 'GET_ALL_WINDOW_STATES':
+                        break;
+
+                    case 'TOGGLE_COLLAPSE':
+                    case 'HANDLE_DROP':
+                    case 'CLOSE_SUBTREE':
+                    case 'CLOSE_SINGLE_TAB':
+                    case 'DUPLICATE_TAB_SMART':
+                    case 'UNLOAD_TAB':
+                    case 'UNLOAD_TREE':
+                    case 'LOAD_TREE':
+                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
+                    case 'CREATE_TAB':
+                    case 'CREATE_TAB_FROM_URL':
+                    case 'RENAME_WINDOW':
+                    case 'CLOSE_WINDOW':
+                    case 'RESTORE_WINDOW':
+                    case 'DELETE_WINDOW_STATE':
+                    case 'FLATTEN_IMMEDIATE':
+                    case 'FLATTEN_TREE':
+                    case 'CREATE_GROUP':
+                    case 'RENAME_NODE':
+                    case 'FOCUS_TAB':
+                        console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
+                        break;
+
+                    default:
+                        throw utils.exhausted(message);
+                }
+                break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
     private _broadcastUpdates(event: StateManagerEvent) {
         switch (event.type) {
             case 'tabCreated':
@@ -314,6 +371,9 @@ class App {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
 
+            if (this.config.dbg.log_events) {
+                this._logEvent(event);
+            }
             await this._process_event(event).catch(console.error);
             this._broadcastUpdates(event);
         }
@@ -486,67 +546,6 @@ class OldApp {
         };
         this.groupAttrs.set(id, newAttrs);
         return newAttrs;
-    }
-
-    get_tab(tid: TabId): Readonly<BruhTab & Extract<Node, { type: "tab" | "group" }>> {
-        const tab = this.tabs.get(tid);
-        if (!tab) throw Error(`tab with tid ${tid} does not exist`);
-        const node = this.tree.get(tab.id);
-        if (!node) throw Error(`tab(${tid}) node with bid ${tab.id} does not exist`);
-        // @ts-ignore
-        return { ...node, ...tab };
-    }
-
-    get_window(wid: WindowId): Readonly<BruhWindow & Extract<Node, { type: "window" }>> {
-        const win = this.windows.get(wid);
-        if (!win) throw Error(`window with wid: ${wid} does not exist`);
-        const node = this.tree.get(win.id);
-        if (!node) throw Error(`window(${wid}) node with bid ${win.id} does not exist`);
-        // @ts-ignore
-        return { ...node, ...win };
-    }
-
-    get_node(bid: BruhId) {
-        const node = this.tree.get(bid);
-        if (!node) throw Error(`node with bid ${bid} does not exist`);
-        if (node.type == "window") {
-            return this.get_window(node.wid);
-        } else {
-            return this.get_tab(node.tid);
-        }
-    }
-
-    set_parent(bid: BruhId, parentId: BruhId, isManual: boolean = false) {
-        const node = this.tree.get(bid)!;
-        if (node.type === 'window') throw Error(`Cannot set parent for node bid: ${bid}`);
-        if (node.parentId === parentId) return;
-
-        node.parentId = this.get_node(parentId).id;
-
-        if (isManual) {
-            node.hierarchy_generation_id = this._incrementHgid();
-        }
-    }
-
-    set_collapsed(bid: BruhId, collapsed: boolean) {
-        const node = this.tree.get(bid)! as Extract<Node, { type: "tab" | "group" }>;
-        if (node.collapsed === collapsed) return;
-        node.collapsed = collapsed;
-    }
-
-    set_window_closed(wid: WindowId, closed: boolean) {
-        const win = this.windows.get(wid)!;
-        win.closed = closed;
-    }
-
-    set_tab_closed(tid: TabId, closed: boolean) {
-        const tab = this.tabs.get(tid)!;
-        tab.closed = closed;
-    }
-
-    set_title(bid: BruhId, title: string) {
-        const node = this.tree.get(bid)!;
-        node.title = title;
     }
 
     save_tab(
