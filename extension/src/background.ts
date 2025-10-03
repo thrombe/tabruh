@@ -7,6 +7,7 @@ import type {
     NodeTree,
     StateManagerEvent,
     TabId,
+    HierarchyGenerationId,
     UiNode,
     UiStateForRender,
     BruhTab,
@@ -47,8 +48,8 @@ class App {
 
     config: Config;
     user_config: UserConfig;
-    bruhid: BruhId = 1;
-    hierarchy_generation_id: number = 1;
+    bruhid: BruhId = 1 as BruhId;
+    hierarchy_generation_id: HierarchyGenerationId = 1 as HierarchyGenerationId;
 
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
@@ -120,19 +121,19 @@ class App {
             let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
         });
         browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
+            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId: tabId as TabId, removeInfo } });
         });
         browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
+            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId: tabId as TabId, changeInfo, tab } });
         });
         browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
+            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId: tabId as TabId, moveInfo } });
         });
         browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
+            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId: tabId as TabId, attachInfo } });
         });
         browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
+            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId: tabId as TabId, detachInfo } });
         });
         browser.tabs.onActivated.addListener(async (activeInfo) => {
             let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
@@ -141,10 +142,10 @@ class App {
             let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
         });
         browser.windows.onRemoved.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
+            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId as WindowId });
         });
         browser.windows.onFocusChanged.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
+            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId as WindowId });
         });
         // browser.sessions.onChanged.addListener(async () => {
         //     const sessions = await browser.sessions.getRecentlyClosed();
@@ -216,7 +217,7 @@ class App {
                     const isCustomNamed = isCustomNamedStr === 'true';
                     const generation = parseInt(generationStr, 10);
                     if (!isNaN(generation)) {
-                        return { attrs: { name, isCustomNamed, generation }, id, };
+                        return { attrs: { name, isCustomNamed, generation }, id: id as BruhId, };
                     }
                 }
             }

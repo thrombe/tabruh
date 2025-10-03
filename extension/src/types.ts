@@ -1,12 +1,12 @@
 import browser from 'webextension-polyfill';
 import * as utils from './utils';
 
-export type TabId = number;
-export type WindowId = number;
+export type TabId = utils.Branded<number, "TabId">;
+export type WindowId = utils.Branded<number, "WindowId">;
 export type BrowserId = TabId | WindowId;
 
-export type BruhId = number;
-export type HierarchyGenerationId = number;
+export type BruhId = utils.Branded<number, "BruhId">;
+export type HierarchyGenerationId = utils.Branded<number, "HgId">;
 
 export type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 

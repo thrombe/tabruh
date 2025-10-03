@@ -36,6 +36,8 @@ Object.defineProperty(Object.prototype, "expect", {
 });
 */
 
+export type Branded<T, Brand extends string> = T & { readonly __brand: Brand };
+
 export function exhausted(d: never) {
     console.log(d)
     throw new Error("unreachable: " + JSON.stringify(d));
