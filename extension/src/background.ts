@@ -34,7 +34,6 @@ type Config = {
     },
 };
 type UserConfig = {
-    // TODO:
     open_sidebar_on_new_windows: boolean,
 };
 
@@ -556,8 +555,7 @@ class App {
         };
     }
 
-    private _createTabNode(tab: browser.Tabs.Tab): TabData {
-        const bruhId = this.bruhid++ as BruhId;
+    private async _createTabNode(tab: browser.Tabs.Tab): Promise<TabData> {
         const tid = tab.id as TabId;
         const wid = tab.windowId as WindowId;
         let parentId: BruhId;
@@ -569,6 +567,25 @@ class App {
         }
 
         const isGroup = this._isGroupTab(tab);
+        const sessionBruhId = await this._readSessionPointer(tid, 'tab');
+        const urlParsed = isGroup ? this._parseGroupUrlAttrs(tab.url!) : null;
+        const urlBruhId = urlParsed?.id;
+
+        let bruhId: BruhId;
+        let needsUrlUpdate = false;
+
+        if (isGroup && sessionBruhId && urlBruhId && sessionBruhId !== urlBruhId) {
+            bruhId = sessionBruhId;
+            needsUrlUpdate = true;
+        } else if (isGroup && !sessionBruhId && urlBruhId && this.tree.has(urlBruhId)) {
+            bruhId = this.bruhid++;
+            needsUrlUpdate = true;
+        } else if (sessionBruhId) {
+            bruhId = sessionBruhId;
+        } else {
+            bruhId = this.bruhid++;
+        }
+
         const node: Extract<Node, { type: "tab" | "group" }> = {
             id: bruhId,
             hgid: 1 as HierarchyGenerationId,
@@ -592,20 +609,26 @@ class App {
         };
 
         if (isGroup) {
-            const parsed = this._parseGroupUrlAttrs(bruhTab.url);
-            const attrs: GroupAttrs = parsed?.attrs || { name: this._generateUniqueGroupName(), generation: 1, isCustomNamed: false };
+            const attrs: GroupAttrs = urlParsed?.attrs && !needsUrlUpdate ? urlParsed.attrs : { name: this._generateUniqueGroupName(), generation: 1, isCustomNamed: false };
             this.groupAttrs.set(bruhId, attrs);
             bruhTab.title = attrs.name;
         }
+
         this.tree.set(bruhId, node);
         this.tabs.set(tid, bruhTab);
-        this._writeSessionPointer(bruhId, tid, 'tab');
+        await this._writeSessionPointer(bruhId, tid, 'tab');
+
+        if (needsUrlUpdate) {
+            const correctUrl = this._getGroupUrl(bruhId);
+            bruhTab.url = correctUrl;
+            await browser.tabs.update(tid, { url: correctUrl });
+        }
+
         return { node, tab: bruhTab };
     }
 
-    private _createWindowNode(win: browser.Windows.Window): WindowData {
-        const bruhId = this.bruhid++ as BruhId;
-        const wid = win.id as WindowId;
+    private _createWindowNode(wid: WindowId): WindowData {
+        const bruhId = this.bruhid++;
 
         const node: Extract<Node, { type: "window" }> = {
             id: bruhId,
@@ -620,7 +643,7 @@ class App {
             id: bruhId,
             wid: wid,
             closed: false,
-            tabIds: (win.tabs || []).map(t => t.id as TabId),
+            tabIds: [],
         };
 
         const attrs: GroupAttrs = { name: this._generateUniqueGroupName(), generation: 1, isCustomNamed: false };
@@ -660,7 +683,7 @@ class App {
         childNode.parentId = newParentId;
     }
 
-    private _updateTabStateFromBrowser(tid: TabId, tab: browser.Tabs.Tab): void {
+    private async _updateTabStateFromBrowser(tid: TabId, tab: browser.Tabs.Tab): Promise<void> {
         const { tab: bruhTab, node } = this.get_tab(tid);
 
         bruhTab.wid = tab.windowId as WindowId;
@@ -681,6 +704,15 @@ class App {
         } else if (!isGroupNow && node.type === 'group') {
             node.type = 'tab';
         }
+
+        if (isGroupNow) {
+            const urlParsed = this._parseGroupUrlAttrs(bruhTab.url);
+            if (urlParsed && urlParsed.id !== bruhTab.id) {
+                const correctUrl = this._getGroupUrl(bruhTab.id);
+                bruhTab.url = correctUrl;
+                await browser.tabs.update(tid, { url: correctUrl });
+            }
+        }
     }
 
     private async _flattenNode(nodeId: BruhId, recursive: boolean): Promise<void> {
@@ -692,12 +724,113 @@ class App {
         }
     }
 
-    private _convertGroupToWindow(groupId: BruhId) {
-        throw new Error("Not implemented");
+    private async _moveSubtreeToNewWindow(rootNodeId: BruhId): Promise<void> {
+        const rootNodeData = this.get_node(rootNodeId);
+        if (rootNodeData.node.type === 'window') return;
+
+        const subtreeIds = this._getSubtree(rootNodeId);
+        const tidsToMove = subtreeIds
+            .map(id => this.get_tab_node(id).tab.tid);
+
+        const rootTabTid = tidsToMove[0];
+
+        const newBrowserWindow = await browser.windows.create();
+        const extraTabId = newBrowserWindow.tabs![0].id! as TabId;
+        const newWindowId = newBrowserWindow.id! as WindowId;
+
+        if (!this.windows.has(newWindowId)) {
+            this._createWindowNode(newWindowId);
+        }
+        const newWindowData = this.get_window(newWindowId);
+
+        await browser.tabs.move(tidsToMove, { windowId: newWindowId, index: 0 });
+
+        await browser.tabs.update(rootTabTid, { active: true });
+        await browser.tabs.remove(extraTabId);
+
+        this._setParent(rootNodeId, newWindowData.node.id);
     }
 
-    private _convertWindowToGroup(windowId: WindowId, targetParentId: BruhId, targetWindowId: WindowId, index: number) {
-        throw new Error("Not implemented");
+    private async _convertGroupToWindow(groupId: BruhId): Promise<void> {
+        const groupData = this.get_tab_node(groupId);
+        const groupAttrs = this.groupAttrs.get(groupId)!;
+        const childrenIds = this._getChildrenMap().get(groupId) || [];
+        const tidsToMove = childrenIds.map(id => this.get_tab_node(id).tab.tid);
+
+        const newBrowserWindow = await browser.windows.create();
+        const extraTabId = newBrowserWindow.tabs![0].id! as TabId;
+        const newWindowId = newBrowserWindow.id! as WindowId;
+
+        if (tidsToMove.length > 0) {
+            await browser.tabs.move(tidsToMove, { windowId: newWindowId, index: 0 });
+            await browser.tabs.update(tidsToMove[0], { active: true });
+        }
+
+        await browser.tabs.remove(extraTabId);
+
+        await browser.tabs.remove(groupData.tab.tid);
+
+        const newWindowData = this._createWindowNode(newWindowId);
+        this.groupAttrs.set(newWindowData.node.id, { ...groupAttrs });
+
+        for (const childId of childrenIds) {
+            this._setParent(childId, newWindowData.node.id);
+        }
+    }
+
+    private async _convertWindowToGroup(sourceBruhId: BruhId, targetParentId: BruhId, targetWindowId: WindowId, index: number): Promise<void> {
+        const sourceWindowData = this.get_window_node(sourceBruhId);
+        const sourceWindowId = sourceWindowData.win.wid;
+        const isSourceWindowOpen = !sourceWindowData.win.closed;
+        const sourceGroupAttrs = this.groupAttrs.get(sourceBruhId)!;
+
+        const childBruhIds = this._getChildrenMap().get(sourceBruhId) || [];
+        const childTids = childBruhIds.map(bid => this.get_tab_node(bid).tab.tid);
+
+        const newGroupUrl = this._getGroupUrl(sourceBruhId);
+        const newGroupBrowserTab = await browser.tabs.create({
+            windowId: targetWindowId,
+            index: index,
+            url: newGroupUrl,
+            active: false
+        });
+        const newGroupTid = newGroupBrowserTab.id! as TabId;
+
+        if (isSourceWindowOpen && childTids.length > 0) {
+            await browser.tabs.move(childTids, { windowId: targetWindowId, index: index + 1 });
+        }
+
+        const nodeToMorph = sourceWindowData.node as unknown as Extract<Node, { type: "tab" | "group" }>;
+        nodeToMorph.type = 'group';
+        nodeToMorph.parentId = targetParentId;
+        nodeToMorph.tid = newGroupTid;
+        nodeToMorph.collapsed = false;
+
+        const newBruhTab: BruhTab = {
+            id: sourceBruhId,
+            tid: newGroupTid,
+            wid: targetWindowId,
+            index: index,
+            url: newGroupUrl,
+            title: sourceGroupAttrs.name,
+            favIconUrl: undefined,
+            discarded: false,
+            active: false,
+            closed: false,
+        };
+        this.tabs.set(newGroupTid, newBruhTab);
+        this.windows.delete(sourceWindowId);
+
+        for (const childId of childBruhIds) {
+            const childData = this.get_tab_node(childId);
+            childData.tab.wid = targetWindowId;
+        }
+
+        await this._writeSessionPointer(sourceBruhId, newGroupTid, 'tab');
+
+        if (isSourceWindowOpen) {
+            await browser.windows.remove(sourceWindowId);
+        }
     }
 
     private async _saveState(): Promise<void> {
