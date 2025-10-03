@@ -40,7 +40,6 @@ type UserConfig = {
 
 type TabData = { node: Extract<Node, { type: "tab" | "group" }>, tab: BruhTab };
 type WindowData = { node: Extract<Node, { type: "window" }>, win: BruhWindow };
-type RootData = { node: Extract<Node, { type: "root" }> };
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -400,10 +399,8 @@ class App {
         if (!node) throw Error(`node with bid ${bid} does not exist`);
         if (node.type == "window") {
             return this.get_window(node.wid);
-        } else if (node.type == "tab" || node.type == "group") {
-            return this.get_tab(node.tid);
         } else {
-            return { node: node } as RootData;
+            return this.get_tab(node.tid);
         }
     }
 
@@ -433,6 +430,107 @@ class App {
         } else {
             throw new Error("cannot remove root node");
         }
+    }
+
+    private _getSubtree(rootId: BruhId): BruhId[] {
+        const subtree: BruhId[] = [];
+        const stack: BruhId[] = [rootId];
+        const visited = new Set<BruhId>();
+
+        const childrenMap = this._getChildrenMap();
+
+        while (stack.length > 0) {
+            const currentId = stack.pop()!;
+            if (visited.has(currentId)) {
+                continue;
+            }
+            visited.add(currentId);
+            subtree.push(currentId);
+
+            const children = childrenMap.get(currentId) || [];
+            for (let i = children.length - 1; i >= 0; i--) {
+                stack.push(children[i]!);
+            }
+        }
+        return subtree;
+    }
+
+    private _getChildrenMap(): Map<BruhId, BruhId[]> {
+        const map = new Map<BruhId, BruhId[]>();
+        for (const [_, w] of this.windows) {
+            for (const tid of w.tabIds) {
+                const tab = this.get_tab(tid);
+
+                if (!map.has(tab.node.parentId)) {
+                    map.set(tab.node.parentId, []);
+                }
+                map.get(tab.node.parentId)!.push(tab.tab.id);
+            }
+        }
+        return map;
+    }
+
+    private _getOrderedTabList(windowId: WindowId): BruhId[] {
+        return this.get_window(windowId).win.tabIds.map(tid => this.get_tab(tid).tab.id);
+    }
+
+
+    private _buildUiStateForRender(windowId: WindowId, rootNodeId?: BruhId): UiStateForRender {
+        const win = this.get_window(windowId);
+
+        const childrenMap = this._getChildrenMap();
+        const rootIds: BruhId[] = [];
+        const uiTree: Map<BruhId, UiNode> = new Map();
+
+        const rootId = rootNodeId || win.win.id;
+        let nodeIdsToIterate: BruhId[];
+        if (rootNodeId) {
+            nodeIdsToIterate = this._getSubtree(rootNodeId);
+        } else {
+            nodeIdsToIterate = this._getOrderedTabList(windowId);
+        }
+
+        for (const bruhId of nodeIdsToIterate) {
+            if (rootNodeId && bruhId === rootNodeId) continue;
+
+            const tnode = this.get_node(bruhId);
+            if (!("tab" in tnode)) continue;
+            const node = tnode.node;
+            const tab = tnode.tab;
+
+            uiTree.set(node.id, {
+                id: node.id,
+                tid: node.tid,
+                tab_index: tab.index,
+                title: tab.title,
+                url: tab.url,
+                favIconUrl: tab.favIconUrl,
+                isGroup: node.type === 'group',
+                isDiscarded: tab.discarded,
+                isActive: tab.active,
+                isCollapsed: node.collapsed,
+                children: childrenMap.get(node.id) || [],
+            });
+
+            if (node.parentId === rootId) {
+                rootIds.push(node.id);
+            }
+        }
+
+        const rootNode = this.get_node(rootId);
+        const attrs = this.groupAttrs.get(rootNode.node.id)!;
+
+        return {
+            id: rootNode.node.id,
+            windowId: win.win.wid,
+            name: attrs.name,
+            isCustomNamed: attrs.isCustomNamed,
+            isClosed: win.win.closed,
+            generation: attrs.generation,
+            tree: uiTree,
+            tabsById: new Map(this.tabs.entries()),
+            rootIds,
+        };
     }
 
     async _process_event(event: StateManagerEvent) {
@@ -703,32 +801,6 @@ class OldApp {
         }
     }
 
-    remove_tab(tid: TabId) {
-        const tab = this.tabs.get(tid);
-        if (!tab) return;
-        this.groupAttrs.delete(tab.id);
-        this.tree.delete(tab.id);
-        this.tabs.delete(tab.tid);
-    }
-
-    remove_window(wid: WindowId) {
-        const win = this.windows.get(wid);
-        if (!win) return;
-        this.groupAttrs.delete(win.id);
-        this.tree.delete(win.id);
-        this.windows.delete(win.wid);
-    }
-
-    remove_node(bid: BruhId) {
-        const node = this.tree.get(bid);
-        if (!node) return;
-        if (node.type == "window") {
-            this.remove_window(node.wid);
-        } else {
-            this.remove_tab(node.tid);
-        }
-    }
-
     async init_tree() {
         const oldIdToNewIdMap = new Map<BruhId, BruhId>();
         const tabSessionDataMap = new Map<TabId, BruhTabSessionData>();
@@ -815,105 +887,6 @@ class OldApp {
         if (this._appStateDirty) {
             await this._saveAppState();
         }
-    }
-
-    private _getSubtree(rootId: BruhId): BruhId[] {
-        const subtree: BruhId[] = [];
-        const stack: BruhId[] = [rootId];
-        const visited = new Set<BruhId>();
-
-        const childrenMap = this._getChildrenMap();
-
-        while (stack.length > 0) {
-            const currentId = stack.pop()!;
-            if (visited.has(currentId)) {
-                continue;
-            }
-            visited.add(currentId);
-            subtree.push(currentId);
-
-            const children = childrenMap.get(currentId) || [];
-            for (let i = children.length - 1; i >= 0; i--) {
-                stack.push(children[i]!);
-            }
-        }
-        return subtree;
-    }
-
-    private _getChildrenMap(): Map<BruhId, BruhId[]> {
-        const map = new Map<BruhId, BruhId[]>();
-        for (const [_, w] of this.windows) {
-            for (const tid of w.tabIds) {
-                const node = this.get_tab(tid);
-
-                if (!map.has(node.parentId)) {
-                    map.set(node.parentId, []);
-                }
-                map.get(node.parentId)!.push(node.id);
-            }
-        }
-        return map;
-    }
-
-    private _getOrderedTabList(windowId: WindowId): BruhId[] {
-        return this.get_window(windowId).tabIds.map(tid => this.get_tab(tid).id);
-    }
-
-
-    private _buildUiStateForRender(windowId: WindowId, rootNodeId?: BruhId): UiStateForRender {
-        const win = this.get_window(windowId);
-
-        const childrenMap = this._getChildrenMap();
-        const rootIds: BruhId[] = [];
-        const uiTree: Map<BruhId, UiNode> = new Map();
-
-        const rootId = rootNodeId || win.id;
-        let nodeIdsToIterate: BruhId[];
-        if (rootNodeId) {
-            nodeIdsToIterate = this._getSubtree(rootNodeId);
-        } else {
-            nodeIdsToIterate = this._getOrderedTabList(windowId);
-        }
-
-        for (const bruhId of nodeIdsToIterate) {
-            if (rootNodeId && bruhId === rootNodeId) continue;
-
-            const node = this.get_node(bruhId);
-            if (node.type === 'window') continue;
-
-            uiTree.set(node.id, {
-                id: node.id,
-                tid: node.tid,
-                tab_index: node.index,
-                title: node.title,
-                url: node.url,
-                favIconUrl: node.favIconUrl,
-                isGroup: node.type === 'group',
-                isDiscarded: node.discarded,
-                isActive: node.active,
-                isCollapsed: node.collapsed,
-                children: childrenMap.get(node.id) || [],
-            });
-
-            if (node.parentId === rootId) {
-                rootIds.push(node.id);
-            }
-        }
-
-        const rootNode = this.get_node(rootId);
-        const attrs = this.groupAttrs.get(rootNode.id)!;
-
-        return {
-            id: rootNode.id,
-            windowId: win.wid,
-            name: attrs.name,
-            isCustomNamed: attrs.isCustomNamed,
-            isClosed: win.closed,
-            generation: attrs.generation,
-            tree: uiTree,
-            tabsById: new Map(this.tabs.entries()),
-            rootIds,
-        };
     }
 
     async _process_event(event: StateManagerEvent) {

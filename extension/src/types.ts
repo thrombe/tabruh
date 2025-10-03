@@ -25,27 +25,18 @@ export type NodeStorageData = {
 });
 
 export type Node = {
-} & ({
     id: BruhId,
-    parentId: BruhId,
     hgid: HierarchyGenerationId,
+} & ({
+    parentId: BruhId,
     collapsed: boolean,
     type: "tab" | "group",
     tid: TabId,
 } | {
-    id: BruhId,
-    parentId: 1,
-    hgid: HierarchyGenerationId,
+    parentId: BruhId & 0,
     collapsed: false,
     type: "window",
     wid: WindowId,
-} | {
-    id: 1,
-    // loopback
-    parentId: 1,
-    hgid: 1,
-    collapsed: false,
-    type: "root",
 });
 
 export type BruhTab = {
