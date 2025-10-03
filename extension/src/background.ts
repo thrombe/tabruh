@@ -404,6 +404,18 @@ class App {
         }
     }
 
+    get_tab_node(bid: BruhId) {
+        const node = this.get_node(bid);
+        if (node.node.type == "window") throw new Error(`node with bid: ${bid} expected type 'tab' | 'group' found 'window'`);
+        return this.get_tab(node.node.tid);
+    }
+
+    get_window_node(bid: BruhId) {
+        const node = this.get_node(bid);
+        if (node.node.type != "window") throw new Error(`node with bid: ${bid} expected type 'window' found '${node.node.type}'`);
+        return this.get_window(node.node.wid);
+    }
+
     remove_tab(tid: TabId) {
         const tab = this.tabs.get(tid);
         if (!tab) throw new Error(`tab with tid: ${tid} does not exist`);
@@ -474,6 +486,22 @@ class App {
         return this.get_window(windowId).win.tabIds.map(tid => this.get_tab(tid).tab.id);
     }
 
+    private _getAncestors(nodeId: BruhId): BruhId[] {
+        const ancestors: BruhId[] = [];
+        let current = this.get_node(nodeId).node;
+        if (current.type === 'window') {
+            return ancestors;
+        }
+
+        let parent = this.get_node(current.parentId).node;
+        while (parent.type !== 'window') {
+            ancestors.push(parent.id);
+            parent = this.tree.get(parent.parentId)!;
+        }
+        // last ancestor is a window
+        ancestors.push(parent.id);
+        return ancestors;
+    }
 
     private _buildUiStateForRender(windowId: WindowId, rootNodeId?: BruhId): UiStateForRender {
         const win = this.get_window(windowId);
@@ -485,16 +513,13 @@ class App {
         const rootId = rootNodeId || win.win.id;
         let nodeIdsToIterate: BruhId[];
         if (rootNodeId) {
-            nodeIdsToIterate = this._getSubtree(rootNodeId);
+            nodeIdsToIterate = this._getSubtree(rootNodeId).slice(1);
         } else {
             nodeIdsToIterate = this._getOrderedTabList(windowId);
         }
 
         for (const bruhId of nodeIdsToIterate) {
-            if (rootNodeId && bruhId === rootNodeId) continue;
-
-            const tnode = this.get_node(bruhId);
-            if (!("tab" in tnode)) continue;
+            const tnode = this.get_tab_node(bruhId);
             const node = tnode.node;
             const tab = tnode.tab;
 
@@ -560,21 +585,6 @@ class OldApp {
         this.hierarchy_generation_id++;
         this._appStateDirty = true;
         return this.hierarchy_generation_id;
-    }
-
-    private _getAncestors(nodeId: BruhId): BruhId[] {
-        const ancestors: BruhId[] = [];
-        let current = this.tree.get(nodeId)!;
-        if (current.type === 'window') {
-            return ancestors;
-        }
-
-        let parent = this.tree.get(current.parentId)!;
-        while (parent.type !== 'window') {
-            ancestors.push(parent.id);
-            parent = this.tree.get(parent.parentId)!;
-        }
-        return ancestors;
     }
 
     private async _saveNodeState(nodeId: BruhId): Promise<void> {
