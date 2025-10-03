@@ -53,6 +53,7 @@ class App {
     windows: Map<WindowId, BruhWindow> = new Map();
     tabs: Map<TabId, BruhTab> = new Map();
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
+    removedNodes: Map<BruhId, NodeStorageData> = new Map();
 
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
@@ -541,18 +542,114 @@ class App {
 
         const rootNode = this.get_node(rootId);
         const attrs = this.groupAttrs.get(rootNode.node.id)!;
+        const isClosed = this.removedNodes.has(rootNode.node.id) || (rootNode.node.type === 'window' && !this.windows.has(rootNode.node.wid));
 
         return {
             id: rootNode.node.id,
             windowId: win.win.wid,
             name: attrs.name,
             isCustomNamed: attrs.isCustomNamed,
-            isClosed: win.win.closed,
+            isClosed: isClosed,
             generation: attrs.generation,
             tree: uiTree,
             tabsById: new Map(this.tabs.entries()),
             rootIds,
         };
+    }
+
+    private _incrementHgid(): HierarchyGenerationId {
+        return ++this.hierarchy_generation_id as HierarchyGenerationId;
+    }
+
+    private _getNodeStorageData(bruhId: BruhId): NodeStorageData {
+        const { node } = this.get_node(bruhId);
+        const childrenIds = this._getChildrenMap().get(bruhId) || [];
+        const ancestorIds = this._getAncestors(bruhId);
+
+        const storageData: Partial<NodeStorageData> = {
+            bruhId: bruhId,
+            hgid: node.hgid,
+            collapsed: node.collapsed,
+            type: node.type,
+            parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
+            ancestorIds: ancestorIds,
+            childrenIds: childrenIds,
+        };
+
+        if (node.type === 'group' || node.type === 'window') {
+            storageData.groupAttrs = this.groupAttrs.get(bruhId)!;
+        }
+
+        return storageData as NodeStorageData;
+    }
+
+    private _archiveNode(bruhId: BruhId): void {
+        const { node } = this.get_node(bruhId);
+        node.hgid = this._incrementHgid();
+        const storageData = this._getNodeStorageData(bruhId);
+        this.removedNodes.set(bruhId, storageData);
+        this._removeNodeAndReparentChildren(bruhId);
+    }
+
+    private async _restoreNode(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
+        const storageData = this.removedNodes.get(bruhId);
+        if (!storageData) {
+            console.warn(`Could not restore node ${bruhId}: No storage data found.`);
+            return;
+        }
+
+        this.removedNodes.delete(bruhId);
+
+        let parentId = storageData.parentId;
+        if (!this.tree.has(parentId)) {
+            parentId = browserTab.windowId as unknown as BruhId; // Fallback to window root
+            for (const ancestorId of storageData.ancestorIds) {
+                if (this.tree.has(ancestorId)) {
+                    parentId = ancestorId;
+                    break;
+                }
+            }
+        }
+
+        const node: Extract<Node, { type: "tab" | "group" }> = {
+            id: bruhId,
+            hgid: storageData.hgid,
+            parentId: parentId,
+            collapsed: storageData.collapsed,
+            type: storageData.type as 'tab' | 'group',
+            tid: browserTab.id as TabId,
+        };
+
+        const bruhTab: BruhTab = {
+            id: bruhId,
+            tid: browserTab.id as TabId,
+            wid: browserTab.windowId as WindowId,
+            index: browserTab.index,
+            url: browserTab.url || "",
+            title: browserTab.title || "",
+            favIconUrl: browserTab.favIconUrl,
+            discarded: browserTab.discarded ?? false,
+            active: browserTab.active,
+        };
+
+        if (storageData.type === 'group') {
+            this.groupAttrs.set(bruhId, storageData.groupAttrs);
+            bruhTab.title = storageData.groupAttrs.name;
+        }
+
+        this.tree.set(bruhId, node);
+        this.tabs.set(browserTab.id as TabId, bruhTab);
+        await this._writeSessionPointer(bruhId, browserTab.id as TabId, 'tab');
+
+        for (const childId of storageData.childrenIds) {
+            if (this.tree.has(childId)) {
+                const childNode = this.get_tab_node(childId).node;
+                const currentParent = this.get_node(childNode.parentId).node;
+                if (currentParent.hgid <= storageData.hgid) {
+                    this._setParent(childId, bruhId);
+                }
+            }
+        }
     }
 
     private async _createTabNode(tab: browser.Tabs.Tab): Promise<TabData> {
@@ -605,7 +702,6 @@ class App {
             favIconUrl: tab.favIconUrl,
             discarded: tab.discarded ?? false,
             active: tab.active,
-            closed: false,
         };
 
         if (isGroup) {
@@ -642,7 +738,6 @@ class App {
         const bruhWin: BruhWindow = {
             id: bruhId,
             wid: wid,
-            closed: false,
             tabIds: [],
         };
 
@@ -781,7 +876,7 @@ class App {
     private async _convertWindowToGroup(sourceBruhId: BruhId, targetParentId: BruhId, targetWindowId: WindowId, index: number): Promise<void> {
         const sourceWindowData = this.get_window_node(sourceBruhId);
         const sourceWindowId = sourceWindowData.win.wid;
-        const isSourceWindowOpen = !sourceWindowData.win.closed;
+        const isSourceWindowOpen = this.windows.has(sourceWindowId);
         const sourceGroupAttrs = this.groupAttrs.get(sourceBruhId)!;
 
         const childBruhIds = this._getChildrenMap().get(sourceBruhId) || [];
@@ -816,7 +911,6 @@ class App {
             favIconUrl: undefined,
             discarded: false,
             active: false,
-            closed: false,
         };
         this.tabs.set(newGroupTid, newBruhTab);
         this.windows.delete(sourceWindowId);
@@ -854,10 +948,16 @@ class App {
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
 
+        const removedNodesStorage: Record<string, NodeStorageData> = {};
+        for (const [bruhId, nodeData] of this.removedNodes.entries()) {
+            removedNodesStorage[bruhId] = nodeData;
+        }
+
         const stateToSave = {
             bruhid: this.bruhid,
             hgid: this.hierarchy_generation_id,
             nodes: nodeStorage,
+            removedNodes: removedNodesStorage,
         };
         await browser.storage.local.set({ [this.storage_key]: stateToSave });
     }
@@ -885,7 +985,7 @@ class App {
                     hgid: storageNode.hgid,
                     collapsed: false,
                 });
-                this.windows.set(wid, { id: bruhId, wid: wid, closed: true, tabIds: [] });
+                this.windows.set(wid, { id: bruhId, wid: wid, tabIds: [] });
                 this.groupAttrs.set(bruhId, storageNode.groupAttrs);
             } else {
                 const tid = -bruhId as TabId;
@@ -898,11 +998,19 @@ class App {
                     collapsed: storageNode.collapsed,
                 });
                 this.tabs.set(tid, {
-                    id: bruhId, tid: tid, wid: -1 as WindowId, index: -1, url: "", title: "", active: false, discarded: true, closed: true
+                    id: bruhId, tid: tid, wid: -1 as WindowId, index: -1, url: "", title: "", active: false, discarded: true
                 });
                 if (storageNode.type === 'group') {
                     this.groupAttrs.set(bruhId, storageNode.groupAttrs);
                 }
+            }
+        }
+
+        if (savedState.removedNodes) {
+            const removedNodesStorage = savedState.removedNodes as Record<string, NodeStorageData>;
+            for (const bruhIdStr in removedNodesStorage) {
+                const bruhId = Number(bruhIdStr) as BruhId;
+                this.removedNodes.set(bruhId, removedNodesStorage[bruhIdStr]);
             }
         }
     }

@@ -49,14 +49,11 @@ export type BruhTab = {
     favIconUrl?: string,
     discarded: boolean,
     active: boolean,
-
-    closed: boolean,
 };
 
 export type BruhWindow = {
     id: BruhId,
     wid: WindowId,
-    closed: boolean,
     tabIds: TabId[],
 };
 
