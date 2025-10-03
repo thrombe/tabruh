@@ -13,8 +13,7 @@ import type {
     BruhWindow,
     WindowId,
     BruhId,
-    BruhTabSessionData,
-    BruhWindowSessionData,
+    NodeStorageData,
     GroupAttrs,
 } from './types';
 import * as utils from './utils';
@@ -38,6 +37,9 @@ type UserConfig = {
     open_sidebar_on_new_windows: boolean,
 };
 
+type TabData = { node: Extract<Node, { type: "tab" | "group" }>, tab: BruhTab };
+type WindowData = { node: Extract<Node, { type: "window" }>, win: BruhWindow };
+
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
     eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
@@ -46,15 +48,16 @@ class App {
     user_config: UserConfig;
     bruhid: BruhId = 1;
     hierarchy_generation_id: number = 1;
+
     tree: NodeTree = new Map();
     windows: Map<WindowId, BruhWindow> = new Map();
     tabs: Map<TabId, BruhTab> = new Map();
     groupAttrs: Map<BruhId, GroupAttrs> = new Map();
+
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
     restoring_window_ids: Set<WindowId> = new Set();
 
-    private _appStateDirty: boolean = false;
     private session_tab_key = "tabruh-tab-state";
     private session_window_key = "tabruh-window-state";
     private storage_key = "tabruh-app-state";
@@ -94,11 +97,219 @@ class App {
         console.log(`tabruh loaded: v${plugin_version}`);
 
         let self = new App();
-        await self._loadAppState();
         await self.init_tree();
         return self;
     }
 
+    async attach_listeners() {
+        browser.runtime.onConnect.addListener((port) => {
+            this.ports.add(port);
+
+            port.onMessage.addListener(async (message) => {
+                await this.eventChannel.send({
+                    type: 'portMessage',
+                    payload: { message: message as BackgroundRequest, port }
+                });
+            });
+            port.onDisconnect.addListener(() => {
+                this.ports.delete(port);
+            });
+        });
+        browser.tabs.onCreated.addListener(async (tab) => {
+            let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
+        });
+        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
+        });
+        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
+        });
+        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
+        });
+        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
+        });
+        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
+        });
+        browser.tabs.onActivated.addListener(async (activeInfo) => {
+            let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
+        });
+        browser.windows.onCreated.addListener(async (win) => {
+            let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
+        });
+        browser.windows.onRemoved.addListener(async (windowId) => {
+            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
+        });
+        browser.windows.onFocusChanged.addListener(async (windowId) => {
+            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
+        });
+        // browser.sessions.onChanged.addListener(async () => {
+        //     const sessions = await browser.sessions.getRecentlyClosed();
+        //     if (this.config.dbg.log_sessions) {
+        //         console.log(sessions);
+        //     }
+        // });
+    }
+
+    private _isGroupTab(tab: browser.Tabs.Tab): boolean {
+        if (!tab.url) return false;
+        try {
+            const url = new URL(tab.url);
+            return url.protocol === 'moz-extension:' &&
+                url.pathname.endsWith('/overview.html') &&
+                url.searchParams.has('view') &&
+                url.searchParams.get('view') === 'group';
+        } catch (e) {
+            // URL constructor failed, likely not a valid/standard URL (e.g., about:blank, internal UUIDs)
+            return false;
+        }
+    }
+
+    // TODO: need to add this check before calling tabs.create anywhere.
+    // maybe just create a tab saying "sorry man. can't create this one for you"
+    private _isUrlFunny(url_str: string): boolean {
+        try {
+            const url = new URL(url_str);
+            if (url.protocol === "chrome-extension:") {
+                return true;
+            }
+            if (url.protocol === "chrome:") {
+                return true;
+            }
+            if (url.protocol === 'about:') {
+                return true;
+            }
+
+            return false;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    private _getGroupUrl(id: BruhId): string {
+        const attrs = this.groupAttrs.get(id)!;
+        const params = new URLSearchParams();
+        params.set('view', 'group');
+        params.set('id', String(id));
+        params.set('name', attrs.name);
+        params.set('isCustomNamed', String(attrs.isCustomNamed));
+        params.set('generation', String(attrs.generation));
+        return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
+    }
+
+    private _parseGroupUrlAttrs(url: string): { attrs: GroupAttrs, id: BruhId } | null {
+        try {
+            const urlObj = new URL(url);
+            if (urlObj.protocol === 'moz-extension:' &&
+                urlObj.pathname.endsWith('/overview.html') &&
+                urlObj.searchParams.get('view') === 'group') {
+
+                const name = urlObj.searchParams.get('name');
+                const isCustomNamedStr = urlObj.searchParams.get('isCustomNamed');
+                const generationStr = urlObj.searchParams.get('generation');
+                const id = parseInt(urlObj.searchParams.get('id')!, 10);
+
+                if (name && isCustomNamedStr && generationStr) {
+                    const isCustomNamed = isCustomNamedStr === 'true';
+                    const generation = parseInt(generationStr, 10);
+                    if (!isNaN(generation)) {
+                        return { attrs: { name, isCustomNamed, generation }, id, };
+                    }
+                }
+            }
+        } catch (e) { /* Invalid URL */ }
+        return null;
+    }
+
+    private _post(port: browser.Runtime.Port, message: BackgroundResponse) {
+        try {
+            port.postMessage(message);
+        } catch (e) {
+            this.ports.delete(port);
+        }
+    }
+
+    private _broadcast(message: BackgroundResponse) {
+        for (const port of this.ports) {
+            this._post(port, message);
+        }
+    }
+
+    private _broadcastUpdates(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tabCreated':
+            case 'tabRemoved':
+            case 'tabUpdated':
+            case 'tabMoved':
+            case 'tabAttached':
+            case 'tabDetached':
+            case 'tabActivated':
+            case 'windowCreated':
+            case 'windowRemoved':
+                this._broadcast({ type: 'RENDER_ALL', payload: {} });
+                break;
+
+            case 'windowFocusChanged':
+                break;
+
+            case 'portMessage':
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'GET_STATE_FOR_WINDOW':
+                    case 'GET_STATE_FOR_GROUP_VIEW':
+                    case 'GET_ALL_WINDOW_STATES':
+                        break;
+
+                    case 'TOGGLE_COLLAPSE':
+                    case 'HANDLE_DROP':
+                    case 'CLOSE_SUBTREE':
+                    case 'CLOSE_SINGLE_TAB':
+                    case 'DUPLICATE_TAB_SMART':
+                    case 'UNLOAD_TAB':
+                    case 'UNLOAD_TREE':
+                    case 'LOAD_TREE':
+                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
+                    case 'CREATE_TAB':
+                    case 'CREATE_TAB_FROM_URL':
+                    case 'RENAME_WINDOW':
+                    case 'CLOSE_WINDOW':
+                    case 'RESTORE_WINDOW':
+                    case 'DELETE_WINDOW_STATE':
+                    case 'FLATTEN_IMMEDIATE':
+                    case 'FLATTEN_TREE':
+                    case 'CREATE_GROUP':
+                    case 'RENAME_NODE':
+                    case 'FOCUS_TAB':
+                        this._broadcast({ type: 'RENDER_ALL', payload: {} });
+                        break;
+
+                    default:
+                        throw utils.exhausted(message);
+                }
+                break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    async process_events() {
+        while (true) {
+            const event = await this.eventChannel.wait_recv();
+            if (!event) break;
+
+            await this._process_event(event).catch(console.error);
+            this._broadcastUpdates(event);
+        }
+    }
+
+    async _process_event(event: StateManagerEvent) {
+
+    }
+};
+
+class OldApp {
     private async _saveAppState(): Promise<void> {
         this._appStateDirty = false;
         await browser.storage.local.set({
@@ -193,58 +404,6 @@ class App {
     }
 
 
-    async attach_listeners() {
-        browser.runtime.onConnect.addListener((port) => {
-            this.ports.add(port);
-
-            port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({
-                    type: 'portMessage',
-                    payload: { message: message as BackgroundRequest, port }
-                });
-            });
-            port.onDisconnect.addListener(() => {
-                this.ports.delete(port);
-            });
-        });
-        browser.tabs.onCreated.addListener(async (tab) => {
-            let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
-        });
-        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId, removeInfo } });
-        });
-        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId, changeInfo, tab } });
-        });
-        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId, moveInfo } });
-        });
-        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId, attachInfo } });
-        });
-        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId, detachInfo } });
-        });
-        browser.tabs.onActivated.addListener(async (activeInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
-        });
-        browser.windows.onCreated.addListener(async (win) => {
-            let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
-        });
-        browser.windows.onRemoved.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId });
-        });
-        browser.windows.onFocusChanged.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId });
-        });
-        browser.sessions.onChanged.addListener(async () => {
-            const sessions = await browser.sessions.getRecentlyClosed();
-            if (this.config.dbg.log_sessions) {
-                console.log(sessions);
-            }
-        });
-    }
-
     private generateUniqueGroupName(): string {
         let name: string;
         const existingNames = new Set(Array.from(this.groupAttrs.values()).map(attr => attr.name));
@@ -331,76 +490,6 @@ class App {
     set_title(bid: BruhId, title: string) {
         const node = this.tree.get(bid)!;
         node.title = title;
-    }
-
-    private _isGroupTab(tab: browser.Tabs.Tab): boolean {
-        if (!tab.url) return false;
-        try {
-            const url = new URL(tab.url);
-            return url.protocol === 'moz-extension:' &&
-                url.pathname.endsWith('/overview.html') &&
-                url.searchParams.has('view') &&
-                url.searchParams.get('view') === 'group';
-        } catch (e) {
-            // URL constructor failed, likely not a valid/standard URL (e.g., about:blank, internal UUIDs)
-            return false;
-        }
-    }
-
-    // TODO: need to add this check before calling tabs.create anywhere.
-    // maybe just create a tab saying "sorry man. can't create this one for you"
-    private _isUrlFunny(url_str: string): boolean {
-        try {
-            const url = new URL(url_str);
-            if (url.protocol === "chrome-extension:") {
-                return true;
-            }
-            if (url.protocol === "chrome:") {
-                return true;
-            }
-            if (url.protocol === 'about:') {
-                return true;
-            }
-
-            return false;
-        } catch (e) {
-            return true;
-        }
-    }
-
-    private _getGroupUrl(id: BruhId): string {
-        const attrs = this.groupAttrs.get(id)!;
-        const params = new URLSearchParams();
-        params.set('view', 'group');
-        params.set('id', String(id));
-        params.set('name', attrs.name);
-        params.set('isCustomNamed', String(attrs.isCustomNamed));
-        params.set('generation', String(attrs.generation));
-        return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
-    }
-
-    private _parseGroupUrlAttrs(url: string): { attrs: GroupAttrs, id: BruhId } | null {
-        try {
-            const urlObj = new URL(url);
-            if (urlObj.protocol === 'moz-extension:' &&
-                urlObj.pathname.endsWith('/overview.html') &&
-                urlObj.searchParams.get('view') === 'group') {
-
-                const name = urlObj.searchParams.get('name');
-                const isCustomNamedStr = urlObj.searchParams.get('isCustomNamed');
-                const generationStr = urlObj.searchParams.get('generation');
-                const id = parseInt(urlObj.searchParams.get('id')!, 10);
-
-                if (name && isCustomNamedStr && generationStr) {
-                    const isCustomNamed = isCustomNamedStr === 'true';
-                    const generation = parseInt(generationStr, 10);
-                    if (!isNaN(generation)) {
-                        return { attrs: { name, isCustomNamed, generation }, id, };
-                    }
-                }
-            }
-        } catch (e) { /* Invalid URL */ }
-        return null;
     }
 
     save_tab(
@@ -769,77 +858,6 @@ class App {
             tabsById: new Map(this.tabs.entries()),
             rootIds,
         };
-    }
-
-    private _post(port: browser.Runtime.Port, message: BackgroundResponse) {
-        try {
-            port.postMessage(message);
-        } catch (e) {
-            this.ports.delete(port);
-        }
-    }
-
-    private _broadcast(message: BackgroundResponse) {
-        for (const port of this.ports) {
-            this._post(port, message);
-        }
-    }
-
-    private _broadcastUpdates(event: StateManagerEvent) {
-        switch (event.type) {
-            case 'tabCreated':
-            case 'tabRemoved':
-            case 'tabUpdated':
-            case 'tabMoved':
-            case 'tabAttached':
-            case 'tabDetached':
-            case 'tabActivated':
-            case 'windowCreated':
-            case 'windowRemoved':
-                this._broadcast({ type: 'RENDER_ALL', payload: {} });
-                break;
-
-            case 'windowFocusChanged':
-                break;
-
-            case 'portMessage':
-                const message = event.payload.message;
-                switch (message.type) {
-                    case 'GET_STATE_FOR_WINDOW':
-                    case 'GET_STATE_FOR_GROUP_VIEW':
-                    case 'GET_ALL_WINDOW_STATES':
-                        break;
-
-                    case 'TOGGLE_COLLAPSE':
-                    case 'HANDLE_DROP':
-                    case 'CLOSE_SUBTREE':
-                    case 'CLOSE_SINGLE_TAB':
-                    case 'DUPLICATE_TAB_SMART':
-                    case 'UNLOAD_TAB':
-                    case 'UNLOAD_TREE':
-                    case 'LOAD_TREE':
-                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
-                    case 'CREATE_TAB':
-                    case 'CREATE_TAB_FROM_URL':
-                    case 'RENAME_WINDOW':
-                    case 'CLOSE_WINDOW':
-                    case 'RESTORE_WINDOW':
-                    case 'DELETE_WINDOW_STATE':
-                    case 'FLATTEN_IMMEDIATE':
-                    case 'FLATTEN_TREE':
-                    case 'CREATE_GROUP':
-                    case 'RENAME_NODE':
-                    case 'FOCUS_TAB':
-                        this._broadcast({ type: 'RENDER_ALL', payload: {} });
-                        break;
-
-                    default:
-                        throw utils.exhausted(message);
-                }
-                break;
-            default:
-                throw utils.exhausted(event);
-        }
     }
 
     async _process_event(event: StateManagerEvent) {
@@ -1421,27 +1439,6 @@ class App {
             }
         } catch (e) {
             console.error(e);
-        }
-    }
-
-    async process_events() {
-        while (true) {
-            const event = await this.eventChannel.wait_recv();
-            if (!event) break;
-
-            try {
-                this._appStateDirty = false;
-                await this._process_event(event);
-                if (this._appStateDirty) {
-                    await this._saveAppState();
-                }
-                this._broadcastUpdates(event);
-            } catch (e) {
-                console.error('Caught an error:', e);
-                if (e instanceof Error) {
-                    console.error(e.stack);
-                }
-            }
         }
     }
 }

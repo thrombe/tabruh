@@ -6,47 +6,46 @@ export type WindowId = number;
 export type BrowserId = TabId | WindowId;
 
 export type BruhId = number;
+export type HierarchyGenerationId = number;
 
 export type GroupAttrs = { name: string; generation: number; isCustomNamed: boolean; };
 
-export type BruhTabSessionData = {
-    bruhId: BruhId;
-    parentId: BruhId;
-    ancestorIds: BruhId[];
-    childrenIds: BruhId[];
-    hgid: number;
-    collapsed: boolean;
-    type: "tab" | "group";
-    groupAttrs?: GroupAttrs;
-};
-
-export type BruhWindowSessionData = {
-    bruhId: BruhId;
-    hgid: number;
-    groupAttrs: GroupAttrs;
-};
-
-export type Node = {
-    id: BruhId
-    title: string;
-    hierarchy_generation_id: number;
+export type NodeStorageData = {
+    bruhId: BruhId,
+    parentId: BruhId,
+    ancestorIds: BruhId[],
+    childrenIds: BruhId[],
+    hgid: HierarchyGenerationId,
+    collapsed: boolean,
 } & ({
     type: "tab",
-    tid: TabId,
-    url: string;
-    favIconUrl?: string;
-    parentId: BruhId;
-    collapsed: boolean,
 } | {
-    type: "group",
-    tid: TabId,
-    url: string,
-    favIconUrl?: string;
+    type: "group" | "window",
+    groupAttrs: GroupAttrs,
+});
+
+export type Node = {
+} & ({
+    id: BruhId,
     parentId: BruhId,
+    hgid: HierarchyGenerationId,
     collapsed: boolean,
+    type: "tab" | "group",
+    tid: TabId,
 } | {
+    id: BruhId,
+    parentId: 1,
+    hgid: HierarchyGenerationId,
+    collapsed: false,
     type: "window",
     wid: WindowId,
+} | {
+    id: 1,
+    // loopback
+    parentId: 1,
+    hgid: 1,
+    collapsed: false,
+    type: "root",
 });
 
 export type BruhTab = {
@@ -54,8 +53,12 @@ export type BruhTab = {
     tid: TabId,
     wid: WindowId,
     index: number,
+    url: string,
+    title: string,
+    favIconUrl?: string,
     discarded: boolean,
     active: boolean,
+
     closed: boolean,
 };
 
@@ -72,68 +75,68 @@ export type DragType = 'tabs' | 'window';
 export type DropAction = 'above' | 'below' | 'inside' | 'root';
 
 export type DragData = {
-    type: DragType;
-    sourceWindowId: WindowId;
-    draggedNodeId: BruhId;
-    movedNodeIds: BruhId[];
+    type: DragType,
+    sourceWindowId: WindowId,
+    draggedNodeId: BruhId,
+    movedNodeIds: BruhId[],
 };
 
 export type UiStateForRender = {
-    id: BruhId;
-    windowId: WindowId;
-    name: string;
-    isCustomNamed: boolean;
-    isClosed: boolean;
-    generation: number;
-    tree: Map<BruhId, UiNode>;
-    tabsById: Map<TabId, BruhTab>;
-    rootIds: BruhId[];
+    id: BruhId,
+    windowId: WindowId,
+    name: string,
+    isCustomNamed: boolean,
+    isClosed: boolean,
+    generation: number,
+    tree: Map<BruhId, UiNode>,
+    tabsById: Map<TabId, BruhTab>,
+    rootIds: BruhId[],
 };
 
 export type UiNode = {
-    id: BruhId;
-    tid?: TabId;
-    tab_index: number;
-    title: string;
-    url?: string;
-    favIconUrl?: string;
-    isGroup: boolean;
-    isDiscarded: boolean;
-    isActive: boolean;
-    isCollapsed: boolean;
-    children: BruhId[];
+    id: BruhId,
+    tid?: TabId,
+    tab_index: number,
+    title: string,
+    url?: string,
+    favIconUrl?: string,
+    isGroup: boolean,
+    isDiscarded: boolean,
+    isActive: boolean,
+    isCollapsed: boolean,
+    children: BruhId[],
 };
 
 type ActionPayloads = {
-    'GET_STATE_FOR_WINDOW': { windowId: WindowId };
-    'GET_STATE_FOR_GROUP_VIEW': { nodeId: BruhId };
-    'GET_ALL_WINDOW_STATES': {};
-    'FOCUS_TAB': { nodeId: BruhId };
-    'CLOSE_SUBTREE': { nodeId: BruhId };
-    'CLOSE_SINGLE_TAB': { nodeId: BruhId };
-    'TOGGLE_COLLAPSE': { nodeId: BruhId };
-    'HANDLE_DROP': { dragData: DragData; targetNodeId: BruhId; action: DropAction; targetWindowId: WindowId };
-    'DUPLICATE_TAB_SMART': { nodeId: BruhId, tabIndex?: number };
-    'UNLOAD_TAB': { nodeId: BruhId };
-    'UNLOAD_TREE': { nodeId: BruhId };
-    'LOAD_TREE': { nodeId: BruhId };
-    'MOVE_SUBTREE_TO_NEW_WINDOW': { rootNodeId: BruhId };
-    'CREATE_TAB': { windowId: WindowId, parentId: BruhId };
-    'CREATE_TAB_FROM_URL': { url: string; windowId: WindowId; parentId: BruhId };
-    'RENAME_WINDOW': { windowId: WindowId; newName: string };
-    'CLOSE_WINDOW': { windowId: WindowId };
-    'RESTORE_WINDOW': { windowId: WindowId };
-    'DELETE_WINDOW_STATE': { windowId: WindowId };
-    'FLATTEN_IMMEDIATE': { nodeId: BruhId };
-    'FLATTEN_TREE': { nodeId: BruhId };
-    'CREATE_GROUP': { windowId: WindowId, parentId: BruhId };
-    'RENAME_NODE': { nodeId: BruhId, newName: string };
+    'GET_STATE_FOR_WINDOW': { windowId: WindowId },
+    'GET_STATE_FOR_GROUP_VIEW': { nodeId: BruhId },
+    'GET_ALL_WINDOW_STATES': {},
+    'FOCUS_TAB': { nodeId: BruhId },
+    'CLOSE_SUBTREE': { nodeId: BruhId },
+    'CLOSE_SINGLE_TAB': { nodeId: BruhId },
+    'TOGGLE_COLLAPSE': { nodeId: BruhId },
+    'HANDLE_DROP': { dragData: DragData, targetNodeId: BruhId, action: DropAction, targetWindowId: WindowId },
+    'DUPLICATE_TAB_SMART': { nodeId: BruhId, tabIndex?: number },
+    'UNLOAD_TAB': { nodeId: BruhId },
+    'UNLOAD_TREE': { nodeId: BruhId },
+    'LOAD_TREE': { nodeId: BruhId },
+    'MOVE_SUBTREE_TO_NEW_WINDOW': { rootNodeId: BruhId },
+    'CREATE_TAB': { windowId: WindowId, parentId: BruhId },
+    'CREATE_TAB_FROM_URL': { url: string, windowId: WindowId, parentId: BruhId },
+    'RENAME_WINDOW': { windowId: WindowId, newName: string },
+    'CLOSE_WINDOW': { windowId: WindowId },
+    'RESTORE_WINDOW': { windowId: WindowId },
+    'DELETE_WINDOW_STATE': { windowId: WindowId },
+    'FLATTEN_IMMEDIATE': { nodeId: BruhId },
+    'FLATTEN_TREE': { nodeId: BruhId },
+    'CREATE_GROUP': { windowId: WindowId, parentId: BruhId },
+    'RENAME_NODE': { nodeId: BruhId, newName: string },
 };
 
 
 export type Message<T extends keyof ActionPayloads> = {
-    type: T;
-    payload: ActionPayloads[T];
+    type: T,
+    payload: ActionPayloads[T],
 };
 
 export type BackgroundRequest =
@@ -163,15 +166,15 @@ export type BackgroundRequest =
 
 
 type ResponsePayloads = {
-    'STATE_UPDATE': { state: UiStateForRender; };
-    'ALL_STATES_UPDATE': { states: UiStateForRender[] };
-    'RENDER_ALL': {};
+    'STATE_UPDATE': { state: UiStateForRender, },
+    'ALL_STATES_UPDATE': { states: UiStateForRender[] },
+    'RENDER_ALL': {},
 };
 
 export type BackgroundResponse =
-    | { type: 'STATE_UPDATE'; payload: ResponsePayloads['STATE_UPDATE'] }
-    | { type: 'ALL_STATES_UPDATE'; payload: ResponsePayloads['ALL_STATES_UPDATE'] }
-    | { type: 'RENDER_ALL'; payload: ResponsePayloads['RENDER_ALL'] }
+    | { type: 'STATE_UPDATE', payload: ResponsePayloads['STATE_UPDATE'] }
+    | { type: 'ALL_STATES_UPDATE', payload: ResponsePayloads['ALL_STATES_UPDATE'] }
+    | { type: 'RENDER_ALL', payload: ResponsePayloads['RENDER_ALL'] };
 
 export type BrowserEvent =
     | { type: 'tabCreated', payload: browser.Tabs.Tab }
