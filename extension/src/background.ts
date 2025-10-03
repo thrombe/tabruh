@@ -39,6 +39,7 @@ type UserConfig = {
 
 type TabData = { node: Extract<Node, { type: "tab" | "group" }>, tab: BruhTab };
 type WindowData = { node: Extract<Node, { type: "window" }>, win: BruhWindow };
+type RootData = { node: Extract<Node, { type: "root" }> };
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -223,6 +224,19 @@ class App {
         return null;
     }
 
+    private _generateUniqueGroupName(): string {
+        let name: string;
+        const existingNames = new Set(Array.from(this.groupAttrs.values()).map(attr => attr.name));
+
+        do {
+            const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
+            const noun = this.nouns[Math.floor(Math.random() * this.nouns.length)];
+            name = `${adj} ${noun}`;
+        } while (existingNames.has(name));
+
+        return name;
+    }
+
     private _post(port: browser.Runtime.Port, message: BackgroundResponse) {
         try {
             port.postMessage(message);
@@ -304,8 +318,63 @@ class App {
         }
     }
 
-    async _process_event(event: StateManagerEvent) {
+    get_tab(tid: TabId): TabData {
+        if (!this.tabs.has(tid)) throw new Error(`tab with tid: ${tid} does not exist`);
+        const tab = this.tabs.get(tid)!;
+        if (!this.tree.has(tab.id)) throw new Error(`window node with bid: ${tab.id} tid: ${tid} does not exist`);
+        const node = this.tree.get(tab.id)!;
+        return { tab: tab, node: node } as TabData;
+    }
 
+    get_window(wid: WindowId): WindowData {
+        if (!this.windows.has(wid)) throw new Error(`window with wid: ${wid} does not exist`);
+        const win = this.windows.get(wid)!;
+        if (!this.tree.has(win.id)) throw new Error(`window node with bid: ${win.id} wid: ${wid} does not exist`);
+        const node = this.tree.get(win.id)!;
+        return { win: win, node: node } as WindowData;
+    }
+
+    get_node(bid: BruhId) {
+        const node = this.tree.get(bid);
+        if (!node) throw Error(`node with bid ${bid} does not exist`);
+        if (node.type == "window") {
+            return this.get_window(node.wid);
+        } else if (node.type == "tab" || node.type == "group") {
+            return this.get_tab(node.tid);
+        } else {
+            return { node: node } as RootData;
+        }
+    }
+
+    remove_tab(tid: TabId) {
+        const tab = this.tabs.get(tid);
+        if (!tab) throw new Error(`tab with tid: ${tid} does not exist`);
+        this.groupAttrs.delete(tab.id);
+        this.tree.delete(tab.id);
+        this.tabs.delete(tab.tid);
+    }
+
+    remove_window(wid: WindowId) {
+        const win = this.windows.get(wid);
+        if (!win) throw new Error(`window with wid: ${wid} does not exist`);
+        this.groupAttrs.delete(win.id);
+        this.tree.delete(win.id);
+        this.windows.delete(win.wid);
+    }
+
+    remove_node(bid: BruhId) {
+        const node = this.tree.get(bid);
+        if (!node) throw new Error(`node with bid: ${bid} does not exist`);
+        if (node.type == "window") {
+            this.remove_window(node.wid);
+        } else if (node.type == "tab" || node.type == "group") {
+            this.remove_tab(node.tid);
+        } else {
+            throw new Error("cannot remove root node");
+        }
+    }
+
+    async _process_event(event: StateManagerEvent) {
     }
 };
 
@@ -403,19 +472,6 @@ class OldApp {
         }
     }
 
-
-    private generateUniqueGroupName(): string {
-        let name: string;
-        const existingNames = new Set(Array.from(this.groupAttrs.values()).map(attr => attr.name));
-
-        do {
-            const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
-            const noun = this.nouns[Math.floor(Math.random() * this.nouns.length)];
-            name = `${adj} ${noun}`;
-        } while (existingNames.has(name));
-
-        return name;
-    }
 
     private getOrGenerateGroupAttrs(id: BruhId, generation?: number, preferredName?: string): GroupAttrs {
         if (this.groupAttrs.has(id)) {
