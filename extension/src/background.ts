@@ -559,6 +559,50 @@ class App {
     }
 
     async _process_event(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tabCreated': { } break;
+            case 'tabRemoved': { } break;
+            case 'tabUpdated': { } break;
+            case 'tabMoved': { } break;
+            case 'tabAttached': { } break;
+            case 'tabDetached': { } break;
+            case 'tabActivated': { } break;
+            case 'windowCreated': { } break;
+            case 'windowRemoved': { } break;
+            case 'windowFocusChanged': { } break;
+            case 'portMessage': {
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'GET_STATE_FOR_WINDOW': { } break;
+                    case 'GET_STATE_FOR_GROUP_VIEW': { } break;
+                    case 'GET_ALL_WINDOW_STATES': { } break;
+                    case 'TOGGLE_COLLAPSE': { } break;
+                    case 'HANDLE_DROP': { } break;
+                    case 'CLOSE_SUBTREE': { } break;
+                    case 'CLOSE_SINGLE_TAB': { } break;
+                    case 'DUPLICATE_TAB_SMART': { } break;
+                    case 'UNLOAD_TAB': { } break;
+                    case 'UNLOAD_TREE': { } break;
+                    case 'LOAD_TREE': { } break;
+                    case 'MOVE_SUBTREE_TO_NEW_WINDOW': { } break;
+                    case 'CREATE_TAB': { } break;
+                    case 'CREATE_TAB_FROM_URL': { } break;
+                    case 'RENAME_WINDOW': { } break;
+                    case 'CLOSE_WINDOW': { } break;
+                    case 'RESTORE_WINDOW': { } break;
+                    case 'DELETE_WINDOW_STATE': { } break;
+                    case 'FLATTEN_IMMEDIATE': { } break;
+                    case 'FLATTEN_TREE': { } break;
+                    case 'CREATE_GROUP': { } break;
+                    case 'RENAME_NODE': { } break;
+                    case 'FOCUS_TAB': { } break;
+                    default:
+                        throw utils.exhausted(message);
+                }
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
     }
 };
 
