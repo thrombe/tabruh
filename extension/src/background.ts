@@ -872,6 +872,7 @@ class App {
                 }
 
                 const sessionData = await this._readTabState(t.id!);
+                // TODO: refactor save_tab/save_window in 2. one for save, another for update.
                 const newTab = this.save_tab(t, "opener", { sessionData });
                 nodesToSave.add(newTab.id);
                 nodesToSave.add(newTab.parentId);
@@ -897,7 +898,8 @@ class App {
                     for (let child of sessionData.childrenIds) {
                         if (!this.tree.has(child)) continue;
                         const ctab = this.tree.get(child)! as Node & { type: "tab" | "group" };
-                        if (ctab.parentId === parentIdToSet) {
+                        console.log(ctab.hierarchy_generation_id, sessionData.hgid)
+                        if (ctab.parentId === parentIdToSet && ctab.hierarchy_generation_id <= sessionData.hgid) {
                             this.set_parent(ctab.id, newTab.id, false);
                             nodesToSave.add(ctab.id);
                         }
@@ -921,6 +923,14 @@ class App {
                     this.closing_window_tabs.get(e.removeInfo.windowId)!.add(e.tabId);
                     this.set_tab_closed(e.tabId, true);
                 } else {
+                    // TODO: this is critical to tab restoration.
+                    //  but this won't work here as the tab is gone.
+                    //  we need to refactor this to store just the bid in tab's session data on tab creation.
+                    //  rest of the data must be stored in the local storage :/
+                    //  now we also need to manage the cache carefully and have no leaks :(
+                    // this.tree.get(tabToRemove.id)!.hierarchy_generation_id = this._incrementHgid();
+                    // await this._saveNodeState(tabToRemove.id);
+
                     const win = this.windows.get(tabToRemove.wid)!;
                     const oldIndex = win.tabIds.indexOf(e.tabId);
                     if (oldIndex < 0) throw Error(`tab tid: ${e.tabId} not found in window wid: ${win.wid}`);
