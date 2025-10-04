@@ -639,13 +639,14 @@ class App {
         else if (sourceIsClosed && !targetIsClosed) {
             this._setParent(bruhId, newParentId);
             const subtreeIds = this._getSubtree(bruhId);
+            const targetWid = this.get_window_node(targetRootWindowId).win.wid;
             for (const id of subtreeIds) {
                 const nodeData = this.get_tab_node(id);
-                const targetWid = this.get_window_node(targetRootWindowId).win.wid;
                 const newTab = await browser.tabs.create({ url: nodeData.tab.url, index, windowId: targetWid, active: false });
                 nodeData.tab.tid = newTab.id!;
                 nodeData.tab.wid = newTab.windowId as WindowId;
                 this._writeSessionPointer(id, newTab.id!, 'tab');
+                index++;
             }
             this._setNodeClosedState(bruhId, false);
             if (sourceRootWindowId) this.get_window_node(sourceRootWindowId).win.isArchivedPristine = false;
@@ -730,24 +731,33 @@ class App {
             return;
         }
 
-        const existingNode = this.tree.has(bruhId) ? this.get_node(bruhId) : null;
-        const isPristine = existingNode?.node.type === 'window'
-            ? this.get_window(existingNode.node.wid).win.isArchivedPristine
-            : false;
+        const existingNodeData = this.tree.has(bruhId) ? this.get_node(bruhId) : null;
+        let isPristine = false;
+        if (existingNodeData) {
+            const rootId = this._getAncestors(bruhId).pop() || bruhId;
+            const rootNode = this.get_node(rootId).node;
+            if (rootNode.type === 'window') {
+                isPristine = this.get_window(rootNode.wid).win.isArchivedPristine ?? false;
+            }
+        }
 
-        if (existingNode && isPristine) {
+        if (existingNodeData && isPristine) {
             // Seamless resurrection
             this._setNodeClosedState(bruhId, false);
             const tabData = this.get_tab_node(bruhId);
             tabData.tab.tid = browserTab.id!;
             tabData.tab.wid = browserTab.windowId as WindowId;
-            // Re-bind tid to bruhtab
-            this.tabs.set(browserTab.id!, tabData.tab);
-            this._writeSessionPointer(bruhId, browserTab.id!, 'tab');
+            this.tabs.set(browserTab.id!, tabData.tab); // Re-bind tid to bruhtab
+            await this._writeSessionPointer(bruhId, browserTab.id!, 'tab');
         } else {
-            // Restore from cache as a new entity
-            const newNode = await this._createTabNode(browserTab); // This creates a new bruhId
-            // We should ideally re-link using the old bruhId from cache, but this is simpler for now.
+            // Restore from cache as a new entity, but re-using the old BruhId
+            this.browserRestoreCache.delete(bruhId);
+            const restoredNode = await this._createTabNode(browserTab);
+            // This is complex. For now, we treat it as a new tab, but ideally, we'd reuse the old bruhId.
+            // The current _createTabNode will assign a new ID if a session pointer is not found.
+            // A simple fix would be to write the pointer before creating the node.
+            await this._writeSessionPointer(bruhId, browserTab.id as TabId, 'tab');
+            await this._createTabNode(browserTab);
         }
 
         // Child reclamation logic (for both cases)
@@ -1157,46 +1167,285 @@ class App {
     }
 
     async init_tree() {
+        await this._loadState();
+        const liveWindows = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
+        const hydratedBruhIds = new Set<BruhId>();
+
+        for (const win of liveWindows) {
+            if (!win.id) continue;
+            const wid = win.id as WindowId;
+            const bruhId = await this._readSessionPointer(wid, 'window');
+
+            if (bruhId && this.tree.has(bruhId)) {
+                hydratedBruhIds.add(bruhId);
+                const winData = this.get_window(wid);
+                winData.win.closed = false;
+                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
+            } else {
+                this._createWindowNode(wid);
+            }
+        }
+
+        for (const win of liveWindows) {
+            for (const tab of win.tabs ?? []) {
+                if (!tab.id) continue;
+                const tid = tab.id as TabId;
+                const bruhId = await this._readSessionPointer(tid, 'tab');
+
+                if (bruhId && this.tree.has(bruhId)) {
+                    hydratedBruhIds.add(bruhId);
+                    await this._updateTabStateFromBrowser(tid, tab);
+                } else {
+                    await this._createTabNode(tab);
+                }
+            }
+        }
+
+        for (const bruhId of this.tree.keys()) {
+            if (!hydratedBruhIds.has(bruhId)) {
+                this._setNodeClosedState(bruhId, true);
+            }
+        }
     }
 
     async _process_event(event: StateManagerEvent) {
         switch (event.type) {
-            case 'tabCreated': { } break;
-            case 'tabRemoved': { } break;
-            case 'tabUpdated': { } break;
-            case 'tabMoved': { } break;
-            case 'tabAttached': { } break;
-            case 'tabDetached': { } break;
-            case 'tabActivated': { } break;
-            case 'windowCreated': { } break;
-            case 'windowRemoved': { } break;
+            case 'tabCreated': {
+                const tab = event.payload;
+                if (!tab.id || !tab.windowId) return;
+                if (this.tabs.has(tab.id as TabId)) return;
+                if (!this.windows.has(tab.windowId as WindowId)) {
+                    this._createWindowNode(tab.windowId as WindowId);
+                }
+
+                const bruhId = await this._readSessionPointer(tab.id as TabId, 'tab');
+                if (bruhId) {
+                    await this._restoreBrowser(bruhId, tab);
+                } else {
+                    await this._createTabNode(tab);
+                }
+
+                const win = this.get_window(tab.windowId as WindowId).win;
+                win.tabIds.splice(tab.index, 0, tab.id as TabId);
+            } break;
+            case 'tabRemoved': {
+                const { tabId, removeInfo } = event.payload;
+                if (!this.tabs.has(tabId)) return;
+
+                const tabData = this.get_tab(tabId);
+                if (removeInfo.isWindowClosing) {
+                    if (!this.closing_window_tabs.has(removeInfo.windowId as WindowId)) {
+                        this.closing_window_tabs.set(removeInfo.windowId as WindowId, new Set());
+                    }
+                    this.closing_window_tabs.get(removeInfo.windowId as WindowId)!.add(tabId);
+                } else {
+                    this._archiveNode(tabData.tab.id);
+                }
+
+                const win = this.get_window(tabData.tab.wid).win;
+                const index = win.tabIds.indexOf(tabId);
+                if (index > -1) win.tabIds.splice(index, 1);
+            } break;
+            case 'tabUpdated': {
+                const { tabId, tab } = event.payload;
+                if (!this.tabs.has(tabId)) return;
+                await this._updateTabStateFromBrowser(tabId, tab);
+            } break;
+            case 'tabMoved': {
+                const { tabId, moveInfo } = event.payload;
+                const win = this.get_window(moveInfo.windowId as WindowId).win;
+                const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
+                win.tabIds.splice(moveInfo.toIndex, 0, movedTabId);
+                for (let i = 0; i < win.tabIds.length; i++) {
+                    this.get_tab(win.tabIds[i]!).tab.index = i;
+                }
+            } break;
+            case 'tabAttached': {
+                const { tabId, attachInfo } = event.payload;
+                const tab = this.get_tab(tabId).tab;
+                tab.wid = attachInfo.newWindowId as WindowId;
+                const newWin = this.get_window(attachInfo.newWindowId as WindowId).win;
+                newWin.tabIds.splice(attachInfo.newPosition, 0, tabId);
+            } break;
+            case 'tabDetached': {
+                const { tabId, detachInfo } = event.payload;
+                const oldWin = this.get_window(detachInfo.oldWindowId as WindowId).win;
+                const index = oldWin.tabIds.indexOf(tabId);
+                if (index > -1) oldWin.tabIds.splice(index, 1);
+            } break;
+            case 'tabActivated': {
+                const { tabId, windowId } = event.payload;
+                const win = this.get_window(windowId as WindowId).win;
+                for (const tid of win.tabIds) {
+                    const tab = this.get_tab(tid).tab;
+                    tab.active = (tid === tabId);
+                }
+            } break;
+            case 'windowCreated': {
+                const win = event.payload;
+                if (!win.id || this.windows.has(win.id as WindowId)) return;
+                this._createWindowNode(win.id as WindowId);
+            } break;
+            case 'windowRemoved': {
+                const windowId = event.payload;
+                if (!this.windows.has(windowId)) return;
+                const winData = this.get_window(windowId);
+                this._archiveNode(winData.win.id);
+                this.closing_window_tabs.delete(windowId);
+            } break;
             case 'windowFocusChanged': { } break;
             case 'portMessage': {
+                const port = event.payload.port;
                 const message = event.payload.message;
                 switch (message.type) {
-                    case 'GET_STATE_FOR_WINDOW': { } break;
-                    case 'GET_STATE_FOR_GROUP_VIEW': { } break;
-                    case 'GET_ALL_WINDOW_STATES': { } break;
-                    case 'TOGGLE_COLLAPSE': { } break;
-                    case 'HANDLE_DROP': { } break;
-                    case 'CLOSE_SUBTREE': { } break;
-                    case 'CLOSE_SINGLE_TAB': { } break;
-                    case 'DUPLICATE_TAB_SMART': { } break;
-                    case 'UNLOAD_TAB': { } break;
-                    case 'UNLOAD_TREE': { } break;
-                    case 'LOAD_TREE': { } break;
-                    case 'MOVE_SUBTREE_TO_NEW_WINDOW': { } break;
-                    case 'CREATE_TAB': { } break;
-                    case 'CREATE_TAB_FROM_URL': { } break;
-                    case 'RENAME_WINDOW': { } break;
-                    case 'CLOSE_WINDOW': { } break;
-                    case 'RESTORE_WINDOW': { } break;
-                    case 'DELETE_WINDOW_STATE': { } break;
-                    case 'FLATTEN_IMMEDIATE': { } break;
-                    case 'FLATTEN_TREE': { } break;
-                    case 'CREATE_GROUP': { } break;
-                    case 'RENAME_NODE': { } break;
-                    case 'FOCUS_TAB': { } break;
+                    case 'GET_STATE_FOR_WINDOW': {
+                        const state = this._buildUiStateForRender(message.payload.windowId);
+                        this._post(port, { type: 'STATE_UPDATE', payload: { state } });
+                    } break;
+                    case 'GET_STATE_FOR_GROUP_VIEW': {
+                        const rootNode = this.get_tab_node(message.payload.nodeId);
+                        const state = this._buildUiStateForRender(rootNode.tab.wid, message.payload.nodeId);
+                        this._post(port, { type: 'STATE_UPDATE', payload: { state } });
+                    } break;
+                    case 'GET_ALL_WINDOW_STATES': {
+                        const states = Array.from(this.windows.values())
+                            .map(w => this._buildUiStateForRender(w.wid));
+                        this._post(port, { type: 'ALL_STATES_UPDATE', payload: { states } });
+                    } break;
+                    case 'TOGGLE_COLLAPSE': {
+                        const node = this.get_tab_node(message.payload.nodeId).node;
+                        node.collapsed = !node.collapsed;
+                    } break;
+                    case 'HANDLE_DROP': {
+                        const { dragData, targetNodeId, action, targetWindowId } = message.payload;
+                        const targetNodeData = this.get_node(targetNodeId);
+                        let newParentId: BruhId;
+                        let index = -1;
+
+                        const orderedTabs = this._getOrderedTabList(targetWindowId);
+                        const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
+                        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
+                        const targetIndex = orderedTabs.indexOf(targetNodeId);
+
+                        switch (action) {
+                            case 'above':
+                                newParentId = (targetNodeData.node as Extract<Node, { type: 'tab' | 'group' }>).parentId;
+                                index = targetIndex;
+                                break;
+                            case 'below':
+                                newParentId = (targetNodeData.node as Extract<Node, { type: 'tab' | 'group' }>).parentId;
+                                index = lastDescendantIndex + 1;
+                                break;
+                            case 'root':
+                            case 'inside':
+                                newParentId = targetNodeId;
+                                index = (this._getChildrenMap().get(targetNodeId) || []).length;
+                                break;
+                        }
+
+                        for (const nodeId of dragData.movedNodeIds) {
+                            await this._moveNode(nodeId, newParentId, index++);
+                        }
+                    } break;
+                    case 'FOCUS_TAB': {
+                        const { tid } = this.get_tab_node(message.payload.nodeId).tab;
+                        await browser.tabs.update(tid, { active: true });
+                    } break;
+                    case 'CLOSE_SUBTREE': {
+                        const tids = this._getSubtree(message.payload.nodeId)
+                            .map(id => this.get_node(id).node)
+                            .filter(n => n.type !== 'window')
+                            .map(n => (n as Extract<Node, { type: 'tab' | 'group' }>).tid);
+                        if (tids.length > 0) await browser.tabs.remove(tids);
+                    } break;
+                    case 'CLOSE_SINGLE_TAB': {
+                        const tid = this.get_tab_node(message.payload.nodeId).tab.tid;
+                        await browser.tabs.remove(tid);
+                    } break;
+                    case 'DUPLICATE_TAB_SMART': {
+                        const { tab: originalTab, node: originalNode } = this.get_tab_node(message.payload.nodeId);
+                        const newTab = await browser.tabs.create({ windowId: originalTab.wid, url: originalTab.url, active: false, index: message.payload.tabIndex });
+                        const { tab: newBruhTab } = await this._createTabNode(newTab);
+                        this._setParent(newBruhTab.id, originalNode.parentId);
+                    } break;
+                    case 'UNLOAD_TAB': {
+                        const tid = this.get_tab_node(message.payload.nodeId).tab.tid;
+                        await browser.tabs.discard(tid);
+                    } break;
+                    case 'UNLOAD_TREE': {
+                        const tids = this._getSubtree(message.payload.nodeId).map(id => this.get_tab_node(id).tab.tid);
+                        await browser.tabs.discard(tids);
+                    } break;
+                    case 'LOAD_TREE': {
+                        const tids = this._getSubtree(message.payload.nodeId).map(id => this.get_tab_node(id).tab.tid);
+                        for (const tid of tids) await browser.tabs.reload(tid);
+                    } break;
+                    case 'MOVE_SUBTREE_TO_NEW_WINDOW': {
+                        await this._moveSubtreeToNewWindow(message.payload.rootNodeId);
+                    } break;
+                    case 'CREATE_TAB': {
+                        const newTab = await browser.tabs.create({ windowId: message.payload.windowId, active: false });
+                        const { tab } = await this._createTabNode(newTab);
+                        this._setParent(tab.id, message.payload.parentId);
+                    } break;
+                    case 'CREATE_TAB_FROM_URL': {
+                        const { url, windowId, parentId } = message.payload;
+                        const newTab = await browser.tabs.create({ windowId, url, active: false });
+                        const { tab } = await this._createTabNode(newTab);
+                        this._setParent(tab.id, parentId);
+                    } break;
+                    case 'RENAME_WINDOW': {
+                        const { windowId, newName } = message.payload;
+                        const win = this.get_window(windowId);
+                        const attrs = this.groupAttrs.get(win.win.id)!;
+                        attrs.name = newName;
+                        attrs.isCustomNamed = true;
+                    } break;
+                    case 'CLOSE_WINDOW': {
+                        await browser.windows.remove(message.payload.windowId);
+                    } break;
+                    case 'RESTORE_WINDOW': {
+                        const { win } = this.get_window(message.payload.windowId);
+                        await this._restoreUI(win.id);
+                    } break;
+                    case 'DELETE_WINDOW_STATE': {
+                        const { win } = this.get_window(message.payload.windowId);
+                        if (win.closed) {
+                            const subtree = this._getSubtree(win.id);
+                            for (const id of subtree) {
+                                this.remove_node(id);
+                                this.browserRestoreCache.delete(id);
+                            }
+                        } else {
+                            await browser.windows.remove(win.wid);
+                        }
+                    } break;
+                    case 'FLATTEN_IMMEDIATE': {
+                        await this._flattenNode(message.payload.nodeId, false);
+                    } break;
+                    case 'FLATTEN_TREE': {
+                        await this._flattenNode(message.payload.nodeId, true);
+                    } break;
+                    case 'CREATE_GROUP': {
+                        const { windowId, parentId } = message.payload;
+                        const attrs = this.groupAttrs.set(this.bruhid, { name: this._generateUniqueGroupName(), generation: 1, isCustomNamed: false }).get(this.bruhid)!;
+                        const url = this._getGroupUrl(this.bruhid);
+                        const groupTab = await browser.tabs.create({ windowId, url, active: false });
+                        const { tab } = await this._createTabNode(groupTab);
+                        this._setParent(tab.id, parentId);
+                    } break;
+                    case 'RENAME_NODE': {
+                        const { nodeId, newName } = message.payload;
+                        const { node, tab } = this.get_tab_node(nodeId);
+                        const attrs = this.groupAttrs.get(nodeId)!;
+                        attrs.name = newName;
+                        attrs.isCustomNamed = true;
+                        tab.title = newName;
+                        if (node.type === 'group') {
+                            const newUrl = this._getGroupUrl(nodeId);
+                            await browser.tabs.update(tab.tid, { url: newUrl });
+                        }
+                    } break;
                     default:
                         throw utils.exhausted(message);
                 }
@@ -1204,6 +1453,7 @@ class App {
             default:
                 throw utils.exhausted(event);
         }
+        await this._saveState();
     }
 };
 
