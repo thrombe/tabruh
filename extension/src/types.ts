@@ -49,12 +49,15 @@ export type BruhTab = {
     favIconUrl?: string,
     discarded: boolean,
     active: boolean,
+    closed: boolean,
 };
 
 export type BruhWindow = {
     id: BruhId,
     wid: WindowId,
     tabIds: TabId[],
+    closed: boolean,
+    isArchivedPristine?: boolean,
 };
 
 export type NodeTree = Map<BruhId, Node>;
