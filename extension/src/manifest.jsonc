@@ -22,6 +22,7 @@
     "menus",
     "sessions",
     "storage",
+    "contextMenus",
   ],
   "background": {
     "scripts": [ "background.js" ],
