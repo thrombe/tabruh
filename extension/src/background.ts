@@ -20,6 +20,13 @@ import type {
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
 
+type StorageState = {
+    bruhid: BruhId,
+    hgid: HierarchyGenerationId,
+    nodes: Record<string, NodeStorageData>,
+    browserRestoreCache: Record<string, NodeStorageData>,
+};
+
 type Config = {
     dbg: {
         reset_state_on_load: boolean,
@@ -893,7 +900,7 @@ class App {
 
     private _removeNodeAndReparentChildren(bruhId: BruhId): void {
         const { node: nodeToRemove } = this.get_node(bruhId);
-        const parentId = nodeToRemove.type === 'window' ? (0 as BruhId & 0) : nodeToRemove.parentId;
+        const parentId = nodeToRemove.parentId;
 
         const children = this._getChildrenMap().get(bruhId) || [];
         for (const childId of children) {
@@ -932,6 +939,7 @@ class App {
         bruhTab.closed = false;
 
         const isGroupNow = this._isGroupTab(tab);
+        // TODO: if the url of the tab has group attrs, try restoring the attrs. maybe it's id == this tab's id
         if (isGroupNow && node.type === 'tab') {
             node.type = 'group';
             if (!this.groupAttrs.has(bruhTab.id)) {
@@ -940,6 +948,7 @@ class App {
             bruhTab.title = this.groupAttrs.get(bruhTab.id)!.name;
         } else if (!isGroupNow && node.type === 'group') {
             node.type = 'tab';
+            this.groupAttrs.delete(node.id);
         }
 
         if (isGroupNow) {
@@ -995,7 +1004,7 @@ class App {
         const tidsToMove = childrenIds.map(id => this.get_tab_node(id).tab.tid);
 
         const newBrowserWindow = await browser.windows.create();
-        const extraTabId = newBrowserWindow.tabs![0].id! as TabId;
+        const extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
         const newWindowId = newBrowserWindow.id! as WindowId;
 
         if (tidsToMove.length > 0) {
@@ -1029,7 +1038,9 @@ class App {
             windowId: targetWindowId,
             index: index,
             url: newGroupUrl,
-            active: false
+            active: false,
+            discarded: true,
+            title: sourceGroupAttrs.name,
         });
         const newGroupTid = newGroupBrowserTab.id! as TabId;
 
@@ -1051,7 +1062,7 @@ class App {
             url: newGroupUrl,
             title: sourceGroupAttrs.name,
             favIconUrl: undefined,
-            discarded: false,
+            discarded: true,
             active: false,
             closed: false,
         };
@@ -1094,7 +1105,7 @@ class App {
             cacheStorage[bruhId] = nodeData;
         }
 
-        const stateToSave = {
+        const stateToSave: StorageState = {
             bruhid: this.bruhid,
             hgid: this.hierarchy_generation_id,
             nodes: nodeStorage,
@@ -1105,17 +1116,18 @@ class App {
 
     private async _loadState(): Promise<void> {
         const result = await browser.storage.local.get(this.storage_key);
-        const savedState = result[this.storage_key];
+        const savedState = result[this.storage_key] as StorageState;
         if (!savedState) return;
 
         this.bruhid = savedState.bruhid;
         this.hierarchy_generation_id = savedState.hgid;
 
-        const nodes = savedState.nodes as Record<string, NodeStorageData>;
+        const nodes = savedState.nodes;
         for (const bruhIdStr in nodes) {
             const bruhId = Number(bruhIdStr) as BruhId;
-            const storageNode = nodes[bruhIdStr];
+            const storageNode = nodes[bruhIdStr]!;
 
+            // TODO: wid and tid are not saved, and can't save. what dodo
             if (storageNode.type === 'window') {
                 const wid = -bruhId as WindowId;
                 this.tree.set(bruhId, {
@@ -1138,8 +1150,17 @@ class App {
                     hgid: storageNode.hgid,
                     collapsed: storageNode.collapsed,
                 });
+                // TODO: stored state does not have url? :mous
                 this.tabs.set(tid, {
-                    id: bruhId, tid: tid, wid: -1 as WindowId, index: -1, url: "", title: "", active: false, discarded: true, closed: true
+                    id: bruhId,
+                    tid: tid,
+                    wid: -1 as WindowId,
+                    index: -1,
+                    url: "",
+                    title: "",
+                    active: false,
+                    discarded: true,
+                    closed: true,
                 });
                 if (storageNode.type === 'group') {
                     this.groupAttrs.set(bruhId, storageNode.groupAttrs);
@@ -1148,10 +1169,10 @@ class App {
         }
 
         if (savedState.browserRestoreCache) {
-            const cacheStorage = savedState.browserRestoreCache as Record<string, NodeStorageData>;
+            const cacheStorage = savedState.browserRestoreCache;
             for (const bruhIdStr in cacheStorage) {
                 const bruhId = Number(bruhIdStr) as BruhId;
-                this.browserRestoreCache.set(bruhId, cacheStorage[bruhIdStr]);
+                this.browserRestoreCache.set(bruhId, cacheStorage[bruhIdStr]!);
             }
         }
     }
@@ -1184,7 +1205,8 @@ class App {
     }
 
     async init_tree() {
-        await this._loadState();
+        // TODO: kinda broken
+        // await this._loadState();
         const liveWindows = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
         const hydratedBruhIds = new Set<BruhId>();
 
@@ -1272,7 +1294,7 @@ class App {
                 const { tabId, moveInfo } = event.payload;
                 const win = this.get_window(moveInfo.windowId as WindowId).win;
                 const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
-                win.tabIds.splice(moveInfo.toIndex, 0, movedTabId);
+                win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
                 for (let i = 0; i < win.tabIds.length; i++) {
                     this.get_tab(win.tabIds[i]!).tab.index = i;
                 }
@@ -1309,6 +1331,7 @@ class App {
                 const winData = this.get_window(windowId);
                 this._archiveNode(winData.win.id);
                 this.closing_window_tabs.delete(windowId);
+                // TODO: this is not what closing_window_tabs was for.
             } break;
             case 'windowFocusChanged': { } break;
             case 'portMessage': {
@@ -1335,6 +1358,7 @@ class App {
                     } break;
                     case 'HANDLE_DROP': {
                         const { dragData, targetNodeId, action, targetWindowId } = message.payload;
+                        const draggedNode = this.get_node(dragData.draggedNodeId).node;
                         const targetNodeData = this.get_node(targetNodeId);
                         let newParentId: BruhId;
                         let index = -1;
@@ -1343,20 +1367,25 @@ class App {
                         const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
                         const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
                         const targetIndex = orderedTabs.indexOf(targetNodeId);
+                        let currentIndex = (draggedNode.type !== 'window') ? orderedTabs.indexOf(draggedNode.id) : -1;
+                        currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
 
                         switch (action) {
                             case 'above':
                                 newParentId = (targetNodeData.node as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                index = targetIndex;
+                                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
                                 break;
                             case 'below':
                                 newParentId = (targetNodeData.node as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                index = lastDescendantIndex + 1;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
                                 break;
                             case 'root':
+                                newParentId = targetNodeId;
+                                index = orderedTabs.length;
+                                break;
                             case 'inside':
                                 newParentId = targetNodeId;
-                                index = (this._getChildrenMap().get(targetNodeId) || []).length;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
                                 break;
                         }
 
@@ -1381,7 +1410,14 @@ class App {
                     } break;
                     case 'DUPLICATE_TAB_SMART': {
                         const { tab: originalTab, node: originalNode } = this.get_tab_node(message.payload.nodeId);
-                        const newTab = await browser.tabs.create({ windowId: originalTab.wid, url: originalTab.url, active: false, index: message.payload.tabIndex });
+                        const newTab = await browser.tabs.create({
+                            windowId: originalTab.wid,
+                            url: originalTab.url,
+                            active: false,
+                            discarded: true,
+                            title: this.get_node_name(originalTab.id),
+                            index: message.payload.tabIndex,
+                        });
                         const { tab: newBruhTab } = await this._createTabNode(newTab);
                         this._setParent(newBruhTab.id, originalNode.parentId);
                     } break;
@@ -1403,13 +1439,15 @@ class App {
                     case 'CREATE_TAB': {
                         const newTab = await browser.tabs.create({ windowId: message.payload.windowId, active: false });
                         const { tab } = await this._createTabNode(newTab);
-                        this._setParent(tab.id, message.payload.parentId);
+                        // TODO: set tab's parent properly
+                        // this._setParent(tab.id, message.payload.parentId);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
-                        const newTab = await browser.tabs.create({ windowId, url, active: false });
+                        const newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, });
                         const { tab } = await this._createTabNode(newTab);
-                        this._setParent(tab.id, parentId);
+                        // TODO: set tab's parent properly
+                        // this._setParent(tab.id, parentId);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;

@@ -1,11 +1,11 @@
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundRequest, BackgroundResponse } from './types';
+import type { BackgroundRequest, BackgroundResponse, WindowId } from './types';
 
 class TabTreeSidebar {
     private port: browser.Runtime.Port;
     private view: TabTreeView | null = null;
-    private windowId: number | undefined;
+    private windowId: WindowId | undefined;
 
     constructor(containerId: string) {
         const el = document.getElementById(containerId);
@@ -17,7 +17,7 @@ class TabTreeSidebar {
 
     private async init(container: HTMLElement) {
         const win = await browser.windows.getCurrent();
-        this.windowId = win.id;
+        this.windowId = win.id as WindowId;
 
         if (!this.windowId) {
             console.error("Could not determine window ID for the sidebar.");
