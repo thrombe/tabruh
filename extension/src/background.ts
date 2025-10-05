@@ -1211,7 +1211,7 @@ class App {
         const hydratedBruhIds = new Set<BruhId>();
 
         for (const win of liveWindows) {
-            if (!win.id) continue;
+            if (win.id === undefined) continue;
             const wid = win.id as WindowId;
             const bruhId = await this._readSessionPointer(wid, 'window');
 
@@ -1221,7 +1221,9 @@ class App {
                 winData.win.closed = false;
                 winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
             } else {
-                await this._createWindowNode(wid);
+                const winData = await this._createWindowNode(wid);
+                winData.win.closed = false;
+                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
             }
         }
 
@@ -1240,11 +1242,12 @@ class App {
             }
         }
 
-        for (const bruhId of this.tree.keys()) {
-            if (!hydratedBruhIds.has(bruhId)) {
-                this._setNodeClosedState(bruhId, true);
-            }
-        }
+        // TODO: what's this stupid stuff?
+        // for (const bruhId of this.tree.keys()) {
+        //     if (!hydratedBruhIds.has(bruhId)) {
+        //         this._setNodeClosedState(bruhId, true);
+        //     }
+        // }
     }
 
     async _process_event(event: StateManagerEvent) {
@@ -1322,7 +1325,7 @@ class App {
             } break;
             case 'windowCreated': {
                 const win = event.payload;
-                if (!win.id || this.windows.has(win.id as WindowId)) return;
+                if (win.id === undefined || this.windows.has(win.id as WindowId)) return;
                 await this._createWindowNode(win.id as WindowId);
             } break;
             case 'windowRemoved': {
@@ -1389,6 +1392,7 @@ class App {
                                 break;
                         }
 
+                        // TODO: parent is wrong here.
                         for (const nodeId of dragData.movedNodeIds) {
                             await this._moveNode(nodeId, newParentId, index++);
                         }
@@ -1441,6 +1445,9 @@ class App {
                         const { tab } = await this._createTabNode(newTab);
                         // TODO: set tab's parent properly
                         // this._setParent(tab.id, message.payload.parentId);
+
+                        const win = this.get_window(newTab.windowId! as WindowId);
+                        win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
@@ -1448,6 +1455,9 @@ class App {
                         const { tab } = await this._createTabNode(newTab);
                         // TODO: set tab's parent properly
                         // this._setParent(tab.id, parentId);
+
+                        const win = this.get_window(newTab.windowId! as WindowId);
+                        win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;
