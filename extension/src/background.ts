@@ -687,7 +687,7 @@ class App {
 
         const node: Extract<Node, { type: "tab" | "group" }> = {
             id: newBruhId,
-            hgid: 1 as HierarchyGenerationId,
+            hgid: this._incrementHgid(),
             parentId: newParentId,
             collapsed: originalNodeData.node.collapsed,
             type: originalNodeData.node.type as 'tab' | 'group',
@@ -824,7 +824,7 @@ class App {
 
         const node: Extract<Node, { type: "tab" | "group" }> = {
             id: bruhId,
-            hgid: 1 as HierarchyGenerationId,
+            hgid: this._incrementHgid(),
             parentId: parentId,
             collapsed: false,
             type: isGroup ? "group" : "tab",
@@ -868,7 +868,7 @@ class App {
 
         const node: Extract<Node, { type: "window" }> = {
             id: bruhId,
-            hgid: 1 as HierarchyGenerationId,
+            hgid: this._incrementHgid(),
             parentId: 0 as BruhId & 0,
             collapsed: false,
             type: "window",
@@ -972,7 +972,7 @@ class App {
         const rootTabTid = tidsToMove[0];
 
         const newBrowserWindow = await browser.windows.create();
-        const extraTabId = newBrowserWindow.tabs![0].id! as TabId;
+        const extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
         const newWindowId = newBrowserWindow.id! as WindowId;
 
         if (!this.windows.has(newWindowId)) {
@@ -1075,7 +1075,7 @@ class App {
         const childrenMap = this._getChildrenMap();
 
         for (const [bruhId, node] of this.tree.entries()) {
-            const storageNode: Partial<NodeStorageData> = {
+            const storageNode: NodeStorageData = {
                 bruhId: bruhId,
                 hgid: node.hgid,
                 collapsed: node.collapsed,
@@ -1083,11 +1083,9 @@ class App {
                 parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
                 ancestorIds: this._getAncestors(bruhId),
                 childrenIds: childrenMap.get(bruhId) || [],
+                // @ts-ignore
+                groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
             };
-
-            if (node.type === 'group' || node.type === 'window') {
-                storageNode.groupAttrs = this.groupAttrs.get(bruhId)!;
-            }
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
 
