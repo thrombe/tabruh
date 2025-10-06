@@ -584,6 +584,8 @@ class App {
 
         win.tabIds.splice(index, 0, tid);
         this.get_tab(tid).tab.wid = wid; // Also update the tab's own window reference
+
+        this._reindexWindowTabs(wid); // Re-index all tabs in the window
     }
 
     private _removeTabFromWindow(tid: TabId, wid: WindowId): void {
@@ -591,6 +593,18 @@ class App {
         const index = win.tabIds.indexOf(tid);
         if (index > -1) {
             win.tabIds.splice(index, 1);
+        }
+
+        this._reindexWindowTabs(wid); // Re-index remaining tabs in the window
+    }
+
+    private _reindexWindowTabs(wid: WindowId): void {
+        const { win } = this.get_window(wid);
+        for (let i = 0; i < win.tabIds.length; i++) {
+            const tid = win.tabIds[i]!;
+            if (this.tabs.has(tid)) {
+                this.get_tab(tid).tab.index = i;
+            }
         }
     }
 
@@ -1101,6 +1115,8 @@ class App {
         const tidsToInsert = [newGroupTid, ...childTids];
         targetWin.tabIds.splice(index, 0, ...tidsToInsert);
 
+        this._reindexWindowTabs(targetWindowId); // Re-index the target window
+
         for (const childId of childBruhIds) {
             const childData = this.get_tab_node(childId);
             childData.tab.wid = targetWindowId;
@@ -1320,12 +1336,11 @@ class App {
             } break;
             case 'tabMoved': {
                 const { tabId, moveInfo } = event.payload;
-                const win = this.get_window(moveInfo.windowId as WindowId).win;
+                const wid = moveInfo.windowId as WindowId;
+                const win = this.get_window(wid).win;
                 const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
                 win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
-                for (let i = 0; i < win.tabIds.length; i++) {
-                    this.get_tab(win.tabIds[i]!).tab.index = i;
-                }
+                this._reindexWindowTabs(wid);
             } break;
             case 'tabAttached': {
                 const { tabId, attachInfo } = event.payload;
