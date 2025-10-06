@@ -445,8 +445,6 @@ class App {
             this.remove_window(node.wid);
         } else if (node.type == "tab" || node.type == "group") {
             this.remove_tab(node.tid);
-        } else {
-            throw new Error("cannot remove root node");
         }
     }
 
@@ -775,7 +773,11 @@ class App {
             await this._cloneNode(childId, newWindowData.node.id, newWindowData.win.wid);
         }
 
+        // the corresponding adding/removal from window state is done in the resp. browser events.
         await browser.tabs.remove(newBrowserWindow.tabs![0]!.id!);
+
+        // TODO: better to forget this extra tab ever existed. else it is annoying to have it restored when trying to restore something else.
+        // browser.sessions.getRecentlyClosed()
 
         const originalSubtree = this._getSubtree(bruhId);
         for (const id of originalSubtree) {
@@ -809,6 +811,8 @@ class App {
             this.tabs.set(browserTab.id! as TabId, tabData.tab); // Re-bind tid to bruhtab
             this.tabs.delete(tabData.tab.tid);
             await this._writeSessionPointer(bruhId, browserTab.id! as TabId, 'tab');
+            // delete old restore cache
+            this.browserRestoreCache.delete(bruhId);
         } else {
             // Restore from cache as a new entity, but re-using the old BruhId
             this.browserRestoreCache.delete(bruhId);
@@ -1301,6 +1305,7 @@ class App {
                 if (!tab.id || !tab.windowId) return;
                 if (this.tabs.has(tab.id as TabId)) return;
                 if (!this.windows.has(tab.windowId as WindowId)) {
+                    // TODO: BAD: gotta check if this window is being restored by the browser. (read session)
                     await this._createWindowNode(tab.windowId as WindowId);
                 }
 
@@ -1325,10 +1330,15 @@ class App {
                     }
                     this.closing_window_tabs.get(removeInfo.windowId as WindowId)!.add(tabId);
                 } else {
-                    // This is a single, independent tab close. Archive it immediately.
                     const tabData = this.get_tab(tabId);
+                    const snapshot = this._getNodeStorageData(tabData.tab.id);
+                    this.browserRestoreCache.set(tabData.tab.id, snapshot);
+
+                    // Remove it from its parent window's list of tabs.
                     this._removeTabFromWindow(tabId, tabData.tab.wid);
-                    this._archiveNode(tabData.tab.id);
+
+                    // Permanently remove the node from the main tree and reparent its children.
+                    this._removeNodeAndReparentChildren(tabData.tab.id);
                 }
             } break;
             case 'tabUpdated': {
@@ -1363,6 +1373,7 @@ class App {
             case 'windowCreated': {
                 const win = event.payload;
                 if (win.id === undefined || this.windows.has(win.id as WindowId)) return;
+                // TODO: check fot session storage on this wondow
                 await this._createWindowNode(win.id as WindowId);
             } break;
             case 'windowRemoved': {
@@ -1374,16 +1385,17 @@ class App {
                     const closedTabs = this.closing_window_tabs.get(windowId)!;
                     this.closing_window_tabs.delete(windowId);
 
-                    // Heuristic: If more than one tab was closed, we treat it as a restorable window.
-                    // This handles the case of closing the last tab, which also closes the window, but shouldn't be restorable.
-                    if (closedTabs.size > 1) {
-                        this._archiveNode(winData.win.id);
-                    } else {
+                    if (closedTabs.size <= 1) {
                         // This was a single-tab window close, treat as permanent removal.
                         const subtreeIds = this._getSubtree(winData.win.id);
                         for (const id of subtreeIds) {
                             this.remove_node(id);
                         }
+                    }
+
+                    const subtreeIds = this._getSubtree(winData.win.id);
+                    for (const id of subtreeIds) {
+                        this._archiveNode(id);
                     }
                 } else {
                     // The window was removed without preceding tabRemoved events (e.g., via another extension).
