@@ -1317,17 +1317,19 @@ class App {
                 const { tabId, removeInfo } = event.payload;
                 if (!this.tabs.has(tabId)) return;
 
-                const tabData = this.get_tab(tabId);
                 if (removeInfo.isWindowClosing) {
+                    // This is part of a window close. Just track the tab ID.
+                    // The final decision will be made in the windowRemoved event.
                     if (!this.closing_window_tabs.has(removeInfo.windowId as WindowId)) {
                         this.closing_window_tabs.set(removeInfo.windowId as WindowId, new Set());
                     }
                     this.closing_window_tabs.get(removeInfo.windowId as WindowId)!.add(tabId);
                 } else {
+                    // This is a single, independent tab close. Archive it immediately.
+                    const tabData = this.get_tab(tabId);
+                    this._removeTabFromWindow(tabId, tabData.tab.wid);
                     this._archiveNode(tabData.tab.id);
                 }
-
-                this._removeTabFromWindow(tabId, tabData.tab.wid);
             } break;
             case 'tabUpdated': {
                 const { tabId, tab } = event.payload;
@@ -1367,9 +1369,27 @@ class App {
                 const windowId = event.payload;
                 if (!this.windows.has(windowId)) return;
                 const winData = this.get_window(windowId);
-                this._archiveNode(winData.win.id);
-                this.closing_window_tabs.delete(windowId);
-                // TODO: this is not what closing_window_tabs was for.
+
+                if (this.closing_window_tabs.has(windowId)) {
+                    const closedTabs = this.closing_window_tabs.get(windowId)!;
+                    this.closing_window_tabs.delete(windowId);
+
+                    // Heuristic: If more than one tab was closed, we treat it as a restorable window.
+                    // This handles the case of closing the last tab, which also closes the window, but shouldn't be restorable.
+                    if (closedTabs.size > 1) {
+                        this._archiveNode(winData.win.id);
+                    } else {
+                        // This was a single-tab window close, treat as permanent removal.
+                        const subtreeIds = this._getSubtree(winData.win.id);
+                        for (const id of subtreeIds) {
+                            this.remove_node(id);
+                        }
+                    }
+                } else {
+                    // The window was removed without preceding tabRemoved events (e.g., via another extension).
+                    // Safest action is to treat it as restorable.
+                    this._archiveNode(winData.win.id);
+                }
             } break;
             case 'windowFocusChanged': { } break;
             case 'portMessage': {
