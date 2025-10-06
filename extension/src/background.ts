@@ -786,35 +786,75 @@ class App {
     }
 
     private async _createOrRestoreWindow(wid: WindowId): Promise<WindowData> {
-        if (this.windows.has(wid)) {
+        // If the window is already live in our state, there's nothing to do.
+        if (this.windows.has(wid) && !this.get_window(wid).win.closed) {
             return this.get_window(wid);
         }
 
         const bruhId = await this._readSessionPointer(wid, 'window');
 
-        // This is a browser-restored window
-        if (bruhId && this.tree.has(bruhId)) {
-            const { node, win: bruhWin } = this.get_window_node(bruhId);
-            const oldWid = bruhWin.wid;
+        // This is a browser restore if we find a bruhId.
+        if (bruhId) {
+            const cacheData = this.browserRestoreCache.get(bruhId) as Extract<NodeStorageData, { type: "window" | "group" }>;
+            // If we have a cache entry, this is a true resurrection.
+            if (cacheData) {
+                const existingNodeData = this.tree.has(bruhId) ? this.get_window_node(bruhId) : null;
+                const isPristine = existingNodeData?.win.isArchivedPristine ?? false;
 
-            // Update the state with the new, live window ID
-            bruhWin.closed = false;
-            bruhWin.isArchivedPristine = undefined;
-            bruhWin.wid = wid;
-            node.wid = wid;
+                // The user hasn't edited the closed session, so we can resurrect it seamlessly.
+                if (existingNodeData && isPristine) {
+                    const { node, win: bruhWin } = existingNodeData;
+                    const oldWid = bruhWin.wid;
 
-            // Move the entry in the `windows` map from the old ID to the new ID
-            this.windows.set(wid, bruhWin);
-            // The oldWid might be a negative placeholder from a cold start, or the previous live ID.
-            // We must remove it to prevent stale state.
-            if (oldWid !== wid) {
-                this.windows.delete(oldWid);
+                    // Update the state with the new, live window ID and mark as live.
+                    bruhWin.closed = false;
+                    bruhWin.isArchivedPristine = true;
+                    bruhWin.wid = wid;
+                    // bruhWin.tabIds = [];
+                    node.wid = wid;
+
+                    // Move the entry in the `windows` map from the old ID to the new ID.
+                    this.windows.set(wid, bruhWin);
+                    if (oldWid !== wid) {
+                        this.windows.delete(oldWid);
+                    }
+
+                    // The window is now live, so we can clear its entry from the restore cache.
+                    this.browserRestoreCache.delete(bruhId);
+                    return { node, win: bruhWin };
+                }
             }
+            // If the session was NOT pristine, or if we have a pointer but no state (e.g., user deleted it),
+            // we must treat this as a new window creation but force it to adopt the old bruhId.
+            // This prevents creating a duplicate window if the user edits a session then restores the original.
+            const node: Extract<Node, { type: "window" }> = {
+                id: bruhId,
+                hgid: this._incrementHgid(),
+                parentId: 0 as BruhId & 0,
+                collapsed: false,
+                type: "window",
+                wid: wid,
+            };
+
+            const bruhWin: BruhWindow = {
+                id: bruhId,
+                wid: wid,
+                tabIds: [],
+                closed: false,
+            };
+
+            const attrs = cacheData?.groupAttrs || { name: this._generateUniqueGroupName(), generation: bruhId, isCustomNamed: false };
+            this.groupAttrs.set(bruhId, attrs);
+
+            this.tree.set(bruhId, node);
+            this.windows.set(wid, bruhWin);
+            await this._writeSessionPointer(bruhId, wid, 'window');
+            this.browserRestoreCache.delete(bruhId); // Clear the cache entry.
             return { node, win: bruhWin };
-        } else {
-            // This is a genuinely new window
-            return await this._createWindowNode(wid);
         }
+
+        // This is a genuinely new window with no history.
+        return await this._createWindowNode(wid);
     }
 
     private async _createOrRestoreTab(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
@@ -848,6 +888,7 @@ class App {
 
             // Update the BruhTab object with its new live properties.
             tabData.tab.tid = newTid;
+            tabData.node.tid = newTid;
             tabData.tab.wid = newWid;
             tabData.tab.index = browserTab.index;
 
