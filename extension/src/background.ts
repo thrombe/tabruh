@@ -820,6 +820,7 @@ class App {
     private async _createOrRestoreTab(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
         const cacheData = this.browserRestoreCache.get(bruhId);
         if (!cacheData) {
+            // This tab was not in our cache, so treat it as entirely new.
             await this._createTabNode(browserTab);
             return;
         }
@@ -827,6 +828,7 @@ class App {
         const existingNodeData = this.tree.has(bruhId) ? this.get_node(bruhId) : null;
         let isPristine = false;
         if (existingNodeData) {
+            // Find the root window of the existing closed node to check its pristine status.
             const rootId = this._getAncestors(bruhId).pop() || bruhId;
             const rootNode = this.get_node(rootId).node;
             if (rootNode.type === 'window') {
@@ -835,28 +837,47 @@ class App {
         }
 
         if (existingNodeData && isPristine) {
-            // Seamless resurrection
+            // --- SEAMLESS RESURRECTION ---
             this._setNodeClosedState(bruhId, false);
             const tabData = this.get_tab_node(bruhId);
-            tabData.tab.tid = browserTab.id! as TabId;
-            tabData.tab.wid = browserTab.windowId as WindowId;
-            this.tabs.set(browserTab.id! as TabId, tabData.tab); // Re-bind tid to bruhtab
-            this.tabs.delete(tabData.tab.tid);
-            await this._writeSessionPointer(bruhId, browserTab.id! as TabId, 'tab');
-            // delete old restore cache
+            const newTid = browserTab.id! as TabId;
+            const newWid = browserTab.windowId! as WindowId;
+
+            // CRITICAL FIX 1: Capture the old placeholder tid BEFORE mutating the object.
+            const oldTid = tabData.tab.tid;
+
+            // Update the BruhTab object with its new live properties.
+            tabData.tab.tid = newTid;
+            tabData.tab.wid = newWid;
+            tabData.tab.index = browserTab.index;
+
+            // CRITICAL FIX 2: Update the maps. Remove the old placeholder key, add the new live key.
+            this.tabs.set(newTid, tabData.tab);
+            this.tabs.delete(oldTid);
+
+            // CRITICAL FIX 3: Find the old placeholder tid in the parent window's list and replace it.
+            const parentWindow = this.get_window(newWid).win;
+            const tabIndexInWindow = parentWindow.tabIds.indexOf(oldTid);
+            if (tabIndexInWindow > -1) {
+                parentWindow.tabIds[tabIndexInWindow] = newTid;
+            }
+
+            // Write the session pointer and clear the cache entry for this now-live node.
+            await this._writeSessionPointer(bruhId, newTid, 'tab');
             this.browserRestoreCache.delete(bruhId);
+
         } else {
-            // Restore from cache as a new entity, but re-using the old BruhId
+            // --- NON-PRISTINE RESTORE or ORPHANED RESTORE ---
+            // The user has edited the session, so we restore this tab as a new entity
+            // but ensure it reclaims its original BruhId.
             this.browserRestoreCache.delete(bruhId);
-            const restoredNode = await this._createTabNode(browserTab);
-            // This is complex. For now, we treat it as a new tab, but ideally, we'd reuse the old bruhId.
-            // The current _createTabNode will assign a new ID if a session pointer is not found.
-            // A simple fix would be to write the pointer before creating the node.
+
+            // CRITICAL FIX 4: "Prime" the session storage so _createTabNode finds and uses the correct BruhId.
             await this._writeSessionPointer(bruhId, browserTab.id as TabId, 'tab');
             await this._createTabNode(browserTab);
         }
 
-        // Child reclamation logic (for both cases)
+        // --- CHILD RECLAMATION (for both cases) ---
         for (const childId of cacheData.childrenIds) {
             if (this.tree.has(childId)) {
                 const childNode = this.get_tab_node(childId).node;
