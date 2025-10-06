@@ -574,6 +574,26 @@ class App {
         };
     }
 
+    private _addTabToWindow(tid: TabId, wid: WindowId, index: number): void {
+        const { win } = this.get_window(wid);
+        // Ensure we don't have duplicates
+        const existingIndex = win.tabIds.indexOf(tid);
+        if (existingIndex > -1) {
+            win.tabIds.splice(existingIndex, 1);
+        }
+
+        win.tabIds.splice(index, 0, tid);
+        this.get_tab(tid).tab.wid = wid; // Also update the tab's own window reference
+    }
+
+    private _removeTabFromWindow(tid: TabId, wid: WindowId): void {
+        const { win } = this.get_window(wid);
+        const index = win.tabIds.indexOf(tid);
+        if (index > -1) {
+            win.tabIds.splice(index, 1);
+        }
+    }
+
     private _incrementHgid(): HierarchyGenerationId {
         return ++this.hierarchy_generation_id as HierarchyGenerationId;
     }
@@ -666,7 +686,7 @@ class App {
                     title: this.get_node_name(nodeData.node.id),
                 });
                 nodeData.tab.tid = newTab.id! as TabId;
-                nodeData.tab.wid = newTab.windowId as WindowId;
+                this._addTabToWindow(newTab.id! as TabId, targetWid, newTab.index);
                 await this._writeSessionPointer(id, newTab.id! as TabId, 'tab');
                 index++;
             }
@@ -721,6 +741,7 @@ class App {
         this.tree.set(newBruhId, node);
         this.tabs.set(newTab.id! as TabId, bruhTab);
         await this._writeSessionPointer(newBruhId, newTab.id! as TabId, 'tab');
+        this._addTabToWindow(newTab.id! as TabId, windowId, newTab.index);
 
         const children = this._getChildrenMap().get(originalNodeId) || [];
         for (const childId of children) {
@@ -1075,15 +1096,14 @@ class App {
         this.tabs.set(newGroupTid, newBruhTab);
         this.windows.delete(sourceWindowId);
 
+        // Add the new group tab and all moved child tabs to the target window's list
+        const { win: targetWin } = this.get_window(targetWindowId);
+        const tidsToInsert = [newGroupTid, ...childTids];
+        targetWin.tabIds.splice(index, 0, ...tidsToInsert);
+
         for (const childId of childBruhIds) {
             const childData = this.get_tab_node(childId);
             childData.tab.wid = targetWindowId;
-        }
-
-        sourceWindowData.win.tabIds.splice(index, 0, newGroupBrowserTab.id as TabId);
-        for (let i = index; i < sourceWindowData.win.tabIds.length; i++) {
-            const tid = sourceWindowData.win.tabIds[i]!;
-            this.get_tab(tid).tab.index = i;
         }
 
         await this._writeSessionPointer(sourceBruhId, newGroupTid, 'tab');
@@ -1275,8 +1295,7 @@ class App {
                     await this._createTabNode(tab);
                 }
 
-                const win = this.get_window(tab.windowId as WindowId).win;
-                win.tabIds.splice(tab.index, 0, tab.id as TabId);
+                this._addTabToWindow(tab.id as TabId, tab.windowId as WindowId, tab.index);
             } break;
             case 'tabRemoved': {
                 const { tabId, removeInfo } = event.payload;
@@ -1292,9 +1311,7 @@ class App {
                     this._archiveNode(tabData.tab.id);
                 }
 
-                const win = this.get_window(tabData.tab.wid).win;
-                const index = win.tabIds.indexOf(tabId);
-                if (index > -1) win.tabIds.splice(index, 1);
+                this._removeTabFromWindow(tabId, tabData.tab.wid);
             } break;
             case 'tabUpdated': {
                 const { tabId, tab } = event.payload;
@@ -1312,16 +1329,11 @@ class App {
             } break;
             case 'tabAttached': {
                 const { tabId, attachInfo } = event.payload;
-                const tab = this.get_tab(tabId).tab;
-                tab.wid = attachInfo.newWindowId as WindowId;
-                const newWin = this.get_window(attachInfo.newWindowId as WindowId).win;
-                newWin.tabIds.splice(attachInfo.newPosition, 0, tabId);
+                this._addTabToWindow(tabId, attachInfo.newWindowId as WindowId, attachInfo.newPosition);
             } break;
             case 'tabDetached': {
                 const { tabId, detachInfo } = event.payload;
-                const oldWin = this.get_window(detachInfo.oldWindowId as WindowId).win;
-                const index = oldWin.tabIds.indexOf(tabId);
-                if (index > -1) oldWin.tabIds.splice(index, 1);
+                this._removeTabFromWindow(tabId, detachInfo.oldWindowId as WindowId);
             } break;
             case 'tabActivated': {
                 const { tabId, windowId } = event.payload;
