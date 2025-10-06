@@ -785,7 +785,39 @@ class App {
         }
     }
 
-    private async _restoreBrowser(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
+    private async _createOrRestoreWindow(wid: WindowId): Promise<WindowData> {
+        if (this.windows.has(wid)) {
+            return this.get_window(wid);
+        }
+
+        const bruhId = await this._readSessionPointer(wid, 'window');
+
+        // This is a browser-restored window
+        if (bruhId && this.tree.has(bruhId)) {
+            const { node, win: bruhWin } = this.get_window_node(bruhId);
+            const oldWid = bruhWin.wid;
+
+            // Update the state with the new, live window ID
+            bruhWin.closed = false;
+            bruhWin.isArchivedPristine = undefined;
+            bruhWin.wid = wid;
+            node.wid = wid;
+
+            // Move the entry in the `windows` map from the old ID to the new ID
+            this.windows.set(wid, bruhWin);
+            // The oldWid might be a negative placeholder from a cold start, or the previous live ID.
+            // We must remove it to prevent stale state.
+            if (oldWid !== wid) {
+                this.windows.delete(oldWid);
+            }
+            return { node, win: bruhWin };
+        } else {
+            // This is a genuinely new window
+            return await this._createWindowNode(wid);
+        }
+    }
+
+    private async _createOrRestoreTab(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
         const cacheData = this.browserRestoreCache.get(bruhId);
         if (!cacheData) {
             await this._createTabNode(browserTab);
@@ -1305,13 +1337,12 @@ class App {
                 if (!tab.id || !tab.windowId) return;
                 if (this.tabs.has(tab.id as TabId)) return;
                 if (!this.windows.has(tab.windowId as WindowId)) {
-                    // TODO: BAD: gotta check if this window is being restored by the browser. (read session)
-                    await this._createWindowNode(tab.windowId as WindowId);
+                    await this._createOrRestoreWindow(tab.windowId as WindowId);
                 }
 
                 const bruhId = await this._readSessionPointer(tab.id as TabId, 'tab');
                 if (bruhId) {
-                    await this._restoreBrowser(bruhId, tab);
+                    await this._createOrRestoreTab(bruhId, tab);
                 } else {
                     await this._createTabNode(tab);
                 }
@@ -1373,8 +1404,7 @@ class App {
             case 'windowCreated': {
                 const win = event.payload;
                 if (win.id === undefined || this.windows.has(win.id as WindowId)) return;
-                // TODO: check fot session storage on this wondow
-                await this._createWindowNode(win.id as WindowId);
+                await this._createOrRestoreWindow(win.id as WindowId);
             } break;
             case 'windowRemoved': {
                 const windowId = event.payload;
