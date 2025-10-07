@@ -15,15 +15,16 @@ export type NodeStorageData = {
     parentId: BruhId,
     ancestorIds: BruhId[],
     childrenIds: BruhId[],
+    // ids of all the things this tab comes after in the same group.
+    // necessary to restore the exact position of tabs.
+    comesAfterIds: BruhId[],
     hgid: HierarchyGenerationId,
     cache_hgid: HierarchyGenerationId,
     collapsed: boolean,
 } & ({
     type: "tab",
-    index: number,
 } | {
     type: "group",
-    index: number,
     groupAttrs: GroupAttrs,
 } | {
     type: "window",

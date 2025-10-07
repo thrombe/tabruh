@@ -516,6 +516,18 @@ class App {
         return ancestors;
     }
 
+    private _getTabsBefore(bid: BruhId): BruhId[] {
+        const node = this.get_node(bid);
+        if (node.node.type == "window") {
+            return [];
+        } else {
+            const tab = this.get_tab_node(bid).tab;
+            const orderedIds = this._getOrderedTabList(tab.wid);
+            const index = orderedIds.indexOf(tab.id);
+            return orderedIds.slice(0, index == -1 ? 0 : index);
+        }
+    }
+
     private _buildUiStateForRender(windowId: WindowId, rootNodeId?: BruhId): UiStateForRender {
         const win = this.get_window(windowId);
 
@@ -622,12 +634,11 @@ class App {
             collapsed: node.collapsed,
             type: node.type,
             parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
+            comesAfterIds: this._getTabsBefore(bruhId),
             ancestorIds: ancestorIds,
             childrenIds: childrenIds,
             // @ts-ignore
             groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
-            // @ts-ignore
-            index: node.type == "window" ? undefined : this.get_tab_node(bruhId).tab.index,
         };
 
         return storageData as NodeStorageData;
@@ -922,7 +933,16 @@ class App {
 
         // reparent the restored tab.
         if (this.tree.has(cacheData.parentId)) {
-            await this._reparentNode(bruhId, cacheData.parentId, cacheData.index);
+            const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
+            let index = 0;
+            for (let bid of cacheData.comesAfterIds.toReversed()) {
+                const i = orderedTabs.indexOf(bid);
+                if (i != -1) {
+                    index = i;
+                    break;
+                }
+            }
+            await this._reparentNode(bruhId, cacheData.parentId, index);
         }
 
         // --- CHILD RECLAMATION (for both cases) ---
@@ -1241,10 +1261,9 @@ class App {
                 parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
                 ancestorIds: this._getAncestors(bruhId),
                 childrenIds: childrenMap.get(bruhId) || [],
+                comesAfterIds: this._getTabsBefore(bruhId),
                 // @ts-ignore
                 groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
-                // @ts-ignore
-                index: node.type == "window" ? undefined : this.get_tab_node(bruhId).tab.index,
             };
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
