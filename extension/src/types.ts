@@ -13,6 +13,7 @@ export type GroupAttrs = { name: string; generation: number; isCustomNamed: bool
 export type NodeStorageData = {
     bruhId: BruhId,
     parentId: BruhId,
+    windowBid: BruhId,
     ancestorIds: BruhId[],
     childrenIds: BruhId[],
     // ids of all the things this tab comes after in the same group.

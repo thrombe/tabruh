@@ -630,6 +630,7 @@ class App {
         const storageData: NodeStorageData = {
             bruhId: bruhId,
             hgid: node.hgid,
+            windowBid: this.get_window(node.type == "window" ? this.get_window_node(bruhId).win.wid : this.get_tab_node(bruhId).tab.wid).node.id,
             cache_hgid: this._incrementHgid(),
             collapsed: node.collapsed,
             type: node.type,
@@ -1257,6 +1258,7 @@ class App {
             const storageNode: NodeStorageData = {
                 bruhId: bruhId,
                 hgid: node.hgid,
+                windowBid: this.get_window(node.type == "window" ? this.get_window_node(bruhId).win.wid : this.get_tab_node(bruhId).tab.wid).node.id,
                 cache_hgid: node.hgid,
                 collapsed: node.collapsed,
                 type: node.type,
@@ -1339,8 +1341,8 @@ class App {
                 this.tabs.set(tid, {
                     id: bruhId,
                     tid: tid,
-                    wid: -1 as WindowId,
-                    index: -1,
+                    wid: -storageNode.windowBid as WindowId,
+                    index: storageNode.comesAfterIds.length,
                     url,
                     title,
                     active: false,
