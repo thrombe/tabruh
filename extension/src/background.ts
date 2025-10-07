@@ -1131,6 +1131,7 @@ class App {
         await browser.tabs.remove(extraTabId);
 
         this._setParent(rootNodeId, newWindowData.node.id);
+        rootNodeData.node.hgid = this._incrementHgid();
     }
 
     private async _convertGroupToWindow(groupId: BruhId): Promise<void> {
