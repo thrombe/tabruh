@@ -1544,6 +1544,9 @@ class App {
             } break;
             case 'tabDetached': {
                 const { tabId, detachInfo } = event.payload;
+                if (!this.windows.has(detachInfo.oldWindowId as WindowId)) {
+                    return;
+                }
                 this._removeTabFromWindow(tabId, detachInfo.oldWindowId as WindowId);
             } break;
             case 'tabActivated': {
