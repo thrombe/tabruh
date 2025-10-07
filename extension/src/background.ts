@@ -1097,6 +1097,10 @@ class App {
     private async _moveSubtreeToNewWindow(rootNodeId: BruhId): Promise<void> {
         const rootNodeData = this.get_node(rootNodeId);
         if (rootNodeData.node.type === 'window') return;
+        if (rootNodeData.node.type == "group") {
+            await this._convertGroupToWindow(rootNodeId);
+            return;
+        }
 
         const subtreeIds = this._getSubtree(rootNodeId);
         const tidsToMove = subtreeIds
