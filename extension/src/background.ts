@@ -618,6 +618,7 @@ class App {
         const storageData: NodeStorageData = {
             bruhId: bruhId,
             hgid: node.hgid,
+            cache_hgid: this._incrementHgid(),
             collapsed: node.collapsed,
             type: node.type,
             parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
@@ -646,7 +647,6 @@ class App {
 
     private _archiveNode(bruhId: BruhId): void {
         const { node } = this.get_node(bruhId);
-        node.hgid = this._incrementHgid();
         const snapshot = this._getNodeStorageData(bruhId);
         this.browserRestoreCache.set(bruhId, snapshot);
         this._setNodeClosedState(bruhId, true);
@@ -878,6 +878,8 @@ class App {
             }
         }
 
+        // TODO: group restoration is broken
+
         if (existingNodeData && isPristine) {
             // --- SEAMLESS RESURRECTION ---
             this._setNodeClosedState(bruhId, false);
@@ -929,7 +931,7 @@ class App {
                 const childNode = this.get_tab_node(childId).node;
                 // TODO: hgid is broken everywhere else.
                 //  we need to change it every time we rebase a child to a different parent, but only when done intentionally by user
-                if (childNode.hgid <= cacheData.hgid) {
+                if (childNode.hgid <= cacheData.cache_hgid) {
                     this._setParent(childId, bruhId);
                 }
             }

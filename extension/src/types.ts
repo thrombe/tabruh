@@ -16,6 +16,7 @@ export type NodeStorageData = {
     ancestorIds: BruhId[],
     childrenIds: BruhId[],
     hgid: HierarchyGenerationId,
+    cache_hgid: HierarchyGenerationId,
     collapsed: boolean,
 } & ({
     type: "tab",
