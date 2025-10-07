@@ -779,7 +779,7 @@ class App {
         }
     }
 
-    private async _restoreUI(bruhId: BruhId): Promise<void> {
+    private async _restoreBruhWindow(bruhId: BruhId): Promise<void> {
         const originalWindowData = this.get_window_node(bruhId);
         const newBrowserWindow = await browser.windows.create({});
         const newWindowData = await this._createWindowNode(newBrowserWindow.id! as WindowId);
@@ -1706,7 +1706,7 @@ class App {
                     } break;
                     case 'RESTORE_WINDOW': {
                         const { win } = this.get_window(message.payload.windowId);
-                        await this._restoreUI(win.id);
+                        await this._restoreBruhWindow(win.id);
                     } break;
                     case 'DELETE_WINDOW_STATE': {
                         const { win } = this.get_window(message.payload.windowId);
