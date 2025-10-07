@@ -811,6 +811,8 @@ class App {
 
         const bruhId = await this._readSessionPointer(wid, 'window');
 
+        // TODO: browser restore of a window after a bruh restore breaks the state in browser restore
+
         // This is a browser restore if we find a bruhId.
         if (bruhId) {
             const cacheData = this.browserRestoreCache.get(bruhId) as Extract<NodeStorageData, { type: "window" | "group" }>;
@@ -1707,12 +1709,14 @@ class App {
                         this._setParent(tab.id, this.get_window(tab.wid).node.id);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
-                        const { url, windowId, parentId } = message.payload;
+                        const { url, windowId, parentId, action } = message.payload;
                         const newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, });
                         const { tab } = await this._createTabNode(newTab);
 
                         this._addTabToWindow(tab.tid, tab.wid, tab.index);
-                        this._reparentNode(tab.id, parentId);
+
+                        const target = this._getTargetIndex(tab.id, parentId, action);
+                        this._reparentNode(tab.id, target.parentId, target.index);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;

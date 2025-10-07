@@ -219,7 +219,7 @@ export class TabTreeView {
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: node.id } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: node.id, action } });
             }
         });
 
@@ -380,6 +380,7 @@ export class TabTreeView {
             const dataTransfer = event.dataTransfer;
             if (!dataTransfer || !this.currentRenderState) return;
 
+            const action = this.viewType == "group" ? 'inside' : 'root';
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
                 const dragDataStr = dataTransfer.getData('application/json');
@@ -391,7 +392,7 @@ export class TabTreeView {
                     type: 'HANDLE_DROP', payload: {
                         dragData,
                         targetNodeId: state.id,
-                        action: this.viewType == "group" ? 'inside' : 'root',
+                        action,
                         targetWindowId: state.windowId,
                     }
                 });
@@ -399,7 +400,7 @@ export class TabTreeView {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
 
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id, action } });
             }
         });
         return button;

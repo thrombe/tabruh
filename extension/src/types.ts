@@ -123,7 +123,7 @@ type ActionPayloads = {
     'LOAD_TREE': { nodeId: BruhId },
     'MOVE_SUBTREE_TO_NEW_WINDOW': { rootNodeId: BruhId },
     'CREATE_TAB': { windowId: WindowId, parentId: BruhId },
-    'CREATE_TAB_FROM_URL': { url: string, windowId: WindowId, parentId: BruhId },
+    'CREATE_TAB_FROM_URL': { url: string, windowId: WindowId, parentId: BruhId, action: DropAction },
     'RENAME_WINDOW': { windowId: WindowId, newName: string },
     'CLOSE_WINDOW': { windowId: WindowId },
     'RESTORE_WINDOW': { windowId: WindowId },
