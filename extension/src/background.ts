@@ -1081,7 +1081,8 @@ class App {
             ? newParentNode.wid
             : this.get_tab_node(newParentNode.id).tab.wid;
 
-        await browser.tabs.move(nodeToMove.tid, { windowId: targetWindowId, index });
+        const tids_to_move = this._getSubtree(nodeId).map(id => this.get_tab_node(id).tab.tid);
+        await browser.tabs.move(tids_to_move, { windowId: targetWindowId, index });
 
         this._reindexWindowTabs(tab.wid);
     }
