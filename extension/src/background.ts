@@ -195,10 +195,13 @@ class App {
         }
     }
 
-    private _getGroupUrl(id: BruhId): string {
-        const attrs = this.groupAttrs.get(id)!;
+    private _getGroupUrl(id: BruhId | undefined = undefined): string {
         const params = new URLSearchParams();
         params.set('view', 'group');
+        if (id === undefined) {
+            return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
+        }
+        const attrs = this.groupAttrs.get(id)!;
         params.set('id', String(id));
         params.set('name', attrs.name);
         params.set('isCustomNamed', String(attrs.isCustomNamed));
@@ -1424,8 +1427,7 @@ class App {
                     this.closing_window_tabs.get(removeInfo.windowId as WindowId)!.add(tabId);
                 } else {
                     const tabData = this.get_tab(tabId);
-                    const snapshot = this._getNodeStorageData(tabData.tab.id);
-                    this.browserRestoreCache.set(tabData.tab.id, snapshot);
+                    this._archiveNode(tabData.node.id);
 
                     // Remove it from its parent window's list of tabs.
                     this._removeTabFromWindow(tabId, tabData.tab.wid);
@@ -1522,6 +1524,8 @@ class App {
                         const { dragData, targetNodeId, action, targetWindowId } = message.payload;
                         const { node: targetNode } = this.get_node(targetNodeId);
                         const { node: draggedNode } = this.get_node(dragData.draggedNodeId);
+
+                        draggedNode.hgid = this._incrementHgid();
 
                         // Special case: a dead or live window is dropped into a live window, converting it to a group
                         if (draggedNode.type === 'window' && !this.get_window(targetWindowId).win.closed) {
@@ -1732,10 +1736,23 @@ class App {
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
-                        const groupTab = await browser.tabs.create({ windowId, active: false, discarded: true, title: "Tabruh Group" });
+                        const groupTab = await browser.tabs.create({
+                            windowId,
+                            active: false,
+                            discarded: true,
+                            title: "Tabruh Group",
+                            url: this._getGroupUrl(),
+                        });
+                        const bid = this.bruhid++ as BruhId;
+                        await this._writeSessionPointer(bid, groupTab.id as TabId, 'tab');
+                        this.groupAttrs.set(bid, { name: this._generateUniqueGroupName(), isCustomNamed: false, generation: bid });
                         const { tab } = await this._createTabNode(groupTab);
-                        await browser.tabs.update({ url: this._getGroupUrl(tab.id) });
                         this._setParent(tab.id, parentId);
+
+                        const orderedTabs = this._getOrderedTabList(windowId);
+                        const lastDescendantId = this._getSubtree(parentId).pop()!;
+                        const lastDindex = orderedTabs.indexOf(lastDescendantId);
+                        this._addTabToWindow(tab.tid, tab.wid, lastDindex == -1 ? orderedTabs.length : (lastDindex + 1));
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
