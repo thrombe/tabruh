@@ -195,13 +195,10 @@ class App {
         }
     }
 
-    private _getGroupUrl(id: BruhId | undefined = undefined): string {
+    private _getGroupUrl(id: BruhId): string {
+        const attrs = this.groupAttrs.get(id)!;
         const params = new URLSearchParams();
         params.set('view', 'group');
-        if (id === undefined) {
-            return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
-        }
-        const attrs = this.groupAttrs.get(id)!;
         params.set('id', String(id));
         params.set('name', attrs.name);
         params.set('isCustomNamed', String(attrs.isCustomNamed));
@@ -864,7 +861,7 @@ class App {
         const cacheData = this.browserRestoreCache.get(bruhId);
         if (!cacheData) {
             // This tab was not in our cache, so treat it as entirely new.
-            await this._createTabNode(browserTab);
+            await this._createTabNode(browserTab, { id: bruhId });
             return;
         }
 
@@ -916,10 +913,10 @@ class App {
             // but ensure it reclaims its original BruhId.
             this.browserRestoreCache.delete(bruhId);
 
-            // CRITICAL FIX 4: "Prime" the session storage so _createTabNode finds and uses the correct BruhId.
-            await this._writeSessionPointer(bruhId, browserTab.id as TabId, 'tab');
-            await this._createTabNode(browserTab);
+            await this._createTabNode(browserTab, { id: bruhId });
         }
+
+        // TODO: need to reparent the restored tab somewhere in here.
 
         // --- CHILD RECLAMATION (for both cases) ---
         for (const childId of cacheData.childrenIds) {
@@ -934,7 +931,7 @@ class App {
         }
     }
 
-    private async _createTabNode(tab: browser.Tabs.Tab): Promise<TabData> {
+    private async _createTabNode(tab: browser.Tabs.Tab, options?: { id?: BruhId }): Promise<TabData> {
         const tid = tab.id as TabId;
         const wid = tab.windowId as WindowId;
         let parentId: BruhId;
@@ -946,24 +943,11 @@ class App {
         }
 
         const isGroup = this._isGroupTab(tab);
-        const sessionBruhId = await this._readSessionPointer(tid, 'tab');
         const urlParsed = isGroup ? this._parseGroupUrlAttrs(tab.url!) : null;
+        // if url has an id, always ignore it. (this function is for creating new tabs)
         const urlBruhId = urlParsed?.id;
 
-        let bruhId: BruhId;
-        let needsUrlUpdate = false;
-
-        if (isGroup && sessionBruhId && urlBruhId && sessionBruhId !== urlBruhId) {
-            bruhId = sessionBruhId;
-            needsUrlUpdate = true;
-        } else if (isGroup && !sessionBruhId && urlBruhId && this.tree.has(urlBruhId)) {
-            bruhId = this.bruhid++ as BruhId;
-            needsUrlUpdate = true;
-        } else if (sessionBruhId) {
-            bruhId = sessionBruhId;
-        } else {
-            bruhId = this.bruhid++ as BruhId;
-        }
+        let bruhId: BruhId = options?.id ?? this.bruhid++ as BruhId;
 
         const node: Extract<Node, { type: "tab" | "group" }> = {
             id: bruhId,
@@ -988,7 +972,11 @@ class App {
         };
 
         if (isGroup) {
-            const attrs: GroupAttrs = urlParsed?.attrs && !needsUrlUpdate ? urlParsed.attrs : { name: this._generateUniqueGroupName(), generation: bruhId, isCustomNamed: false };
+            const attrs: GroupAttrs = urlParsed?.attrs ? urlParsed.attrs : {
+                name: this._generateUniqueGroupName(),
+                generation: bruhId,
+                isCustomNamed: false,
+            };
             this.groupAttrs.set(bruhId, attrs);
             bruhTab.title = attrs.name;
         }
@@ -997,7 +985,7 @@ class App {
         this.tabs.set(tid, bruhTab);
         await this._writeSessionPointer(bruhId, tid, 'tab');
 
-        if (needsUrlUpdate) {
+        if (isGroup) {
             const correctUrl = this._getGroupUrl(bruhId);
             bruhTab.url = correctUrl;
             await browser.tabs.update(tid, { url: correctUrl });
@@ -1074,7 +1062,7 @@ class App {
         bruhTab.active = tab.active;
         bruhTab.closed = false;
 
-        const isGroupNow = this._isGroupTab(tab);
+        const isGroupNow = tab.url == "about:blank" ? node.type == "group" : this._isGroupTab(tab);
         // TODO: if the url of the tab has group attrs, try restoring the attrs. maybe it's id == this tab's id
         if (isGroupNow && node.type === 'tab') {
             node.type = 'group';
@@ -1150,6 +1138,7 @@ class App {
 
         await browser.tabs.remove(extraTabId);
 
+        // TODO: broken
         await browser.tabs.remove(groupData.tab.tid);
 
         const newWindowData = await this._createWindowNode(newWindowId);
@@ -1168,7 +1157,6 @@ class App {
 
         const childBruhIds = this._getSubtree(sourceBruhId).splice(1);
         const childTids = childBruhIds.map(bid => this.get_tab_node(bid).tab.tid);
-        console.log(isSourceWindowOpen, childTids);
 
         const newGroupUrl = this._getGroupUrl(sourceBruhId);
         const newGroupBrowserTab = await browser.tabs.create({
@@ -1382,7 +1370,7 @@ class App {
                     hydratedBruhIds.add(bruhId);
                     await this._updateTabStateFromBrowser(tid, tab);
                 } else {
-                    await this._createTabNode(tab);
+                    await this._createTabNode(tab, { id: bruhId });
                 }
             }
         }
@@ -1736,17 +1724,16 @@ class App {
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
+                        const bid = this.bruhid++ as BruhId;
+                        this.groupAttrs.set(bid, { name: this._generateUniqueGroupName(), isCustomNamed: false, generation: bid });
                         const groupTab = await browser.tabs.create({
                             windowId,
                             active: false,
                             discarded: true,
                             title: "Tabruh Group",
-                            url: this._getGroupUrl(),
+                            url: this._getGroupUrl(bid),
                         });
-                        const bid = this.bruhid++ as BruhId;
-                        await this._writeSessionPointer(bid, groupTab.id as TabId, 'tab');
-                        this.groupAttrs.set(bid, { name: this._generateUniqueGroupName(), isCustomNamed: false, generation: bid });
-                        const { tab } = await this._createTabNode(groupTab);
+                        const { tab } = await this._createTabNode(groupTab, { id: bid });
                         this._setParent(tab.id, parentId);
 
                         const orderedTabs = this._getOrderedTabList(windowId);

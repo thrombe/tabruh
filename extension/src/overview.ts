@@ -1,14 +1,14 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundRequest, BackgroundResponse, UiStateForRender } from './types';
+import type { BruhId, BackgroundRequest, BackgroundResponse, UiStateForRender } from './types';
 
 class OverviewPage {
     private port: browser.Runtime.Port | null = null;
     private container: HTMLElement;
     private views: Map<number, TabTreeView> = new Map();
     private viewMode: 'overview' | 'group' = 'overview';
-    private groupViewNodeId?: number;
+    private groupViewNodeId?: BruhId;
     private hasConnected = false;
 
     constructor(containerId: string) {
@@ -23,7 +23,7 @@ class OverviewPage {
 
         if (view === 'group' && nodeId) {
             this.viewMode = 'group';
-            this.groupViewNodeId = parseInt(nodeId, 10);
+            this.groupViewNodeId = parseInt(nodeId, 10) as BruhId;
             this.container.classList.add('group-view-mode');
             document.title = group_name ?? "Tabruh Group";
         } else {
