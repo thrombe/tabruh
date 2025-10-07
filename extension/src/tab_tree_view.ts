@@ -219,7 +219,7 @@ export class TabTreeView {
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id } });
+                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: node.id } });
             }
         });
 

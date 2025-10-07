@@ -1070,7 +1070,7 @@ class App {
         if (index === undefined) {
             const orderedTabs = this._getOrderedTabList(tab.wid);
             const lastDescendantId = this._getSubtree(newParentId).pop()!;
-            const lastDindex = orderedTabs.indexOf(lastDescendantId);
+            const lastDindex = orderedTabs.indexOf(lastDescendantId) + 1;
             index = lastDindex;
         }
 
@@ -1683,20 +1683,16 @@ class App {
                         const newTab = await browser.tabs.create({ windowId: message.payload.windowId, active: false });
                         const { tab } = await this._createTabNode(newTab);
 
-                        const win = this.get_window(newTab.windowId! as WindowId);
-                        win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
-
-                        this._reparentNode(tab.id, message.payload.parentId);
+                        this._addTabToWindow(tab.tid, tab.wid, tab.index);
+                        this._setParent(tab.id, this.get_window(tab.wid).node.id);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
                         const newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, });
                         const { tab } = await this._createTabNode(newTab);
 
-                        const win = this.get_window(newTab.windowId! as WindowId);
-                        win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
-
-                        this._reparentNode(tab.id, message.payload.parentId);
+                        this._addTabToWindow(tab.tid, tab.wid, tab.index);
+                        this._reparentNode(tab.id, parentId);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;
