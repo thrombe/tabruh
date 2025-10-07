@@ -1547,39 +1547,44 @@ class App {
                         const { dragData, targetNodeId, action, targetWindowId } = message.payload;
                         const { node: targetNode } = this.get_node(targetNodeId);
                         const { node: draggedNode } = this.get_node(dragData.draggedNodeId);
+                        const targetWin = this.get_window(targetWindowId);
 
                         draggedNode.hgid = this._incrementHgid();
 
+                        let newParentId: BruhId;
+                        let index = -1;
+                        const orderedTabs = this._getOrderedTabList(targetWindowId);
+
+                        const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
+                        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
+                        let currentIndex = (draggedNode.type !== 'window') ? orderedTabs.indexOf(draggedNode.id) : -1;
+                        currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
+                        const targetIndex = orderedTabs.indexOf(targetNodeId);
+
+                        switch (action) {
+                            case 'above':
+                                if (targetNode.type === "window") throw Error("'above' not supported for 'window' node");
+                                newParentId = targetNode.parentId;
+                                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
+                                break;
+                            case 'below':
+                                if (targetNode.type === "window") throw Error("'below' not supported for 'window' node");
+                                newParentId = targetNode.parentId;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                                break;
+                            case 'root':
+                                newParentId = targetNode.id;
+                                index = targetWin.win.tabIds.length;
+                                break;
+                            case 'inside':
+                            default:
+                                newParentId = targetNode.id;
+                                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                                break;
+                        }
+
                         // Special case: a dead or live window is dropped into a live window, converting it to a group
                         if (draggedNode.type === 'window' && !this.get_window(targetWindowId).win.closed) {
-                            const orderedTabs = this._getOrderedTabList(targetWindowId);
-                            const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
-                            const lastDescendantNode = this.tree.get(lastDescendantId);
-                            const lastDescendantIndex = lastDescendantNode && lastDescendantNode.type !== 'window' ? orderedTabs.indexOf(this.get_tab_node(lastDescendantId).tab.id) : -1;
-
-                            let newParentId: BruhId;
-                            let index: number;
-
-                            switch (action) {
-                                case 'above':
-                                    newParentId = (targetNode as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                    index = orderedTabs.indexOf(targetNodeId);
-                                    break;
-                                case 'below':
-                                    newParentId = (targetNode as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                    index = lastDescendantIndex > -1 ? lastDescendantIndex + 1 : orderedTabs.length;
-                                    break;
-                                case 'root':
-                                    newParentId = targetNodeId;
-                                    index = orderedTabs.length;
-                                    break;
-                                case 'inside':
-                                default:
-                                    newParentId = targetNodeId;
-                                    index = lastDescendantIndex > -1 ? lastDescendantIndex + 1 : 0;
-                                    break;
-                            }
-
                             await this._convertWindowToGroup(dragData.draggedNodeId, newParentId, targetWindowId, index);
                             break; // Finish here for this special case
                         }
@@ -1590,37 +1595,6 @@ class App {
 
                         // This is a pure UI re-ordering within a live window.
                         if (!sourceIsClosed && !targetIsClosed) {
-                            const orderedTabs = this._getOrderedTabList(targetWindowId);
-                            const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
-                            const lastDescendantNode = this.tree.get(lastDescendantId);
-                            const lastDescendantIndex = lastDescendantNode && lastDescendantNode.type !== 'window' ? orderedTabs.indexOf(this.get_tab_node(lastDescendantId).tab.id) : -1;
-
-                            const currentIndex = orderedTabs.indexOf(this.get_tab_node(dragData.draggedNodeId).tab.id);
-                            const targetIndex = orderedTabs.indexOf(targetNodeId);
-
-                            let newParentId: BruhId;
-                            let index: number;
-
-                            switch (action) {
-                                case 'above':
-                                    newParentId = (targetNode as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                    index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
-                                    break;
-                                case 'below':
-                                    newParentId = (targetNode as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                    index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
-                                    break;
-                                case 'root':
-                                    newParentId = targetNodeId;
-                                    index = this.get_window(targetWindowId).win.tabIds.length;
-                                    break;
-                                case 'inside':
-                                default:
-                                    newParentId = targetNodeId;
-                                    index = lastDescendantIndex > -1 ? (currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex) : 0;
-                                    break;
-                            }
-
                             // Reparent only the root of the dragged subtree in our state
                             this._setParent(dragData.draggedNodeId, newParentId);
 
@@ -1631,35 +1605,6 @@ class App {
                             await browser.tabs.move(tidsToMove, { windowId: targetWindowId, index });
 
                         } else { // All other cases involve state changes (Live->Dead, Dead->Live, Dead->Dead)
-                            let newParentId: BruhId;
-                            let index = -1; // Index is only relevant for Dead->Live moves
-
-                            switch (action) {
-                                case 'above':
-                                case 'below':
-                                    newParentId = (targetNode as Extract<Node, { type: 'tab' | 'group' }>).parentId;
-                                    break;
-                                case 'root':
-                                case 'inside':
-                                default:
-                                    newParentId = targetNodeId;
-                                    break;
-                            }
-
-                            // For Dead->Live, we need to calculate a browser insert index
-                            if (sourceIsClosed && !targetIsClosed) {
-                                const orderedTabs = this._getOrderedTabList(targetWindowId);
-                                const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
-                                const lastDescendantNode = this.tree.get(lastDescendantId);
-                                const lastDescendantIndex = lastDescendantNode && lastDescendantNode.type !== 'window' ? orderedTabs.indexOf(this.get_tab_node(lastDescendantId).tab.id) : -1;
-
-                                if (action === 'above') {
-                                    index = orderedTabs.indexOf(targetNodeId);
-                                } else {
-                                    index = lastDescendantIndex > -1 ? lastDescendantIndex + 1 : 0;
-                                }
-                            }
-
                             // The universal _moveNode handles the complex state transitions
                             await this._moveNode(dragData.draggedNodeId, newParentId, index);
                         }

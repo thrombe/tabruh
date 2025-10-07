@@ -67,9 +67,7 @@ export class TabTreeView {
         }
         treeContainer.appendChild(rootContainer);
 
-        if (!state.isClosed) {
-            treeContainer.appendChild(this.renderAddButton(state));
-        }
+        treeContainer.appendChild(this.renderAddButton(state));
 
         this.container.appendChild(treeContainer);
     }
@@ -123,21 +121,21 @@ export class TabTreeView {
         if (node.isGroup) {
             nodeElement.classList.add('group-node');
         }
-        nodeElement.draggable = !isClosed;
+        nodeElement.draggable = true;
 
         if (node.isDiscarded || isClosed) nodeElement.classList.add('discarded-tab');
         if (node.isActive) nodeElement.classList.add('focused-tab');
 
         if (!isClosed) {
             nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { nodeId: node.id } }));
-            nodeElement.addEventListener('mousedown', (event) => {
-                if (event.button === 1) {
-                    event.preventDefault();
-                    this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
-                }
-            });
-            nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id, node.tab_index); });
         }
+        nodeElement.addEventListener('mousedown', (event) => {
+            if (event.button === 1) {
+                event.preventDefault();
+                this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
+            }
+        });
+        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id, node.tab_index); });
 
 
         nodeElement.addEventListener('dragstart', (event) => {
@@ -206,7 +204,7 @@ export class TabTreeView {
             delete nodeElement.dataset.dropAction;
 
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || isClosed || !state.windowId) return;
+            if (!dataTransfer || !state.windowId) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -266,10 +264,11 @@ export class TabTreeView {
         title.textContent = node.title;
         contentWrapper.append(icon, title);
 
-        if (!isClosed) {
+        // A node can only be closed if it's not part of a closed session
+        if (!node.isDiscarded && !isClosed) {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
-            closeButton.textContent = '⨯';
+            closeButton.innerHTML = ICON_CLOSE;
             closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         } else {
@@ -293,7 +292,7 @@ export class TabTreeView {
     private renderHeader(state: UiStateForRender): HTMLDivElement {
         const header = document.createElement('div');
         header.className = 'tab-tree-header';
-        header.draggable = !state.isClosed;
+        header.draggable = true;
 
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
@@ -566,6 +565,8 @@ export class TabTreeView {
         const node = this.currentRenderState.tree.get(nodeId);
         if (!node) return;
 
+        const isNodeClosed = node.isDiscarded || this.currentRenderState.isClosed;
+
         if (node.isGroup) {
             createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(nodeId));
             createSeparator();
@@ -579,16 +580,18 @@ export class TabTreeView {
         createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId, tabIndex: tab_index } }));
         createSeparator();
 
-        if (node.isDiscarded) {
-            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
-        } else {
-            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
-        }
+        if (!isNodeClosed) {
+            if (node.isDiscarded) {
+                createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
+            } else {
+                createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
+            }
 
-        if (node.children.length > 0 && !node.isDiscarded) {
-            createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { nodeId } }));
+            if (node.children.length > 0 && !node.isDiscarded) {
+                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { nodeId } }));
+            }
+            createSeparator();
         }
-        createSeparator();
 
         createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId } }));
         if (node.children.length > 0) {

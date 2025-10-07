@@ -13,7 +13,7 @@
 }
 
 .closed-group .tab-tree-scroll-container {
-  @apply opacity-60 pointer-events-none;
+  @apply opacity-60;
 }
 
 .tab-tree-header {
