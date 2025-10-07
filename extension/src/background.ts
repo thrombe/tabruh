@@ -1092,12 +1092,13 @@ class App {
         }
     }
 
-    private async _flattenNode(nodeId: BruhId, recursive: boolean): Promise<void> {
+    private async _flattenNode(nodeId: BruhId, recursive: boolean, hgid: HierarchyGenerationId): Promise<void> {
         const { node } = this.get_tab_node(nodeId);
         const parentId = node.parentId;
         const nodesToMove = recursive ? this._getSubtree(nodeId).slice(1) : (this._getChildrenMap().get(nodeId) || []);
         for (const childId of nodesToMove) {
             this._setParent(childId, parentId);
+            this.get_node(childId).node.hgid = hgid;
         }
     }
 
@@ -1731,10 +1732,10 @@ class App {
                         }
                     } break;
                     case 'FLATTEN_IMMEDIATE': {
-                        await this._flattenNode(message.payload.nodeId, false);
+                        await this._flattenNode(message.payload.nodeId, false, this._incrementHgid());
                     } break;
                     case 'FLATTEN_TREE': {
-                        await this._flattenNode(message.payload.nodeId, true);
+                        await this._flattenNode(message.payload.nodeId, true, this._incrementHgid());
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
