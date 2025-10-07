@@ -1072,7 +1072,7 @@ class App {
             targetWinId = this.get_tab_node(targetNodeId).tab.wid;
         }
 
-        const targetNode = this.get_tab_node(targetNodeId);
+        const targetNode = this.get_node(targetNodeId);
         const targetWin = this.get_window(targetWinId);
         const orderedTabs = this._getOrderedTabList(targetWinId);
         const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
@@ -1212,7 +1212,7 @@ class App {
         const groupData = this.get_tab_node(groupId);
         const groupAttrs = this.groupAttrs.get(groupId)!;
         const childrenIds = this._getChildrenMap().get(groupId) || [];
-        const tidsToMove = childrenIds.map(id => this.get_tab_node(id).tab.tid);
+        const tidsToMove = this._getSubtree(groupId).splice(1).map(bid => this.get_tab_node(bid).tab.tid);
 
         const newBrowserWindow = await browser.windows.create();
         const extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
@@ -1630,15 +1630,7 @@ class App {
 
                         // This is a pure UI re-ordering within a live window.
                         if (!sourceIsClosed && !targetIsClosed) {
-                            // Reparent only the root of the dragged subtree in our state
-                            this._setParent(dragData.draggedNodeId, target.parentId);
-
-                            // Collect all browser tab IDs from the dragged subtree
-                            const tidsToMove = dragData.movedNodeIds.map(id => this.get_tab_node(id).tab.tid);
-
-                            // Perform a single, block move operation in the browser UI
-                            await browser.tabs.move(tidsToMove, { windowId: targetWindowId, index: target.index });
-
+                            await this._reparentNode(dragData.draggedNodeId, target.parentId, target.index);
                         } else { // All other cases involve state changes (Live->Dead, Dead->Live, Dead->Dead)
                             // The universal _moveNode handles the complex state transitions
                             await this._moveNode(dragData.draggedNodeId, target.parentId, target.index);
