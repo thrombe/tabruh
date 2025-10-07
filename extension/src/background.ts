@@ -1738,12 +1738,8 @@ class App {
                             url: this._getGroupUrl(bid),
                         });
                         const { tab } = await this._createTabNode(groupTab, { id: bid });
-                        this._setParent(tab.id, parentId);
-
-                        const orderedTabs = this._getOrderedTabList(windowId);
-                        const lastDescendantId = this._getSubtree(parentId).pop()!;
-                        const lastDindex = orderedTabs.indexOf(lastDescendantId);
-                        this._addTabToWindow(tab.tid, tab.wid, lastDindex == -1 ? orderedTabs.length : (lastDindex + 1));
+                        this._addTabToWindow(tab.tid, tab.wid, tab.index);
+                        this._reparentNode(tab.id, parentId);
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
