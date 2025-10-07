@@ -1064,8 +1064,16 @@ class App {
         this.remove_node(bruhId);
     }
 
-    private async _reparentNode(nodeId: BruhId, newParentId: BruhId, index: number): Promise<void> {
-        const { node: nodeToMove } = this.get_tab_node(nodeId);
+    private async _reparentNode(nodeId: BruhId, newParentId: BruhId, index?: number): Promise<void> {
+        const { node: nodeToMove, tab } = this.get_tab_node(nodeId);
+
+        if (index === undefined) {
+            const orderedTabs = this._getOrderedTabList(tab.wid);
+            const lastDescendantId = this._getSubtree(newParentId).pop()!;
+            const lastDindex = orderedTabs.indexOf(lastDescendantId);
+            index = lastDindex;
+        }
+
         this._setParent(nodeId, newParentId);
 
         const { node: newParentNode } = this.get_node(newParentId);
@@ -1074,6 +1082,8 @@ class App {
             : this.get_tab_node(newParentNode.id).tab.wid;
 
         await browser.tabs.move(nodeToMove.tid, { windowId: targetWindowId, index });
+
+        this._reindexWindowTabs(tab.wid);
     }
 
     private _setParent(childId: BruhId, newParentId: BruhId): void {
@@ -1641,15 +1651,17 @@ class App {
                     } break;
                     case 'DUPLICATE_TAB_SMART': {
                         const { tab: originalTab, node: originalNode } = this.get_tab_node(message.payload.nodeId);
+                        const index = originalTab.index;
                         const newTab = await browser.tabs.create({
                             windowId: originalTab.wid,
                             url: originalTab.url,
                             active: false,
                             discarded: true,
                             title: this.get_node_name(originalTab.id),
-                            index: message.payload.tabIndex,
+                            index: index,
                         });
                         const { tab: newBruhTab } = await this._createTabNode(newTab);
+                        this._addTabToWindow(newBruhTab.tid, newBruhTab.wid, index);
                         this._setParent(newBruhTab.id, originalNode.parentId);
                     } break;
                     case 'UNLOAD_TAB': {
@@ -1670,21 +1682,21 @@ class App {
                     case 'CREATE_TAB': {
                         const newTab = await browser.tabs.create({ windowId: message.payload.windowId, active: false });
                         const { tab } = await this._createTabNode(newTab);
-                        // TODO: set tab's parent properly
-                        // this._setParent(tab.id, message.payload.parentId);
 
                         const win = this.get_window(newTab.windowId! as WindowId);
                         win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
+
+                        this._reparentNode(tab.id, message.payload.parentId);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId } = message.payload;
                         const newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, });
                         const { tab } = await this._createTabNode(newTab);
-                        // TODO: set tab's parent properly
-                        // this._setParent(tab.id, parentId);
 
                         const win = this.get_window(newTab.windowId! as WindowId);
                         win.win.tabIds.splice(tab.index, 0, newTab.id as TabId);
+
+                        this._reparentNode(tab.id, message.payload.parentId);
                     } break;
                     case 'RENAME_WINDOW': {
                         const { windowId, newName } = message.payload;

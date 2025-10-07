@@ -135,7 +135,7 @@ export class TabTreeView {
                 this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
             }
         });
-        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id, node.tab_index); });
+        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
 
 
         nodeElement.addEventListener('dragstart', (event) => {
@@ -264,16 +264,11 @@ export class TabTreeView {
         title.textContent = node.title;
         contentWrapper.append(icon, title);
 
-        // A node can only be closed if it's not part of a closed session
-        if (!node.isDiscarded && !isClosed) {
-            const closeButton = document.createElement('button');
-            closeButton.className = 'close-tab-button';
-            closeButton.innerHTML = ICON_CLOSE;
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } }); });
-            nodeElement.append(collapseContainer, contentWrapper, closeButton);
-        } else {
-            nodeElement.append(collapseContainer, contentWrapper);
-        }
+        const closeButton = document.createElement('button');
+        closeButton.className = 'close-tab-button';
+        closeButton.innerHTML = ICON_CLOSE;
+        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } }); });
+        nodeElement.append(collapseContainer, contentWrapper, closeButton);
 
         nodeWrapper.appendChild(nodeElement);
 
@@ -539,7 +534,7 @@ export class TabTreeView {
         input.select();
     }
 
-    private showContextMenu(x: number, y: number, nodeId: BruhId, tab_index?: number) {
+    private showContextMenu(x: number, y: number, nodeId: BruhId) {
         if (!this.currentRenderState) return;
         const menu = this.createContextMenu(x, y);
 
@@ -577,7 +572,7 @@ export class TabTreeView {
                 this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: this.currentRenderState.windowId, parentId: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId, tabIndex: tab_index } }));
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId } }));
         createSeparator();
 
         if (!isNodeClosed) {
