@@ -66,6 +66,7 @@ class App {
     closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
     restoring_tab_ids: Set<TabId> = new Set();
     restoring_window_ids: Set<WindowId> = new Set();
+    forget_tab_ids: Set<TabId> = new Set();
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_key = "tabruh-app-state";
@@ -152,12 +153,9 @@ class App {
         browser.windows.onFocusChanged.addListener(async (windowId) => {
             let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId as WindowId });
         });
-        // browser.sessions.onChanged.addListener(async () => {
-        //     const sessions = await browser.sessions.getRecentlyClosed();
-        //     if (this.config.dbg.log_sessions) {
-        //         console.log(sessions);
-        //     }
-        // });
+        browser.sessions.onChanged.addListener(async () => {
+            let _ = await this.eventChannel.send({ type: 'sessionsChanged', payload: {} });
+        });
     }
 
     private _isGroupTab(tab: browser.Tabs.Tab): boolean {
@@ -272,6 +270,7 @@ class App {
             case 'tabActivated':
             case 'tabUpdated':
             case 'windowFocusChanged':
+            case 'sessionsChanged':
                 break;
 
             case 'portMessage':
@@ -328,6 +327,7 @@ class App {
                 this._broadcast({ type: 'RENDER_ALL', payload: {} });
                 break;
 
+            case 'sessionsChanged':
             case 'windowFocusChanged':
                 break;
 
@@ -791,11 +791,11 @@ class App {
             await this._cloneNode(childId, newWindowData.node.id, newWindowData.win.wid);
         }
 
-        // the corresponding adding/removal from window state is done in the resp. browser events.
-        await browser.tabs.remove(newBrowserWindow.tabs![0]!.id!);
+        const extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
+        this.forget_tab_ids.add(extraTabId);
 
-        // TODO: better to forget this extra tab ever existed. else it is annoying to have it restored when trying to restore something else.
-        // browser.sessions.getRecentlyClosed()
+        // the corresponding adding/removal from window state is done in the resp. browser events.
+        await browser.tabs.remove(extraTabId);
 
         const originalSubtree = this._getSubtree(bruhId);
         for (const id of originalSubtree) {
@@ -1202,6 +1202,7 @@ class App {
         await browser.tabs.move(tidsToMove, { windowId: newWindowId, index: 0 });
 
         await browser.tabs.update(rootTabTid, { active: true });
+        this.forget_tab_ids.add(extraTabId);
         await browser.tabs.remove(extraTabId);
 
         this._setParent(rootNodeId, newWindowData.node.id);
@@ -1223,6 +1224,7 @@ class App {
             await browser.tabs.update(tidsToMove[0], { active: true });
         }
 
+        this.forget_tab_ids.add(extraTabId);
         await browser.tabs.remove(extraTabId);
 
         await browser.tabs.remove(groupData.tab.tid);
@@ -1590,6 +1592,20 @@ class App {
                 }
             } break;
             case 'windowFocusChanged': { } break;
+            case 'sessionsChanged': {
+                const sessions = await browser.sessions.getRecentlyClosed();
+                if (this.config.dbg.log_sessions) {
+                    console.log(sessions);
+                }
+                for (let session of sessions) {
+                    if (session.tab && session.tab.id !== undefined && session.tab.sessionId && session.tab.windowId !== undefined) {
+                        if (this.forget_tab_ids.has(session.tab.id as TabId)) {
+                            this.forget_tab_ids.delete(session.tab.id as TabId);
+                            await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
+                        }
+                    }
+                }
+            } break;
             case 'portMessage': {
                 const port = event.payload.port;
                 const message = event.payload.message;

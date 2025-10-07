@@ -187,7 +187,9 @@ export type BrowserEvent =
     | { type: 'tabActivated', payload: browser.Tabs.OnActivatedActiveInfoType }
     | { type: 'windowCreated', payload: browser.Windows.Window }
     | { type: 'windowRemoved', payload: WindowId }
-    | { type: 'windowFocusChanged', payload: WindowId };
+    | { type: 'windowFocusChanged', payload: WindowId }
+    | { type: 'sessionsChanged', payload: {} }
+    ;
 
 export type PortMessageEvent = {
     type: 'portMessage',
