@@ -917,7 +917,7 @@ class App {
             // but ensure it reclaims its original BruhId.
             this.browserRestoreCache.delete(bruhId);
 
-            await this._createTabNode(browserTab, { id: bruhId });
+            await this._createTabNode(browserTab, { id: bruhId, hgid: cacheData.hgid });
         }
 
         // reparent the restored tab.
@@ -938,7 +938,7 @@ class App {
         }
     }
 
-    private async _createTabNode(tab: browser.Tabs.Tab, options?: { id?: BruhId }): Promise<TabData> {
+    private async _createTabNode(tab: browser.Tabs.Tab, options?: { id?: BruhId, hgid?: HierarchyGenerationId }): Promise<TabData> {
         const tid = tab.id as TabId;
         const wid = tab.windowId as WindowId;
         let parentId: BruhId;
@@ -958,7 +958,7 @@ class App {
 
         const node: Extract<Node, { type: "tab" | "group" }> = {
             id: bruhId,
-            hgid: this._incrementHgid(),
+            hgid: options?.hgid ?? this._incrementHgid(),
             parentId: parentId,
             collapsed: false,
             type: isGroup ? "group" : "tab",
@@ -1233,6 +1233,7 @@ class App {
             const storageNode: NodeStorageData = {
                 bruhId: bruhId,
                 hgid: node.hgid,
+                cache_hgid: node.hgid,
                 collapsed: node.collapsed,
                 type: node.type,
                 parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
@@ -1240,6 +1241,8 @@ class App {
                 childrenIds: childrenMap.get(bruhId) || [],
                 // @ts-ignore
                 groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
+                // @ts-ignore
+                index: node.type == "window" ? undefined : this.get_tab_node(bruhId).tab.index,
             };
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
