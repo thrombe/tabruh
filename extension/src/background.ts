@@ -625,6 +625,8 @@ class App {
             childrenIds: childrenIds,
             // @ts-ignore
             groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
+            // @ts-ignore
+            index: node.type == "window" ? undefined : this.get_tab_node(bruhId).tab.index,
         };
 
         return storageData as NodeStorageData;
@@ -858,7 +860,7 @@ class App {
     }
 
     private async _createOrRestoreTab(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
-        const cacheData = this.browserRestoreCache.get(bruhId);
+        const cacheData = this.browserRestoreCache.get(bruhId) as Exclude<NodeStorageData, { type: "window" }>;
         if (!cacheData) {
             // This tab was not in our cache, so treat it as entirely new.
             await this._createTabNode(browserTab, { id: bruhId });
@@ -916,7 +918,10 @@ class App {
             await this._createTabNode(browserTab, { id: bruhId });
         }
 
-        // TODO: need to reparent the restored tab somewhere in here.
+        // reparent the restored tab.
+        if (this.tree.has(cacheData.parentId)) {
+            await this._reparentNode(bruhId, cacheData.parentId, cacheData.index);
+        }
 
         // --- CHILD RECLAMATION (for both cases) ---
         for (const childId of cacheData.childrenIds) {

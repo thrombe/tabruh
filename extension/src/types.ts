@@ -19,8 +19,13 @@ export type NodeStorageData = {
     collapsed: boolean,
 } & ({
     type: "tab",
+    index: number,
 } | {
-    type: "group" | "window",
+    type: "group",
+    index: number,
+    groupAttrs: GroupAttrs,
+} | {
+    type: "window",
     groupAttrs: GroupAttrs,
 });
 
