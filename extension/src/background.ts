@@ -639,6 +639,10 @@ class App {
             childrenIds: childrenIds,
             // @ts-ignore
             groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
+            // @ts-ignore
+            url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
+            // @ts-ignore
+            title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
         };
 
         return storageData as NodeStorageData;
@@ -949,8 +953,7 @@ class App {
         for (const childId of cacheData.childrenIds) {
             if (this.tree.has(childId)) {
                 const childNode = this.get_tab_node(childId).node;
-                // TODO: hgid is broken everywhere else.
-                //  we need to change it every time we rebase a child to a different parent, but only when done intentionally by user
+                // only restore if the archieve was done after this child was repositioned manually
                 if (childNode.hgid <= cacheData.cache_hgid) {
                     this._setParent(childId, bruhId);
                 }
@@ -1171,7 +1174,6 @@ class App {
 
         await browser.tabs.remove(extraTabId);
 
-        // TODO: broken
         await browser.tabs.remove(groupData.tab.tid);
 
         const newWindowData = await this._createWindowNode(newWindowId);
@@ -1264,6 +1266,10 @@ class App {
                 comesAfterIds: this._getTabsBefore(bruhId),
                 // @ts-ignore
                 groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
+                // @ts-ignore
+                url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
+                // @ts-ignore
+                title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
             };
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
@@ -1318,21 +1324,29 @@ class App {
                     hgid: storageNode.hgid,
                     collapsed: storageNode.collapsed,
                 });
-                // TODO: stored state does not have url? :mous
+
+                let url: string;
+                let title: string;
+                if (storageNode.type === 'group') {
+                    this.groupAttrs.set(bruhId, storageNode.groupAttrs);
+                    title = storageNode.groupAttrs.name;
+                    url = this._getGroupUrl(bruhId);
+                } else {
+                    title = storageNode.title;
+                    url = storageNode.url;
+                }
+
                 this.tabs.set(tid, {
                     id: bruhId,
                     tid: tid,
                     wid: -1 as WindowId,
                     index: -1,
-                    url: "",
-                    title: "",
+                    url,
+                    title,
                     active: false,
                     discarded: true,
                     closed: true,
                 });
-                if (storageNode.type === 'group') {
-                    this.groupAttrs.set(bruhId, storageNode.groupAttrs);
-                }
             }
         }
 

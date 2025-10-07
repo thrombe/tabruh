@@ -23,6 +23,8 @@ export type NodeStorageData = {
     collapsed: boolean,
 } & ({
     type: "tab",
+    url: string,
+    title: string,
 } | {
     type: "group",
     groupAttrs: GroupAttrs,
