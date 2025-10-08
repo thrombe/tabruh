@@ -851,13 +851,10 @@ class App {
         const existingNodeData = this.tree.has(bruhId) ? this.get_window_node(bruhId) : null;
         const isPristine = existingNodeData?.win.isArchivedPristine ?? false;
 
-        console.log(existingNodeData, isPristine);
         // The user hasn't edited the closed session, so we can resurrect it seamlessly.
         if (existingNodeData && isPristine) {
             const { node, win: bruhWin } = existingNodeData;
             const oldWid = bruhWin.wid;
-
-            console.log(this._getOrderedTabList(oldWid));
 
             // Update the state with the new, live window ID and mark as live.
             bruhWin.closed = false;
@@ -875,7 +872,6 @@ class App {
             // The window is now live, so we can clear its entry from the restore cache.
             this.browserRestoreCache.delete(bruhId);
 
-            console.log(JSON.parse(JSON.stringify(this.get_window(bruhWin.wid))));
             return { node, win: bruhWin };
         } else {
             // non-pristine restore. we treat this as a new window, but use state from restore cache
@@ -935,9 +931,6 @@ class App {
         const new_ids = this.pre_allocated_ids_for_non_pristine_restore.get(wid)?.ids ?? new Map();
         const bid = new_ids.get(bruhId) ?? bruhId;
 
-        console.log(isPristine, existingNodeData);
-        console.log(new_ids);
-        console.log(wid, bruhId, bid);
         if (existingNodeData && isPristine) {
             // seamless restore
             this._setNodeClosedState(bruhId, false);
@@ -1008,7 +1001,6 @@ class App {
             if (this.tree.has(parent_id) && isPristine) {
                 const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
                 let index = orderedTabs.length;
-                console.log(orderedTabs, cacheData.comesAfterIds, cacheData.comesAfterIds.map(tbid => new_ids.get(tbid) ?? tbid));
                 for (let tbid of cacheData.comesAfterIds.toReversed()) {
                     const i = orderedTabs.indexOf(new_ids.get(tbid) ?? tbid);
                     if (i != -1) {
@@ -1617,7 +1609,6 @@ class App {
                 const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
                 win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
                 this._reindexWindowTabs(wid);
-                console.log(this._getOrderedTabList(wid));
             } break;
             case 'tabAttached': {
                 const { tabId, attachInfo } = event.payload;
