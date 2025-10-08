@@ -67,6 +67,10 @@ class App {
     restoring_tab_ids: Set<TabId> = new Set();
     restoring_window_ids: Set<WindowId> = new Set();
     forget_tab_ids: Set<TabId> = new Set();
+    pre_allocated_ids_for_non_pristine_restore: Map<WindowId, {
+        ids: Map<BruhId, BruhId>,
+        left_to_restore: Set<BruhId>,
+    }> = new Map();
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_key = "tabruh-app-state";
@@ -662,6 +666,8 @@ class App {
             url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
             // @ts-ignore
             title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
+            // @ts-ignore
+            tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid).map(bid => this.get_node(bid).node.id) : undefined
         };
 
         return storageData as NodeStorageData;
@@ -890,6 +896,14 @@ class App {
             this.windows.set(wid, bruhWin);
             await this._writeSessionPointer(bid, wid, 'window');
             this.browserRestoreCache.delete(bruhId); // Clear the cache entry.
+
+            const new_ids = new Map();
+            this.pre_allocated_ids_for_non_pristine_restore.set(wid, { ids: new_ids, left_to_restore: new Set(cacheData.tab_bids) });
+            for (let tbid of cacheData.tab_bids) {
+                let new_tbid = this.bruhid++ as BruhId;
+                new_ids.set(tbid, new_tbid);
+            }
+
             return { node, win: bruhWin };
         }
     }
@@ -906,11 +920,11 @@ class App {
         // TODO: browser restore after editing closed windows results in errors
         // TODO: reparenting/child reclamation does not work for non-pristine restores as BruhIds are all updated to something else
 
+        const wid = browserTab.windowId as WindowId;
         const existingNodeData = this.tree.has(bruhId) ? this.get_node(bruhId) : null;
-        let isPristine = false;
-        if (existingNodeData) {
-            isPristine = this.get_window(this.get_node_wid(bruhId)).win.isArchivedPristine ?? false;
-        }
+        let isPristine = !this.pre_allocated_ids_for_non_pristine_restore.has(wid);
+        const new_ids = this.pre_allocated_ids_for_non_pristine_restore.get(wid)?.ids ?? new Map();
+        const bid = new_ids.get(bruhId) ?? bruhId;
 
         if (existingNodeData && isPristine) {
             // seamless restore
@@ -937,64 +951,74 @@ class App {
             // Write the session pointer and clear the cache entry for this now-live node.
             await this._writeSessionPointer(bruhId, newTid, 'tab');
             this.browserRestoreCache.delete(bruhId);
-
-            // reparent the restored tab.
-            if (this.tree.has(cacheData.parentId)) {
-                const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
-                let index = 0;
-                for (let bid of cacheData.comesAfterIds.toReversed()) {
-                    const i = orderedTabs.indexOf(bid);
-                    if (i != -1) {
-                        index = i;
-                        break;
-                    }
-                }
-                await this._reparentNode(bruhId, cacheData.parentId, index);
-            }
-
-            // child reclamation
-            for (const childId of cacheData.childrenIds) {
-                if (this.tree.has(childId)) {
-                    const childNode = this.get_tab_node(childId).node;
-                    // only restore if the archieve was done after this child was repositioned manually
-                    if (childNode.hgid <= cacheData.cache_hgid) {
-                        this._setParent(childId, bruhId);
-                    }
-                }
-            }
         } else {
             // non-pristine restore
             // The user has edited the session, so we restore this tab as a new entity, but use data from restore cache
             this.browserRestoreCache.delete(bruhId);
-
-            const bid = this.bruhid++ as BruhId;
-            const node: Extract<Node, { type: "tab" | "group" }> = {
-                id: bruhId,
-                hgid: cacheData.hgid,
-                parentId: cacheData.parentId,
-                collapsed: false,
-                type: isGroup ? "group" : "tab",
-                tid: tid,
-            };
-
-            const bruhTab: BruhTab = {
-                id: bruhId,
-                tid: tid,
-                wid: wid,
-                index: tab.index,
-                url: tab.url || "",
-                title: tab.title || "",
-                favIconUrl: tab.favIconUrl,
-                discarded: tab.discarded ?? false,
-                active: tab.active,
-                closed: false,
-            };
+            this.pre_allocated_ids_for_non_pristine_restore.get(wid)!.left_to_restore.delete(bruhId);
 
             if ("groupAttrs" in cacheData) {
                 this.groupAttrs.set(bid, { ...cacheData.groupAttrs });
             }
-            await this._createTabNode(browserTab, { id: bid, hgid: cacheData.hgid });
+
+            const node: Extract<Node, { type: "tab" | "group" }> = {
+                id: bid,
+                hgid: cacheData.hgid,
+                parentId: cacheData.parentId,
+                collapsed: false,
+                type: cacheData.type,
+                tid: browserTab.id as TabId,
+            };
+
+            const bruhTab: BruhTab = {
+                id: node.id,
+                tid: node.tid,
+                wid: wid,
+                index: browserTab.index,
+                url: (cacheData.type == "tab") ? cacheData.url : this._getGroupUrl(node.id),
+                title: (cacheData.type == "tab") ? cacheData.title : this.groupAttrs.get(node.id)!.name,
+                favIconUrl: browserTab.favIconUrl,
+                discarded: browserTab.discarded ?? false,
+                active: browserTab.active,
+                closed: false,
+            };
+            this.tree.set(node.id, node);
+            this.tabs.set(node.tid, bruhTab);
+            if (browserTab.url !== bruhTab.url) {
+                await browser.tabs.update(node.tid, { url: bruhTab.url });
+            }
+
             this._addTabToWindow(browserTab.id as TabId, browserTab.windowId as WindowId, browserTab.index);
+        }
+
+        // reparent the restored tab.
+        if (this.tree.has(new_ids.get(cacheData.parentId) ?? cacheData.parentId)) {
+            const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
+            let index = 0;
+            for (let tbid of cacheData.comesAfterIds.toReversed()) {
+                const i = orderedTabs.indexOf(new_ids.get(tbid) ?? tbid);
+                if (i != -1) {
+                    index = i;
+                    break;
+                }
+            }
+            await this._reparentNode(bid, cacheData.parentId, index);
+        }
+
+        // child reclamation
+        for (const _childId of cacheData.childrenIds) {
+            const childId = new_ids.get(_childId) ?? _childId;
+            if (this.tree.has(childId)) {
+                const childNode = this.get_tab_node(childId).node;
+                // only restore if the archieve was done after this child was repositioned manually
+                if (childNode.hgid <= cacheData.cache_hgid) {
+                    this._setParent(childId, bid);
+                }
+            }
+        }
+
+        if (this.pre_allocated_ids_for_non_pristine_restore.get(wid)?.left_to_restore?.size == 0) {
+            this.pre_allocated_ids_for_non_pristine_restore.delete(wid);
         }
     }
 
@@ -1352,6 +1376,8 @@ class App {
                 url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
                 // @ts-ignore
                 title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
+                // @ts-ignore
+                tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid).map(bid => this.get_node(bid).node.id) : undefined
             };
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }

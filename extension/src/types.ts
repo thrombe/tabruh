@@ -32,6 +32,7 @@ export type NodeStorageData = {
 } | {
     type: "window",
     groupAttrs: GroupAttrs,
+    tab_bids: BruhId[],
 });
 
 export type Node = {
