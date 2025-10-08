@@ -485,13 +485,13 @@ export class TabTreeView {
 
         if (state.isClosed) {
             createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { windowId: state.windowId } }));
+            createSeparator();
+            createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId } }));
         } else {
             createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: state.windowId, parentId: state.id } }));
             createSeparator();
             createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { windowId: state.windowId } }));
         }
-        createSeparator();
-        createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId } }));
     }
 
     private startNodeRename(nodeId: BruhId) {
