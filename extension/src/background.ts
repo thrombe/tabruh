@@ -1718,13 +1718,6 @@ class App {
                         const target = this._getTargetIndex(tab.id, parentId, action);
                         this._reparentNode(tab.id, target.parentId, target.index);
                     } break;
-                    case 'RENAME_WINDOW': {
-                        const { windowId, newName } = message.payload;
-                        const win = this.get_window(windowId);
-                        const attrs = this.groupAttrs.get(win.win.id)!;
-                        attrs.name = newName;
-                        attrs.isCustomNamed = true;
-                    } break;
                     case 'CLOSE_WINDOW': {
                         await browser.windows.remove(message.payload.windowId);
                     } break;
@@ -1765,6 +1758,13 @@ class App {
                         this._addTabToWindow(tab.tid, tab.wid, tab.index);
                         this._reparentNode(tab.id, parentId);
                     } break;
+                    case 'RENAME_WINDOW': {
+                        const { windowId, newName } = message.payload;
+                        const win = this.get_window(windowId);
+                        const attrs = this.groupAttrs.get(win.win.id)!;
+                        attrs.name = newName;
+                        attrs.isCustomNamed = true;
+                    } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const { node, tab } = this.get_tab_node(nodeId);
@@ -1774,7 +1774,11 @@ class App {
                         tab.title = newName;
                         if (node.type === 'group') {
                             const newUrl = this._getGroupUrl(nodeId);
-                            await browser.tabs.update(tab.tid, { url: newUrl });
+                            if (tab.closed) {
+                                tab.url = newUrl;
+                            } else {
+                                await browser.tabs.update(tab.tid, { url: newUrl });
+                            }
                         }
                     } break;
                     default:

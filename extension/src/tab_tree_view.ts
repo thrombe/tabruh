@@ -317,7 +317,6 @@ export class TabTreeView {
             nameSpan.textContent = `[Closed] ${state.name}`;
         }
         nameSpan.addEventListener('click', () => {
-            if (state.isClosed) return;
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'group-name-input';
