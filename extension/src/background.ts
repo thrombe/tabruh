@@ -457,6 +457,24 @@ class App {
         }
     }
 
+    get_node_wid(bid: BruhId): WindowId {
+        const node = this.get_node(bid);
+        if (node.node.type == "window") {
+            return this.get_window_node(bid).win.wid;
+        } else {
+            return this.get_tab_node(bid).tab.wid;
+        }
+    }
+
+    is_node_closed(bid: BruhId): boolean {
+        const node = this.get_node(bid);
+        if (node.node.type == "window") {
+            return this.get_window_node(bid).win.closed;
+        } else {
+            return this.get_tab_node(bid).tab.closed;
+        }
+    }
+
     private _getSubtree(rootId: BruhId): BruhId[] {
         const subtree: BruhId[] = [];
         const stack: BruhId[] = [rootId];
@@ -569,7 +587,7 @@ class App {
 
         const rootNode = this.get_node(rootId);
         const attrs = this.groupAttrs.get(rootNode.node.id)!;
-        const isClosed = (rootNode.node.type === 'window') ? this.get_window(rootNode.node.wid).win.closed : this.get_tab(rootNode.node.tid).tab.closed;
+        const isClosed = this.is_node_closed(rootNode.node.id);
 
         return {
             id: rootNode.node.id,
@@ -630,7 +648,7 @@ class App {
         const storageData: NodeStorageData = {
             bruhId: bruhId,
             hgid: node.hgid,
-            windowBid: this.get_window(node.type == "window" ? this.get_window_node(bruhId).win.wid : this.get_tab_node(bruhId).tab.wid).node.id,
+            windowBid: this.get_window(this.get_node_wid(bruhId)).node.id,
             cache_hgid: this._incrementHgid(),
             collapsed: node.collapsed,
             type: node.type,
@@ -676,17 +694,17 @@ class App {
         const { node: sourceNode } = this.get_node(bruhId);
         const { node: targetParentNode } = this.get_node(newParentId);
 
-        const sourceIsClosed = sourceNode.type === 'window' ? this.get_window(sourceNode.wid).win.closed : this.get_tab(sourceNode.tid).tab.closed;
-        const targetIsClosed = targetParentNode.type === 'window' ? this.get_window(targetParentNode.wid).win.closed : this.get_tab(targetParentNode.tid).tab.closed;
+        const sourceIsClosed = this.is_node_closed(sourceNode.id);
+        const targetIsClosed = this.is_node_closed(targetParentNode.id);
 
-        const sourceRootWindowId = sourceNode.type === 'window' ? sourceNode.id : this._getAncestors(bruhId).slice(-1)[0];
-        const targetRootWindowId = targetParentNode.type === 'window' ? targetParentNode.id : this._getAncestors(newParentId).slice(-1)[0];
+        const sourceRootWindowId = this.get_node_wid(sourceNode.id);
+        const targetRootWindowId = this.get_node_wid(targetParentNode.id);
 
         // Case: Dead -> Dead
         if (sourceIsClosed && targetIsClosed) {
             this._setParent(bruhId, newParentId);
-            if (sourceRootWindowId) this.get_window_node(sourceRootWindowId).win.isArchivedPristine = false;
-            if (targetRootWindowId) this.get_window_node(targetRootWindowId).win.isArchivedPristine = false;
+            if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
+            if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
         }
         // Case: Live -> Dead
         else if (!sourceIsClosed && targetIsClosed) {
@@ -696,15 +714,15 @@ class App {
             for (const id of subtreeIds) {
                 this._archiveNode(id);
             }
-            if (sourceRootWindowId) this.get_window_node(sourceRootWindowId).win.isArchivedPristine = false;
-            if (targetRootWindowId) this.get_window_node(targetRootWindowId).win.isArchivedPristine = false;
+            if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
+            if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
             await browser.tabs.remove(tidsToRemove);
         }
         // Case: Dead -> Live
         else if (sourceIsClosed && !targetIsClosed) {
             this._setParent(bruhId, newParentId);
             const subtreeIds = this._getSubtree(bruhId);
-            const targetWid = this.get_window_node(targetRootWindowId!).win.wid;
+            const targetWid = this.get_window(targetRootWindowId).win.wid;
             for (const id of subtreeIds) {
                 const nodeData = this.get_tab_node(id);
                 const newTab = await browser.tabs.create({
@@ -721,7 +739,7 @@ class App {
                 index++;
             }
             this._setNodeClosedState(bruhId, false);
-            if (sourceRootWindowId) this.get_window_node(sourceRootWindowId).win.isArchivedPristine = false;
+            if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
         }
         // Case: Live -> Live
         else {
@@ -1070,13 +1088,7 @@ class App {
     }
 
     private _getTargetIndex(nodeId: BruhId, targetNodeId: BruhId, position: string) {
-        let targetWinId: WindowId;
-        if (this.get_node(targetNodeId).node.type == "window") {
-            targetWinId = this.get_window_node(targetNodeId).win.wid;
-        } else {
-            targetWinId = this.get_tab_node(targetNodeId).tab.wid;
-        }
-
+        const targetWinId = this.get_node_wid(targetNodeId);
         const targetNode = this.get_node(targetNodeId);
         const targetWin = this.get_window(targetWinId);
         const orderedTabs = this._getOrderedTabList(targetWinId);
@@ -1118,9 +1130,7 @@ class App {
         this._setParent(nodeId, newParentId);
 
         const { node: newParentNode } = this.get_node(newParentId);
-        const targetWindowId = newParentNode.type === 'window'
-            ? newParentNode.wid
-            : this.get_tab_node(newParentNode.id).tab.wid;
+        const targetWindowId = this.get_node_wid(newParentId);
 
         if (index === undefined) {
             index = this._getTargetIndex(nodeId, newParentId, "inside").index;
@@ -1315,7 +1325,7 @@ class App {
             const storageNode: NodeStorageData = {
                 bruhId: bruhId,
                 hgid: node.hgid,
-                windowBid: this.get_window(node.type == "window" ? this.get_window_node(bruhId).win.wid : this.get_tab_node(bruhId).tab.wid).node.id,
+                windowBid: this.get_window(this.get_node_wid(bruhId)).node.id,
                 cache_hgid: node.hgid,
                 collapsed: node.collapsed,
                 type: node.type,
@@ -1649,8 +1659,8 @@ class App {
                         }
 
 
-                        const sourceIsClosed = draggedNode.type === 'window' ? this.get_window(draggedNode.wid).win.closed : this.get_tab(draggedNode.tid).tab.closed;
-                        const targetIsClosed = targetNode.type === 'window' ? this.get_window(targetNode.wid).win.closed : this.get_tab(targetNode.tid).tab.closed;
+                        const sourceIsClosed = this.is_node_closed(draggedNode.id);
+                        const targetIsClosed = this.is_node_closed(targetNode.id);
 
                         // This is a pure UI re-ordering within a live window.
                         if (!sourceIsClosed && !targetIsClosed) {
