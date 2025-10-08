@@ -1034,7 +1034,7 @@ class App {
         }
     }
 
-    private async _createTabNode(tab: browser.Tabs.Tab, options?: { id?: BruhId, hgid?: HierarchyGenerationId }): Promise<TabData> {
+    private async _createTabNode(tab: browser.Tabs.Tab, options?: { id?: BruhId, hgid?: HierarchyGenerationId, closed?: boolean }): Promise<TabData> {
         const tid = tab.id as TabId;
         const wid = tab.windowId as WindowId;
         let parentId: BruhId;
@@ -1071,7 +1071,7 @@ class App {
             favIconUrl: tab.favIconUrl,
             discarded: tab.discarded ?? false,
             active: tab.active,
-            closed: false,
+            closed: options?.closed ?? false,
         };
 
         if (isGroup) {
@@ -1086,12 +1086,16 @@ class App {
 
         this.tree.set(bruhId, node);
         this.tabs.set(tid, bruhTab);
-        await this._writeSessionPointer(bruhId, tid, 'tab');
+        if (!options?.closed) {
+            await this._writeSessionPointer(bruhId, tid, 'tab');
+        }
 
         if (isGroup) {
             const correctUrl = this._getGroupUrl(bruhId);
             bruhTab.url = correctUrl;
-            await browser.tabs.update(tid, { url: correctUrl });
+            if (!options?.closed) {
+                await browser.tabs.update(tid, { url: correctUrl });
+            }
         }
 
         return { node, tab: bruhTab };
@@ -1778,13 +1782,30 @@ class App {
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId, action } = message.payload;
-                        const newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, });
-                        const { tab } = await this._createTabNode(newTab);
+                        const bid = this.bruhid++ as BruhId;
+                        const target = this._getTargetIndex(bid, parentId, action);
+                        const win = this.get_window(windowId).win;
+                        let newTab: browser.Tabs.Tab;
+                        if (win.closed) {
+                            newTab = {
+                                id: -bid,
+                                windowId: windowId,
+                                url: url,
+                                highlighted: false,
+                                index: target.index,
+                                active: false,
+                                pinned: false,
+                                discarded: true,
+                                incognito: false,
+                                title: (new URL(url)).host,
+                            };
+                        } else {
+                            newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, index: target.index });
+                        }
+                        const { tab } = await this._createTabNode(newTab, { id: bid, closed: win.closed });
 
                         this._addTabToWindow(tab.tid, tab.wid, tab.index);
-
-                        const target = this._getTargetIndex(tab.id, parentId, action);
-                        this._reparentNode(tab.id, target.parentId, target.index);
+                        this._setParent(bid, parentId);
                     } break;
                     case 'CLOSE_WINDOW': {
                         await browser.windows.remove(message.payload.windowId);
