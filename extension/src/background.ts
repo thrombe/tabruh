@@ -849,16 +849,19 @@ class App {
         const existingNodeData = this.tree.has(bruhId) ? this.get_window_node(bruhId) : null;
         const isPristine = existingNodeData?.win.isArchivedPristine ?? false;
 
+        console.log(existingNodeData, isPristine);
         // The user hasn't edited the closed session, so we can resurrect it seamlessly.
         if (existingNodeData && isPristine) {
             const { node, win: bruhWin } = existingNodeData;
             const oldWid = bruhWin.wid;
 
+            console.log(this._getOrderedTabList(oldWid));
+
             // Update the state with the new, live window ID and mark as live.
             bruhWin.closed = false;
             bruhWin.isArchivedPristine = true;
             bruhWin.wid = wid;
-            // bruhWin.tabIds = [];
+            bruhWin.tabIds = [];
             node.wid = wid;
 
             // Move the entry in the `windows` map from the old ID to the new ID.
@@ -869,6 +872,8 @@ class App {
 
             // The window is now live, so we can clear its entry from the restore cache.
             this.browserRestoreCache.delete(bruhId);
+
+            console.log(JSON.parse(JSON.stringify(this.get_window(bruhWin.wid))));
             return { node, win: bruhWin };
         } else {
             // non-pristine restore. we treat this as a new window, but use state from restore cache
@@ -913,6 +918,7 @@ class App {
         if (!cacheData) {
             // This tab was not in our cache, so treat it as entirely new.
             await this._createTabNode(browserTab, { id: bruhId });
+            this._addTabToWindow(browserTab.id as TabId, browserTab.windowId as WindowId, browserTab.index);
             return;
         }
 
@@ -926,6 +932,9 @@ class App {
         const new_ids = this.pre_allocated_ids_for_non_pristine_restore.get(wid)?.ids ?? new Map();
         const bid = new_ids.get(bruhId) ?? bruhId;
 
+        console.log(isPristine);
+        console.log(new_ids);
+        console.log(wid, bruhId, bid);
         if (existingNodeData && isPristine) {
             // seamless restore
             this._setNodeClosedState(bruhId, false);
@@ -945,7 +954,6 @@ class App {
             this.tabs.delete(oldTid);
 
             // update tid in window
-            this._removeTabFromWindow(oldTid, newWid);
             this._addTabToWindow(newTid, newWid, browserTab.index);
 
             // Write the session pointer and clear the cache entry for this now-live node.
@@ -955,7 +963,9 @@ class App {
             // non-pristine restore
             // The user has edited the session, so we restore this tab as a new entity, but use data from restore cache
             this.browserRestoreCache.delete(bruhId);
-            this.pre_allocated_ids_for_non_pristine_restore.get(wid)!.left_to_restore.delete(bruhId);
+            if (this.pre_allocated_ids_for_non_pristine_restore.has(wid)) {
+                this.pre_allocated_ids_for_non_pristine_restore.get(wid)!.left_to_restore.delete(bruhId);
+            }
 
             if ("groupAttrs" in cacheData) {
                 this.groupAttrs.set(bid, { ...cacheData.groupAttrs });
@@ -992,9 +1002,11 @@ class App {
         }
 
         // reparent the restored tab.
-        if (this.tree.has(new_ids.get(cacheData.parentId) ?? cacheData.parentId)) {
+        const parent_id = new_ids.get(cacheData.parentId) ?? cacheData.parentId;
+        if (this.tree.has(parent_id)) {
             const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
-            let index = 0;
+            let index = orderedTabs.length;
+            console.log(orderedTabs, cacheData.comesAfterIds, cacheData.comesAfterIds.map(tbid => new_ids.get(tbid) ?? tbid));
             for (let tbid of cacheData.comesAfterIds.toReversed()) {
                 const i = orderedTabs.indexOf(new_ids.get(tbid) ?? tbid);
                 if (i != -1) {
@@ -1002,7 +1014,11 @@ class App {
                     break;
                 }
             }
-            await this._reparentNode(bid, cacheData.parentId, index);
+            this._setParent(bid, parent_id);
+            if (!isPristine) {
+                await browser.tabs.move(browserTab.id!, { windowId: wid, index });
+            }
+            this._reindexWindowTabs(wid);
         }
 
         // child reclamation
@@ -1359,10 +1375,13 @@ class App {
         const childrenMap = this._getChildrenMap();
 
         for (const [bruhId, node] of this.tree.entries()) {
+            const wid = this.get_node_wid(bruhId);
+            // this can happen when we do a pristine restore of a window, but the tabs haven't been migrated yet.
+            if (!this.windows.has(wid)) continue;
             const storageNode: NodeStorageData = {
                 bruhId: bruhId,
                 hgid: node.hgid,
-                windowBid: this.get_window(this.get_node_wid(bruhId)).node.id,
+                windowBid: this.get_window(wid).node.id,
                 cache_hgid: node.hgid,
                 collapsed: node.collapsed,
                 type: node.type,
@@ -1377,7 +1396,7 @@ class App {
                 // @ts-ignore
                 title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
                 // @ts-ignore
-                tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid).map(bid => this.get_node(bid).node.id) : undefined
+                tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid) : undefined
             };
             nodeStorage[bruhId] = storageNode as NodeStorageData;
         }
@@ -1555,9 +1574,8 @@ class App {
                     await this._createOrRestoreTab(bruhId, tab);
                 } else {
                     await this._createTabNode(tab);
+                    this._addTabToWindow(tab.id as TabId, tab.windowId as WindowId, tab.index);
                 }
-
-                this._addTabToWindow(tab.id as TabId, tab.windowId as WindowId, tab.index);
             } break;
             case 'tabRemoved': {
                 const { tabId, removeInfo } = event.payload;
@@ -1593,6 +1611,7 @@ class App {
                 const [movedTabId] = win.tabIds.splice(moveInfo.fromIndex, 1);
                 win.tabIds.splice(moveInfo.toIndex, 0, movedTabId!);
                 this._reindexWindowTabs(wid);
+                console.log(this._getOrderedTabList(wid));
             } break;
             case 'tabAttached': {
                 const { tabId, attachInfo } = event.payload;
