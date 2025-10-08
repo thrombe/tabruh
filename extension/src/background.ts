@@ -734,9 +734,16 @@ class App {
         const originalTab = originalNodeData.node.type !== 'window' ? (originalNodeData as TabData).tab : null;
 
         const newBruhId = this.bruhid++ as BruhId;
+        let url: string | undefined;
+        if (originalNodeData.node.type == "group") {
+            this.groupAttrs.set(newBruhId, { ...this.groupAttrs.get(originalNodeId)! });
+            url = this._getGroupUrl(newBruhId);
+        } else {
+            url = originalTab?.url;
+        }
         const newTab = await browser.tabs.create({
             windowId,
-            url: originalTab?.url,
+            url: url,
             active: false,
             discarded: true,
             title: this.get_node_name(originalNodeData.node.id),
@@ -763,10 +770,6 @@ class App {
             active: newTab.active,
             closed: false,
         };
-
-        if (node.type === 'group') {
-            this.groupAttrs.set(newBruhId, { ...this.groupAttrs.get(originalNodeId)! });
-        }
 
         this.tree.set(newBruhId, node);
         this.tabs.set(newTab.id! as TabId, bruhTab);
