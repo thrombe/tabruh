@@ -26,9 +26,11 @@ export type NodeStorageData = {
     type: "tab",
     url: string,
     title: string,
+    index: number,
 } | {
     type: "group",
     groupAttrs: GroupAttrs,
+    index: number,
 } | {
     type: "window",
     groupAttrs: GroupAttrs,
