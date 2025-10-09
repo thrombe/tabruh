@@ -1878,17 +1878,36 @@ class App {
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
                         const bid = this.bruhid++ as BruhId;
-                        this.groupAttrs.set(bid, { name: this._generateUniqueGroupName(), isCustomNamed: false, generation: bid });
+                        const attrs = { name: this._generateUniqueGroupName(), isCustomNamed: false, generation: bid };
+                        this.groupAttrs.set(bid, attrs);
+                        const win = this.get_window(windowId).win;
                         const target = this._getTargetIndex(bid, parentId, "inside");
-                        const groupTab = await browser.tabs.create({
-                            windowId,
-                            active: false,
-                            discarded: true,
-                            title: "Tabruh Group",
-                            url: this._getGroupUrl(bid),
-                            index: target.index,
-                        });
-                        const { tab } = await this._createTabNode(groupTab, { id: bid });
+                        let groupTab: browser.Tabs.Tab;
+                        if (win.closed) {
+                            groupTab = {
+                                id: -bid,
+                                windowId: windowId,
+                                url: this._getGroupUrl(bid),
+                                highlighted: false,
+                                index: target.index,
+                                active: false,
+                                pinned: false,
+                                discarded: true,
+                                incognito: false,
+                                title: attrs.name,
+                            };
+                            win.isArchivedPristine = false;
+                        } else {
+                            groupTab = await browser.tabs.create({
+                                windowId,
+                                active: false,
+                                discarded: true,
+                                title: "Tabruh Group",
+                                url: this._getGroupUrl(bid),
+                                index: target.index,
+                            });
+                        }
+                        const { tab } = await this._createTabNode(groupTab, { id: bid, closed: win.closed });
                         this._addTabToWindow(tab.tid, tab.wid, tab.index);
                         this._reparentNode(tab.id, parentId, target.index);
                     } break;
