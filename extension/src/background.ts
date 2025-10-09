@@ -1752,15 +1752,32 @@ class App {
                     case 'DUPLICATE_TAB_SMART': {
                         const { tab: originalTab, node: originalNode } = this.get_tab_node(message.payload.nodeId);
                         const index = originalTab.index;
-                        const newTab = await browser.tabs.create({
-                            windowId: originalTab.wid,
-                            url: originalTab.url,
-                            active: false,
-                            discarded: true,
-                            title: this.get_node_name(originalTab.id),
-                            index: index,
-                        });
-                        const { tab: newBruhTab } = await this._createTabNode(newTab);
+                        const bid = this.bruhid++ as BruhId;
+                        let newTab: browser.Tabs.Tab;
+                        if (originalTab.closed) {
+                            newTab = {
+                                id: -bid,
+                                windowId: originalTab.wid,
+                                highlighted: false,
+                                index: index,
+                                active: false,
+                                pinned: false,
+                                discarded: true,
+                                incognito: false,
+                                title: originalTab.title,
+                            };
+                            this.get_window(originalTab.wid).win.isArchivedPristine = false;
+                        } else {
+                            newTab = await browser.tabs.create({
+                                windowId: originalTab.wid,
+                                url: originalTab.url,
+                                active: false,
+                                discarded: true,
+                                title: this.get_node_name(originalTab.id),
+                                index: index,
+                            });
+                        }
+                        const { tab: newBruhTab } = await this._createTabNode(newTab, { id: bid, closed: originalTab.closed });
                         this._addTabToWindow(newBruhTab.tid, newBruhTab.wid, index);
                         this._setParent(newBruhTab.id, originalNode.parentId);
                     } break;
