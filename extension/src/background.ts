@@ -1734,12 +1734,22 @@ class App {
                         await browser.tabs.update(tid, { active: true });
                     } break;
                     case 'CLOSE_SUBTREE': {
-                        // TODO: handle closed windows
-                        const tids = this._getSubtree(message.payload.nodeId)
+                        const tabs = this._getSubtree(message.payload.nodeId)
                             .map(id => this.get_node(id).node)
                             .filter(n => n.type !== 'window')
-                            .map(n => (n as Extract<Node, { type: 'tab' | 'group' }>).tid);
-                        if (tids.length > 0) await browser.tabs.remove(tids);
+                            .map(n => (n as Extract<Node, { type: 'tab' | 'group' }>));
+                        const win = this.get_window(this.get_node_wid(message.payload.nodeId)).win;
+                        if (tabs.length > 0) {
+                            if (win.closed) {
+                                for (let tab of tabs) {
+                                    this._removeTabFromWindow(tab.tid, win.wid);
+                                    this._removeNodeAndReparentChildren(tab.id);
+                                }
+                                win.isArchivedPristine = false;
+                            } else {
+                                await browser.tabs.remove(tabs.map(t => t.id));
+                            }
+                        }
                     } break;
                     case 'CLOSE_SINGLE_TAB': {
                         const tab = this.get_tab_node(message.payload.nodeId).tab;
