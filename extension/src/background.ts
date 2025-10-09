@@ -1703,6 +1703,7 @@ class App {
                         node.collapsed = !node.collapsed;
                     } break;
                     case 'HANDLE_DROP': {
+                        // TODO: handle closed windows
                         const { dragData, targetNodeId, action } = message.payload;
                         const { node: targetNode } = this.get_node(targetNodeId);
                         const { node: draggedNode } = this.get_node(dragData.draggedNodeId);
@@ -1733,6 +1734,7 @@ class App {
                         await browser.tabs.update(tid, { active: true });
                     } break;
                     case 'CLOSE_SUBTREE': {
+                        // TODO: handle closed windows
                         const tids = this._getSubtree(message.payload.nodeId)
                             .map(id => this.get_node(id).node)
                             .filter(n => n.type !== 'window')
@@ -1794,6 +1796,7 @@ class App {
                         for (const tid of tids) await browser.tabs.reload(tid);
                     } break;
                     case 'MOVE_SUBTREE_TO_NEW_WINDOW': {
+                        // TODO: handle closed windows
                         await this._moveSubtreeToNewWindow(message.payload.rootNodeId);
                     } break;
                     case 'CREATE_TAB': {
@@ -1815,6 +1818,7 @@ class App {
                                 incognito: false,
                                 title: "New Tab",
                             };
+                            win.isArchivedPristine = false;
                         } else {
                             newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: target.index });
                         }
@@ -1842,6 +1846,7 @@ class App {
                                 incognito: false,
                                 title: (new URL(url)).host,
                             };
+                            win.isArchivedPristine = false;
                         } else {
                             newTab = await browser.tabs.create({ windowId, url, active: false, discarded: true, index: target.index });
                         }
@@ -1871,9 +1876,17 @@ class App {
                     } break;
                     case 'FLATTEN_IMMEDIATE': {
                         this._flattenNode(message.payload.nodeId, false, this._incrementHgid());
+                        if (this.is_node_closed(message.payload.nodeId)) {
+                            const win = this.get_window(this.get_node_wid(message.payload.nodeId));
+                            win.win.isArchivedPristine = false;
+                        }
                     } break;
                     case 'FLATTEN_TREE': {
                         this._flattenNode(message.payload.nodeId, true, this._incrementHgid());
+                        if (this.is_node_closed(message.payload.nodeId)) {
+                            const win = this.get_window(this.get_node_wid(message.payload.nodeId));
+                            win.win.isArchivedPristine = false;
+                        }
                     } break;
                     case 'CREATE_GROUP': {
                         const { windowId, parentId } = message.payload;
@@ -1917,10 +1930,14 @@ class App {
                         const attrs = this.groupAttrs.get(win.win.id)!;
                         attrs.name = newName;
                         attrs.isCustomNamed = true;
+                        if (win.win.closed) {
+                            win.win.isArchivedPristine = false;
+                        }
                     } break;
                     case 'RENAME_NODE': {
                         const { nodeId, newName } = message.payload;
                         const { node, tab } = this.get_tab_node(nodeId);
+                        const win = this.get_window(tab.wid);
                         const attrs = this.groupAttrs.get(nodeId)!;
                         attrs.name = newName;
                         attrs.isCustomNamed = true;
@@ -1929,6 +1946,7 @@ class App {
                             const newUrl = this._getGroupUrl(nodeId);
                             if (tab.closed) {
                                 tab.url = newUrl;
+                                win.win.isArchivedPristine = false;
                             } else {
                                 await browser.tabs.update(tab.tid, { url: newUrl });
                             }
