@@ -1354,7 +1354,9 @@ class App {
         const childBruhIds = this._getSubtree(sourceBruhId).splice(1);
         const childTids = childBruhIds.map(bid => this.get_tab_node(bid).tab.tid);
 
-        const newGroupUrl = this._getGroupUrl(sourceBruhId);
+        const bid = this.bruhid++ as BruhId;
+        this.groupAttrs.set(bid, { ...sourceGroupAttrs });
+        const newGroupUrl = this._getGroupUrl(bid);
         const newGroupBrowserTab = await browser.tabs.create({
             windowId: targetWindowId,
             index: index,
@@ -1374,14 +1376,17 @@ class App {
             // }
         }
 
-        const nodeToMorph = sourceWindowData.node as unknown as Extract<Node, { type: "tab" | "group" }>;
-        nodeToMorph.type = 'group';
-        nodeToMorph.parentId = targetParentId;
-        nodeToMorph.tid = newGroupTid;
-        nodeToMorph.collapsed = false;
+        const newNode: Node = {
+            type: "group",
+            id: bid,
+            tid: newGroupTid,
+            collapsed: false,
+            parentId: targetParentId,
+            hgid: this._incrementHgid(),
+        };
 
         const newBruhTab: BruhTab = {
-            id: sourceBruhId,
+            id: bid,
             tid: newGroupTid,
             wid: targetWindowId,
             index: index,
@@ -1393,21 +1398,20 @@ class App {
             closed: false,
         };
         this.tabs.set(newGroupTid, newBruhTab);
-        this.windows.delete(sourceWindowId);
+        this.tree.set(bid, newNode);
+        this.remove_window(sourceWindowId);
+        this._addTabToWindow(newNode.tid, targetWindowId, index);
 
-        // Add the new group tab and all moved child tabs to the target window's list
-        const { win: targetWin } = this.get_window(targetWindowId);
-        const tidsToInsert = [newGroupTid, ...childTids];
-        targetWin.tabIds.splice(index, 0, ...tidsToInsert);
-
-        this._reindexWindowTabs(targetWindowId); // Re-index the target window
-
-        for (const childId of childBruhIds) {
-            const childData = this.get_tab_node(childId);
-            childData.tab.wid = targetWindowId;
+        for (let i = 0; i < childTids.length; i++) {
+            const childId = childTids[i]!;
+            this._addTabToWindow(childId, targetWindowId, index + 1 + i);
+            const child = this.get_tab(childId);
+            if (child.node.parentId == sourceBruhId) {
+                this._setParent(child.node.id, bid);
+            }
         }
 
-        await this._writeSessionPointer(sourceBruhId, newGroupTid, 'tab');
+        await this._writeSessionPointer(bid, newGroupTid, 'tab');
     }
 
     private async _saveState(): Promise<void> {
@@ -1816,6 +1820,7 @@ class App {
                                 discarded: true,
                                 incognito: false,
                                 title: originalTab.title,
+                                url: originalTab.url,
                             };
                             this.get_window(originalTab.wid).win.isArchivedPristine = false;
                         } else {
@@ -1866,10 +1871,11 @@ class App {
                                 discarded: true,
                                 incognito: false,
                                 title: "New Tab",
+                                url: browser.runtime.getURL('new.html'),
                             };
                             win.isArchivedPristine = false;
                         } else {
-                            newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: target.index });
+                            newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: target.index, url: browser.runtime.getURL('new.html') });
                         }
                         const { tab } = await this._createTabNode(newTab, { id: bid, closed: win.closed });
 
