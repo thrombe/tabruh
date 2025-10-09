@@ -1774,11 +1774,32 @@ class App {
                         await this._moveSubtreeToNewWindow(message.payload.rootNodeId);
                     } break;
                     case 'CREATE_TAB': {
-                        const newTab = await browser.tabs.create({ windowId: message.payload.windowId, active: false });
-                        const { tab } = await this._createTabNode(newTab);
+                        const wid = message.payload.windowId;
+
+                        const bid = this.bruhid++ as BruhId;
+                        let newTab: browser.Tabs.Tab;
+                        const win = this.get_window(wid).win;
+                        if (win.closed) {
+                            newTab = {
+                                id: -bid,
+                                windowId: wid,
+                                highlighted: false,
+                                // TODO: add context menu option for a new tab maybe?
+                                // index: target.index,
+                                index: win.tabIds.length,
+                                active: false,
+                                pinned: false,
+                                discarded: true,
+                                incognito: false,
+                                title: "New Tab",
+                            };
+                        } else {
+                            newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: win.tabIds.length });
+                        }
+                        const { tab } = await this._createTabNode(newTab, { id: bid, closed: win.closed });
 
                         this._addTabToWindow(tab.tid, tab.wid, tab.index);
-                        this._setParent(tab.id, this.get_window(tab.wid).node.id);
+                        this._setParent(tab.id, win.id);
                     } break;
                     case 'CREATE_TAB_FROM_URL': {
                         const { url, windowId, parentId, action } = message.payload;
