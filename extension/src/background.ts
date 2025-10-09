@@ -1648,17 +1648,16 @@ class App {
                     const closedTabs = this.closing_window_tabs.get(windowId)!;
                     this.closing_window_tabs.delete(windowId);
 
-                    if (closedTabs.size <= 1) {
-                        // This was a single-tab window close, treat as permanent removal.
-                        const subtreeIds = this._getSubtree(winData.win.id);
-                        for (const id of subtreeIds) {
-                            this.remove_node(id);
-                        }
-                    }
-
                     const subtreeIds = this._getSubtree(winData.win.id);
                     for (const id of subtreeIds) {
                         this._archiveNode(id);
+                    }
+
+                    if (closedTabs.size <= 1) {
+                        // This was a single-tab window close, treat as permanent removal.
+                        for (const id of subtreeIds) {
+                            this.remove_node(id);
+                        }
                     }
                 } else {
                     // The window was removed without preceding tabRemoved events (e.g., via another extension).
