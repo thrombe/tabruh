@@ -1741,8 +1741,14 @@ class App {
                         if (tids.length > 0) await browser.tabs.remove(tids);
                     } break;
                     case 'CLOSE_SINGLE_TAB': {
-                        const tid = this.get_tab_node(message.payload.nodeId).tab.tid;
-                        await browser.tabs.remove(tid);
+                        const tab = this.get_tab_node(message.payload.nodeId).tab;
+                        if (tab.closed) {
+                            this._removeTabFromWindow(tab.tid, tab.wid);
+                            this._removeNodeAndReparentChildren(tab.id);
+                            this.get_window(tab.wid).win.isArchivedPristine = false;
+                        } else {
+                            await browser.tabs.remove(tab.tid);
+                        }
                     } break;
                     case 'DUPLICATE_TAB_SMART': {
                         const { tab: originalTab, node: originalNode } = this.get_tab_node(message.payload.nodeId);
