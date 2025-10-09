@@ -1254,26 +1254,42 @@ class App {
             return;
         }
 
+        const is_closed = this.is_node_closed(rootNodeId);
+
         const subtreeIds = this._getSubtree(rootNodeId);
         const tidsToMove = subtreeIds
             .map(id => this.get_tab_node(id).tab.tid);
 
         const rootTabTid = tidsToMove[0];
+        const rootWindowId = this.get_node_wid(rootNodeId);
 
-        const newBrowserWindow = await browser.windows.create();
-        const extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
-        const newWindowId = newBrowserWindow.id! as WindowId;
-
-        if (!this.windows.has(newWindowId)) {
-            await this._createWindowNode(newWindowId);
+        const bid = this.bruhid++ as BruhId;
+        let newWindowId: WindowId;
+        let extraTabId: TabId | undefined;
+        if (is_closed) {
+            newWindowId = -bid as WindowId;
+            this.get_window(rootWindowId).win.isArchivedPristine = false;
+        } else {
+            const newBrowserWindow = await browser.windows.create();
+            extraTabId = newBrowserWindow.tabs![0]!.id! as TabId;
+            newWindowId = newBrowserWindow.id! as WindowId;
         }
-        const newWindowData = this.get_window(newWindowId);
 
-        await browser.tabs.move(tidsToMove, { windowId: newWindowId, index: 0 });
+        const newWindowData = await this._createWindowNode(newWindowId, { id: bid, closed: is_closed });
 
-        await browser.tabs.update(rootTabTid, { active: true });
-        this.forget_tab_ids.add(extraTabId);
-        await browser.tabs.remove(extraTabId);
+        if (!is_closed) {
+            await browser.tabs.move(tidsToMove, { windowId: newWindowId, index: 0 });
+
+            await browser.tabs.update(rootTabTid, { active: true });
+            this.forget_tab_ids.add(extraTabId!);
+            await browser.tabs.remove(extraTabId!);
+        }
+
+        for (let i = 0; i < tidsToMove.length; i++) {
+            let tid = tidsToMove[i]!;
+            this._removeTabFromWindow(tid, rootWindowId);
+            this._addTabToWindow(tid, newWindowData.win.wid, i);
+        }
 
         this._setParent(rootNodeId, newWindowData.node.id);
         rootNodeData.node.hgid = this._incrementHgid();
@@ -1307,6 +1323,7 @@ class App {
             await browser.tabs.remove(extraTabId);
         }
 
+        // hgid changed while creating this window node
         const newWindowData = await this._createWindowNode(newWindowId, { id: bid, closed: is_closed });
         this.groupAttrs.set(newWindowData.node.id, { ...groupAttrs });
 
