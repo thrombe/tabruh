@@ -119,7 +119,7 @@ type ActionPayloads = {
     'CLOSE_SUBTREE': { nodeId: BruhId },
     'CLOSE_SINGLE_TAB': { nodeId: BruhId },
     'TOGGLE_COLLAPSE': { nodeId: BruhId },
-    'HANDLE_DROP': { dragData: DragData, targetNodeId: BruhId, action: DropAction, targetWindowId: WindowId },
+    'HANDLE_DROP': { dragData: DragData, targetNodeId: BruhId, action: DropAction },
     'DUPLICATE_TAB_SMART': { nodeId: BruhId },
     'UNLOAD_TAB': { nodeId: BruhId },
     'UNLOAD_TREE': { nodeId: BruhId },

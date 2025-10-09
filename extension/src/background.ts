@@ -1305,7 +1305,8 @@ class App {
         }
     }
 
-    private async _convertWindowToGroup(sourceBruhId: BruhId, targetParentId: BruhId, targetWindowId: WindowId, index: number): Promise<void> {
+    private async _convertWindowToGroup(sourceBruhId: BruhId, targetParentId: BruhId, index: number): Promise<void> {
+        const targetWindowId = this.get_node_wid(targetParentId);
         const sourceWindowData = this.get_window_node(sourceBruhId);
         const sourceWindowId = sourceWindowData.win.wid;
         const isSourceWindowOpen = this.windows.has(sourceWindowId) && !sourceWindowData.win.closed;
@@ -1703,9 +1704,10 @@ class App {
                         node.collapsed = !node.collapsed;
                     } break;
                     case 'HANDLE_DROP': {
-                        const { dragData, targetNodeId, action, targetWindowId } = message.payload;
+                        const { dragData, targetNodeId, action } = message.payload;
                         const { node: targetNode } = this.get_node(targetNodeId);
                         const { node: draggedNode } = this.get_node(dragData.draggedNodeId);
+                        const targetWindowId = this.get_node_wid(targetNodeId);
 
                         draggedNode.hgid = this._incrementHgid();
 
@@ -1713,10 +1715,9 @@ class App {
 
                         // Special case: a dead or live window is dropped into a live window, converting it to a group
                         if (draggedNode.type === 'window' && !this.get_window(targetWindowId).win.closed) {
-                            await this._convertWindowToGroup(dragData.draggedNodeId, target.parentId, targetWindowId, target.index);
+                            await this._convertWindowToGroup(dragData.draggedNodeId, target.parentId, target.index);
                             break; // Finish here for this special case
                         }
-
 
                         const sourceIsClosed = this.is_node_closed(draggedNode.id);
                         const targetIsClosed = this.is_node_closed(targetNode.id);
@@ -1778,15 +1779,14 @@ class App {
 
                         const bid = this.bruhid++ as BruhId;
                         let newTab: browser.Tabs.Tab;
+                        const target = this._getTargetIndex(bid, message.payload.parentId, "inside");
                         const win = this.get_window(wid).win;
                         if (win.closed) {
                             newTab = {
                                 id: -bid,
                                 windowId: wid,
                                 highlighted: false,
-                                // TODO: add context menu option for a new tab maybe?
-                                // index: target.index,
-                                index: win.tabIds.length,
+                                index: target.index,
                                 active: false,
                                 pinned: false,
                                 discarded: true,
@@ -1794,7 +1794,7 @@ class App {
                                 title: "New Tab",
                             };
                         } else {
-                            newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: win.tabIds.length });
+                            newTab = await browser.tabs.create({ windowId: wid, active: false, discarded: true, title: "New Tab", index: target.index });
                         }
                         const { tab } = await this._createTabNode(newTab, { id: bid, closed: win.closed });
 

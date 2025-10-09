@@ -215,7 +215,7 @@ export class TabTreeView {
                 this.currentDragData = null;
                 if (dragData.movedNodeIds.includes(node.id)) return;
 
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: node.id, action, targetWindowId: state.windowId } });
+                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: node.id, action } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
@@ -392,7 +392,6 @@ export class TabTreeView {
                         dragData,
                         targetNodeId: state.id,
                         action,
-                        targetWindowId: state.windowId,
                     }
                 });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
