@@ -167,6 +167,12 @@ export type BrowserEvent =
     | { type: 'sessions_changed', payload: {} }
     ;
 
+export type BrowserEffect =
+    | { type: 'effects', payload: { effects: BrowserEffect[] } }
+    | { type: 'node_removed', payload: { node: Node } }
+    | { type: 'tabs_moved', payload: { tbids: BruhId[], wbid: BruhId, index: number } }
+    ;
+
 export type PortMessageEvent = {
     type: 'port_message',
     payload: { message: BackgroundRequest, port: browser.Runtime.Port }

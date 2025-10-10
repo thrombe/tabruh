@@ -17,6 +17,8 @@ import type {
     UrlTabData,
     GroupTabData,
     WindowData,
+    DropAction,
+    BrowserEffect,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -387,6 +389,7 @@ class App {
         const tid = this.tab_ids.get(bid);
         if (tid !== undefined) this.tab_bids.delete(tid);
         this.tab_ids.delete(bid);
+        return { type: 'node_removed', payload: { node } } as Extract<BrowserEffect, { type: 'node_removed' }>;
     }
 
     get_node_name(bid: BruhId): string {
@@ -609,67 +612,137 @@ class App {
         }
     }
 
-    private async _moveNode(bruhId: BruhId, newParentId: BruhId, index: number): Promise<void> {
-        const { node: sourceNode } = this.get_node(bruhId);
-        const { node: targetParentNode } = this.get_node(newParentId);
+    remove_node_and_reparent_children(bid: BruhId) {
+        const node = this.get_node(bid);
 
-        const sourceIsClosed = this.is_node_closed(sourceNode.id);
-        const targetIsClosed = this.is_node_closed(targetParentNode.id);
-
-        const sourceRootWindowId = this.get_node_wid(sourceNode.id);
-        const targetRootWindowId = this.get_node_wid(targetParentNode.id);
-
-        // Case: Dead -> Dead
-        if (sourceIsClosed && targetIsClosed) {
-            this._setParent(bruhId, newParentId);
-            if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
-            if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
+        const children = this.get_children_map().get(bid) || [];
+        for (const childId of children) {
+            this.get_node(childId).parent_bid = node.parent_bid;
         }
-        // Case: Live -> Dead
-        else if (!sourceIsClosed && targetIsClosed) {
-            const subtreeIds = this._getSubtree(bruhId);
-            const tidsToRemove = subtreeIds.map(id => this.get_tab_node(id).tab.tid);
-            this._setParent(bruhId, newParentId);
-            for (const id of subtreeIds) {
-                this._archiveNode(id);
-            }
-            if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
-            await browser.tabs.remove(tidsToRemove);
-        }
-        // Case: Dead -> Live
-        else if (sourceIsClosed && !targetIsClosed) {
-            this._setParent(bruhId, newParentId);
-            const subtreeIds = this._getSubtree(bruhId);
-            const targetWid = this.get_window(targetRootWindowId).win.wid;
-            for (const id of subtreeIds) {
-                const nodeData = this.get_tab_node(id);
-                const newTab = await browser.tabs.create({
-                    url: nodeData.tab.url,
-                    index,
-                    windowId: targetWid,
-                    active: false,
-                    discarded: true,
-                    title: this.get_node_name(nodeData.node.id),
-                });
-                nodeData.tab.tid = newTab.id! as TabId;
-                nodeData.tab.closed = false;
-                this._addTabToWindow(newTab.id! as TabId, targetWid, newTab.index);
-                await this._writeSessionPointer(id, newTab.id! as TabId, 'tab');
-                index++;
-            }
-            this._setNodeClosedState(bruhId, false);
-            if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
-        }
-        // Case: Live -> Live
-        else {
-            await this._reparentNode(bruhId, newParentId, index);
-            return;
-        }
-
-        // TODO:
-        // this._removeTabFromWindow(sourceNode.tid, rootWindowId);
-        // this._addTabToWindow(tid, newWindowData.win.wid, i);
+        return this.remove_node(node.bid);
     }
+
+    get_target_index(bid: BruhId, target_bid: BruhId, position: DropAction) {
+        const node = this.get_node(bid);
+        const target = this.get_node(target_bid);
+        const target_win = this.get_window(target.wbid);
+
+        const lastDescendantId = this.get_subtree(target.bid).pop()!;
+        const lastDescendantIndex = this.get_index(lastDescendantId);
+        const targetIndex = this.get_index(target.bid);
+        let currentIndex = target_win.tab_bids.indexOf(node.bid);
+        currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
+
+        let newParentId: BruhId;
+        let index: number;
+
+        switch (position) {
+            case 'above':
+                newParentId = target.parent_bid;
+                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
+                break;
+            case 'below':
+                newParentId = target.parent_bid;
+                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                break;
+            case 'inside':
+            default:
+                newParentId = target.bid;
+                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                break;
+        }
+
+        return { wbid: target_win.bid, parent_bid: newParentId, index };
+    }
+
+    reparent_node(bid: BruhId, new_parent_bid: BruhId, index?: number) {
+        const node = this.get_node(bid);
+        node.parent_bid = new_parent_bid;
+
+        const parent = this.get_node(new_parent_bid);
+        if (index === undefined) {
+            index = this.get_target_index(node.bid, parent.bid, "inside").index;
+        }
+        const tbids_to_move = this.get_subtree(node.bid);
+        for (let i = 0; i < tbids_to_move.length; i++) {
+            const tbid = tbids_to_move[i]!;
+            this.add_tab_to_window(node.bid, parent.wbid, index + i);
+        }
+
+        return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
+    }
+
+    flatten_node(bid: BruhId, recursive: boolean, hgid: HierarchyGenerationId) {
+        const node = this.get_node(bid);
+        const nodesToMove = recursive ? this.get_subtree(bid).slice(1) : (this.get_children_map().get(bid) || []);
+        for (const childId of nodesToMove) {
+            const child = this.get_node(childId);
+            child.parent_bid = node.parent_bid;
+            child.hgid = hgid;
+        }
+    }
+
+    // private async _moveNode(bruhId: BruhId, newParentId: BruhId, index: number): Promise<void> {
+    //     const { node: sourceNode } = this.get_node(bruhId);
+    //     const { node: targetParentNode } = this.get_node(newParentId);
+
+    //     const sourceIsClosed = this.is_node_closed(sourceNode.id);
+    //     const targetIsClosed = this.is_node_closed(targetParentNode.id);
+
+    //     const sourceRootWindowId = this.get_node_wid(sourceNode.id);
+    //     const targetRootWindowId = this.get_node_wid(targetParentNode.id);
+
+    //     // Case: Dead -> Dead
+    //     if (sourceIsClosed && targetIsClosed) {
+    //         this._setParent(bruhId, newParentId);
+    //         if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
+    //         if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
+    //     }
+    //     // Case: Live -> Dead
+    //     else if (!sourceIsClosed && targetIsClosed) {
+    //         const subtreeIds = this._getSubtree(bruhId);
+    //         const tidsToRemove = subtreeIds.map(id => this.get_tab_node(id).tab.tid);
+    //         this._setParent(bruhId, newParentId);
+    //         for (const id of subtreeIds) {
+    //             this._archiveNode(id);
+    //         }
+    //         if (targetRootWindowId) this.get_window(targetRootWindowId).win.isArchivedPristine = false;
+    //         await browser.tabs.remove(tidsToRemove);
+    //     }
+    //     // Case: Dead -> Live
+    //     else if (sourceIsClosed && !targetIsClosed) {
+    //         this._setParent(bruhId, newParentId);
+    //         const subtreeIds = this._getSubtree(bruhId);
+    //         const targetWid = this.get_window(targetRootWindowId).win.wid;
+    //         for (const id of subtreeIds) {
+    //             const nodeData = this.get_tab_node(id);
+    //             const newTab = await browser.tabs.create({
+    //                 url: nodeData.tab.url,
+    //                 index,
+    //                 windowId: targetWid,
+    //                 active: false,
+    //                 discarded: true,
+    //                 title: this.get_node_name(nodeData.node.id),
+    //             });
+    //             nodeData.tab.tid = newTab.id! as TabId;
+    //             nodeData.tab.closed = false;
+    //             this._addTabToWindow(newTab.id! as TabId, targetWid, newTab.index);
+    //             await this._writeSessionPointer(id, newTab.id! as TabId, 'tab');
+    //             index++;
+    //         }
+    //         this._setNodeClosedState(bruhId, false);
+    //         if (sourceRootWindowId) this.get_window(sourceRootWindowId).win.isArchivedPristine = false;
+    //     }
+    //     // Case: Live -> Live
+    //     else {
+    //         await this._reparentNode(bruhId, newParentId, index);
+    //         return;
+    //     }
+
+    //     // TODO:
+    //     // this._removeTabFromWindow(sourceNode.tid, rootWindowId);
+    //     // this._addTabToWindow(tid, newWindowData.win.wid, i);
+    // }
 
     private async _cloneNode(originalNodeId: BruhId, newParentId: BruhId, windowId: WindowId): Promise<void> {
         const originalNodeData = this.get_node(originalNodeId);
@@ -1047,76 +1120,6 @@ class App {
         return { node, win: bruhWin };
     }
 
-    private _removeNodeAndReparentChildren(bruhId: BruhId): void {
-        const { node: nodeToRemove } = this.get_node(bruhId);
-        const parentId = nodeToRemove.parentId;
-
-        const children = this._getChildrenMap().get(bruhId) || [];
-        for (const childId of children) {
-            this._setParent(childId, parentId);
-        }
-        this.remove_node(bruhId);
-    }
-
-    private _getTargetIndex(nodeId: BruhId, targetNodeId: BruhId, position: string) {
-        const targetWinId = this.get_node_wid(targetNodeId);
-        const targetNode = this.get_node(targetNodeId);
-        const targetWin = this.get_window(targetWinId);
-        const orderedTabs = this._getOrderedTabList(targetWinId);
-        const lastDescendantId = this._getSubtree(targetNodeId).pop()!;
-        const lastDescendantIndex = orderedTabs.indexOf(lastDescendantId);
-        let currentIndex = orderedTabs.indexOf(nodeId);
-        currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
-        const targetIndex = orderedTabs.indexOf(targetNodeId);
-
-        let newParentId: BruhId;
-        let index: number;
-
-        switch (position) {
-            case 'above':
-                newParentId = targetNode.node.parentId;
-                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
-                break;
-            case 'below':
-                newParentId = targetNode.node.parentId;
-                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
-                break;
-            case 'root':
-                newParentId = targetNode.node.id;
-                index = targetWin.win.tabIds.length;
-                break;
-            case 'inside':
-            default:
-                newParentId = targetNode.node.id;
-                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
-                break;
-        }
-
-        return { winId: targetWinId, parentId: newParentId, index };
-    }
-
-    private async _reparentNode(nodeId: BruhId, newParentId: BruhId, index?: number): Promise<void> {
-        const { node: nodeToMove, tab } = this.get_tab_node(nodeId);
-
-        this._setParent(nodeId, newParentId);
-
-        const { node: newParentNode } = this.get_node(newParentId);
-        const targetWindowId = this.get_node_wid(newParentId);
-
-        if (index === undefined) {
-            index = this._getTargetIndex(nodeId, newParentId, "inside").index;
-        }
-        const tids_to_move = this._getSubtree(nodeId).map(id => this.get_tab_node(id).tab.tid);
-        await browser.tabs.move(tids_to_move, { windowId: targetWindowId, index });
-
-        this._reindexWindowTabs(tab.wid);
-    }
-
-    private _setParent(childId: BruhId, newParentId: BruhId): void {
-        const { node: childNode } = this.get_tab_node(childId);
-        childNode.parentId = newParentId;
-    }
-
     private async _updateTabStateFromBrowser(tid: TabId, tab: browser.Tabs.Tab): Promise<void> {
         const { tab: bruhTab, node } = this.get_tab(tid);
 
@@ -1149,16 +1152,6 @@ class App {
                 bruhTab.url = correctUrl;
                 await browser.tabs.update(tid, { url: correctUrl });
             }
-        }
-    }
-
-    private _flattenNode(nodeId: BruhId, recursive: boolean, hgid: HierarchyGenerationId) {
-        const { node } = this.get_tab_node(nodeId);
-        const parentId = node.parentId;
-        const nodesToMove = recursive ? this._getSubtree(nodeId).slice(1) : (this._getChildrenMap().get(nodeId) || []);
-        for (const childId of nodesToMove) {
-            this._setParent(childId, parentId);
-            this.get_node(childId).node.hgid = hgid;
         }
     }
 
