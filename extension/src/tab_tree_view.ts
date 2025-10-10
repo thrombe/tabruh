@@ -575,13 +575,10 @@ export class TabTreeView {
         createSeparator();
 
         if (!isNodeClosed) {
-            if (node.isDiscarded) {
-                createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
-            } else {
-                createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
-            }
+            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
+            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
 
-            if (node.children.length > 0 && !node.isDiscarded) {
+            if (node.children.length > 0) {
                 createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { nodeId } }));
             }
             createSeparator();
