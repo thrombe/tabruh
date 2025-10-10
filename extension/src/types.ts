@@ -44,8 +44,8 @@ export type NodeStorageData = {
 export type GroupName = {
     name: string;
     // use to sort windows on screen (persists when window <-> group conversions)
-    name_generation: number,
-    is_name_custom: number,
+    generation: number,
+    is_custom: number,
 };
 
 export type Node = {
@@ -87,8 +87,6 @@ export type TabData = Extract<Node, { type: "tab" | "group" }>;
 export type UrlTabData = Extract<Node, { type: "tab" }>;
 export type GroupTabData = Extract<Node, { type: "group" }>;
 export type WindowData = Extract<Node, { type: "window" }>;
-
-export type NodeTree = Map<BruhId, Node>;
 
 export type DragType = 'tabs' | 'window';
 export type DropAction = 'above' | 'below' | 'inside';

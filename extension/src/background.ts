@@ -4,7 +4,6 @@ import type {
     BackgroundResponse,
     DragData,
     Node,
-    NodeTree,
     StateManagerEvent,
     TabId,
     HierarchyGenerationId,
@@ -14,6 +13,7 @@ import type {
     BruhId,
     NodeStorageData,
     GroupName,
+    GroupTabData,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -44,18 +44,19 @@ class App {
     bruhid: BruhId = 1 as BruhId;
     hierarchy_generation_id: HierarchyGenerationId = 1 as HierarchyGenerationId;
 
-    tree: NodeTree = new Map();
-    windows: Map<WindowId, BruhWindow> = new Map();
-    tabs: Map<TabId, BruhTab> = new Map();
-    // TODO: maybe move this into bruhtab/bruhwindow?
-    groupAttrs: Map<BruhId, GroupAttrs> = new Map();
+    window_ids: Map<BruhId, WindowId> = new Map();
+    tab_ids: Map<BruhId, TabId> = new Map();
+    window_bids: Map<WindowId, BruhId> = new Map();
+    tab_bids: Map<WindowId, BruhId> = new Map();
+    nodes: Map<BruhId, Node> = new Map();
     browserRestoreCache: Map<BruhId, NodeStorageData> = new Map();
 
-    closing_window_tabs: Map<WindowId, Set<TabId>> = new Map();
-    restoring_tab_ids: Set<TabId> = new Set();
-    restoring_window_ids: Set<WindowId> = new Set();
-    forget_tab_ids: Set<TabId> = new Set();
-    pre_allocated_ids_for_non_pristine_restore: Map<WindowId, {
+    // win -> []tab
+    closing_window_tabs: Map<BruhId, Set<BruhId>> = new Map();
+    restoring_bids: Set<BruhId> = new Set();
+    forget_bids: Set<BruhId> = new Set();
+    // win -> _
+    pre_allocated_bids_for_non_pristine_restore: Map<BruhId, {
         ids: Map<BruhId, BruhId>,
         left_to_restore: Set<BruhId>,
     }> = new Map();
@@ -107,7 +108,7 @@ class App {
 
             port.onMessage.addListener(async (message) => {
                 await this.eventChannel.send({
-                    type: 'portMessage',
+                    type: 'port_message',
                     payload: { message: message as BackgroundRequest, port }
                 });
             });
@@ -116,37 +117,37 @@ class App {
             });
         });
         browser.tabs.onCreated.addListener(async (tab) => {
-            let _ = await this.eventChannel.send({ type: 'tabCreated', payload: tab });
+            let _ = await this.eventChannel.send({ type: 'tab_created', payload: { tab: tab } });
         });
-        browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabRemoved', payload: { tabId: tabId as TabId, removeInfo } });
+        browser.tabs.onRemoved.addListener(async (tid, remove_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_removed', payload: { tid: tid as TabId, remove_info } });
         });
-        browser.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-            let _ = await this.eventChannel.send({ type: 'tabUpdated', payload: { tabId: tabId as TabId, changeInfo, tab } });
+        browser.tabs.onUpdated.addListener(async (tid, change_info, tab) => {
+            let _ = await this.eventChannel.send({ type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } });
         });
-        browser.tabs.onMoved.addListener(async (tabId, moveInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabMoved', payload: { tabId: tabId as TabId, moveInfo } });
+        browser.tabs.onMoved.addListener(async (tid, move_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_moved', payload: { tid: tid as TabId, move_info } });
         });
-        browser.tabs.onAttached.addListener(async (tabId, attachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabAttached', payload: { tabId: tabId as TabId, attachInfo } });
+        browser.tabs.onAttached.addListener(async (tid, attach_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_attached', payload: { tid: tid as TabId, attach_info } });
         });
-        browser.tabs.onDetached.addListener(async (tabId, detachInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabDetached', payload: { tabId: tabId as TabId, detachInfo } });
+        browser.tabs.onDetached.addListener(async (tid, detach_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_detached', payload: { tid: tid as TabId, detach_info } });
         });
-        browser.tabs.onActivated.addListener(async (activeInfo) => {
-            let _ = await this.eventChannel.send({ type: 'tabActivated', payload: activeInfo });
+        browser.tabs.onActivated.addListener(async (activated_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_activated', payload: { activated_info } });
         });
         browser.windows.onCreated.addListener(async (win) => {
-            let _ = await this.eventChannel.send({ type: 'windowCreated', payload: win });
+            let _ = await this.eventChannel.send({ type: 'window_created', payload: { win } });
         });
-        browser.windows.onRemoved.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowRemoved', payload: windowId as WindowId });
+        browser.windows.onRemoved.addListener(async (wid) => {
+            let _ = await this.eventChannel.send({ type: 'window_removed', payload: { wid: wid as WindowId } });
         });
-        browser.windows.onFocusChanged.addListener(async (windowId) => {
-            let _ = await this.eventChannel.send({ type: 'windowFocusChanged', payload: windowId as WindowId });
+        browser.windows.onFocusChanged.addListener(async (wid) => {
+            let _ = await this.eventChannel.send({ type: 'window_focus_changed', payload: { wid: wid as WindowId } });
         });
         browser.sessions.onChanged.addListener(async () => {
-            let _ = await this.eventChannel.send({ type: 'sessionsChanged', payload: {} });
+            let _ = await this.eventChannel.send({ type: 'sessions_changed', payload: {} });
         });
     }
 
@@ -186,35 +187,21 @@ class App {
     }
 
     private _getGroupUrl(id: BruhId): string {
-        const attrs = this.groupAttrs.get(id)!;
         const params = new URLSearchParams();
         params.set('view', 'group');
         params.set('id', String(id));
-        params.set('name', attrs.name);
-        params.set('isCustomNamed', String(attrs.isCustomNamed));
-        params.set('generation', String(attrs.generation));
         return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
     }
 
-    private _parseGroupUrlAttrs(url: string): { attrs: GroupAttrs, id: BruhId } | null {
+    private _parse_group_url_id(url: string): BruhId | null {
         try {
             const urlObj = new URL(url);
             if (urlObj.protocol === 'moz-extension:' &&
                 urlObj.pathname.endsWith('/overview.html') &&
                 urlObj.searchParams.get('view') === 'group') {
 
-                const name = urlObj.searchParams.get('name');
-                const isCustomNamedStr = urlObj.searchParams.get('isCustomNamed');
-                const generationStr = urlObj.searchParams.get('generation');
                 const id = parseInt(urlObj.searchParams.get('id')!, 10);
-
-                if (name && isCustomNamedStr && generationStr) {
-                    const isCustomNamed = isCustomNamedStr === 'true';
-                    const generation = parseInt(generationStr, 10);
-                    if (!isNaN(generation)) {
-                        return { attrs: { name, isCustomNamed, generation }, id: id as BruhId, };
-                    }
-                }
+                return id as BruhId;
             }
         } catch (e) { /* Invalid URL */ }
         return null;
@@ -222,7 +209,7 @@ class App {
 
     private _generateUniqueGroupName(): string {
         let name: string;
-        const existingNames = new Set(Array.from(this.groupAttrs.values()).map(attr => attr.name));
+        const existingNames = new Set(Array.from(this.nodes.values()).filter(node => node.type !== "tab").map(node => node.name.name));
 
         do {
             const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
@@ -249,50 +236,45 @@ class App {
 
     private _logEvent(event: StateManagerEvent) {
         switch (event.type) {
-            case 'tabCreated':
-            case 'tabRemoved':
-            case 'tabMoved':
-            case 'tabAttached':
-            case 'tabDetached':
-            case 'windowCreated':
-            case 'windowRemoved':
+            case 'tab_created':
+            case 'tab_removed':
+            case 'tab_moved':
+            case 'tab_attached':
+            case 'tab_detached':
+            case 'window_created':
+            case 'window_removed':
                 console.log(Date.now(), event.type, event.payload);
                 break;
-
-            case 'tabActivated':
-            case 'tabUpdated':
-            case 'windowFocusChanged':
-            case 'sessionsChanged':
+            case 'tab_updated':
+            case 'tab_activated':
+            case 'window_focus_changed':
+            case 'sessions_changed':
                 break;
-
-            case 'portMessage':
+            case 'port_message':
                 const message = event.payload.message;
                 switch (message.type) {
-                    case 'GET_STATE_FOR_WINDOW':
-                    case 'GET_STATE_FOR_GROUP_VIEW':
-                    case 'GET_ALL_WINDOW_STATES':
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
                         break;
 
-                    case 'TOGGLE_COLLAPSE':
-                    case 'HANDLE_DROP':
-                    case 'CLOSE_SUBTREE':
-                    case 'CLOSE_SINGLE_TAB':
-                    case 'DUPLICATE_TAB_SMART':
-                    case 'UNLOAD_TAB':
-                    case 'UNLOAD_TREE':
-                    case 'LOAD_TREE':
-                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
-                    case 'CREATE_TAB':
-                    case 'CREATE_TAB_FROM_URL':
-                    case 'RENAME_WINDOW':
-                    case 'CLOSE_WINDOW':
-                    case 'RESTORE_WINDOW':
-                    case 'DELETE_WINDOW_STATE':
-                    case 'FLATTEN_IMMEDIATE':
-                    case 'FLATTEN_TREE':
-                    case 'CREATE_GROUP':
-                    case 'RENAME_NODE':
-                    case 'FOCUS_TAB':
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_subtree':
+                    case 'close_single_tab':
+                    case 'duplicate_tab_smart':
+                    case 'unload_tab':
+                    case 'unload_tree':
+                    case 'load_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -307,51 +289,48 @@ class App {
 
     private _broadcastUpdates(event: StateManagerEvent) {
         switch (event.type) {
-            case 'tabCreated':
-            case 'tabRemoved':
-            case 'tabUpdated':
-            case 'tabMoved':
-            case 'tabAttached':
-            case 'tabDetached':
-            case 'tabActivated':
-            case 'windowCreated':
-            case 'windowRemoved':
-                this._broadcast({ type: 'RENDER_ALL', payload: {} });
+            case 'tab_created':
+            case 'tab_removed':
+            case 'tab_updated':
+            case 'tab_moved':
+            case 'tab_attached':
+            case 'tab_detached':
+            case 'tab_activated':
+            case 'window_created':
+            case 'window_removed':
+                this._broadcast({ type: 'render_all', payload: {} });
                 break;
 
-            case 'sessionsChanged':
-            case 'windowFocusChanged':
+            case 'sessions_changed':
+            case 'window_focus_changed':
                 break;
 
-            case 'portMessage':
+            case 'port_message':
                 const message = event.payload.message;
                 switch (message.type) {
-                    case 'GET_STATE_FOR_WINDOW':
-                    case 'GET_STATE_FOR_GROUP_VIEW':
-                    case 'GET_ALL_WINDOW_STATES':
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
                         break;
 
-                    case 'TOGGLE_COLLAPSE':
-                    case 'HANDLE_DROP':
-                    case 'CLOSE_SUBTREE':
-                    case 'CLOSE_SINGLE_TAB':
-                    case 'DUPLICATE_TAB_SMART':
-                    case 'UNLOAD_TAB':
-                    case 'UNLOAD_TREE':
-                    case 'LOAD_TREE':
-                    case 'MOVE_SUBTREE_TO_NEW_WINDOW':
-                    case 'CREATE_TAB':
-                    case 'CREATE_TAB_FROM_URL':
-                    case 'RENAME_WINDOW':
-                    case 'CLOSE_WINDOW':
-                    case 'RESTORE_WINDOW':
-                    case 'DELETE_WINDOW_STATE':
-                    case 'FLATTEN_IMMEDIATE':
-                    case 'FLATTEN_TREE':
-                    case 'CREATE_GROUP':
-                    case 'RENAME_NODE':
-                    case 'FOCUS_TAB':
-                        this._broadcast({ type: 'RENDER_ALL', payload: {} });
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_subtree':
+                    case 'close_single_tab':
+                    case 'duplicate_tab_smart':
+                    case 'unload_tab':
+                    case 'unload_tree':
+                    case 'load_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
+                        this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
                     default:
