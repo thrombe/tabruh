@@ -543,91 +543,69 @@ class App {
         };
     }
 
-    _addTabToWindow(tid: TabId, wid: WindowId, index: number): void {
-        const { win } = this.get_window(wid);
-        // Ensure we don't have duplicates
-        const existingIndex = win.tabIds.indexOf(tid);
-        if (existingIndex > -1) {
-            win.tabIds.splice(existingIndex, 1);
-        }
-
-        win.tabIds.splice(index, 0, tid);
-        this.get_tab(tid).tab.wid = wid; // Also update the tab's own window reference
-
-        this._reindexWindowTabs(wid); // Re-index all tabs in the window
-    }
-
-    private _removeTabFromWindow(tid: TabId, wid: WindowId): void {
-        const { win } = this.get_window(wid);
-        const index = win.tabIds.indexOf(tid);
+    remove_tab_from_window(tbid: BruhId, wbid: BruhId) {
+        const tab = this.get_tab(tbid);
+        const win = this.get_window(wbid);
+        const index = win.tab_bids.indexOf(tbid);
         if (index > -1) {
-            win.tabIds.splice(index, 1);
+            win.tab_bids.splice(index, 1);
         }
-
-        this._reindexWindowTabs(wid); // Re-index remaining tabs in the window
+        if (win.active == tbid) {
+            // we don't really know which tab the browser will focus. so we just expect browser to notify us, else we don't care anyway
+            win.active = undefined;
+        }
     }
 
-    private _reindexWindowTabs(wid: WindowId): void {
-        const { win } = this.get_window(wid);
-        for (let i = 0; i < win.tabIds.length; i++) {
-            const tid = win.tabIds[i]!;
-            if (this.tabs.has(tid)) {
-                this.get_tab(tid).tab.index = i;
+    add_tab_to_window(tbid: BruhId, wbid: BruhId, index: number): void {
+        const tab = this.get_tab(tbid);
+        const win = this.get_window(wbid);
+
+        if (tab.wbid !== wbid) {
+            this.remove_tab_from_window(tab.bid, tab.wbid);
+            this.remove_tab_from_window(tab.bid, wbid);
+        } else {
+            const index = win.tab_bids.indexOf(tbid);
+            if (index > -1) {
+                win.tab_bids.splice(index, 1);
             }
+            // win.active remains same
         }
+
+        win.tab_bids.splice(index, 0, tbid);
     }
 
-    private _getNodeStorageData(bruhId: BruhId): NodeStorageData {
-        const { node } = this.get_node(bruhId);
-        const childrenIds = this._getChildrenMap().get(bruhId) || [];
-        const ancestorIds = this._getAncestors(bruhId);
+    get_node_storage_data(bid: BruhId): NodeStorageData {
+        const node = this.get_node(bid);
+        const childrenIds = this.get_children_map().get(bid) || [];
+        const ancestorIds = this.get_ancestors(bid);
 
-        const storageData: NodeStorageData = {
-            bruhId: bruhId,
+        const storageData = {
+            bid,
             hgid: node.hgid,
-            windowBid: this.get_window(this.get_node_wid(bruhId)).node.id,
-            cache_hgid: this._incrementHgid(),
+            wbid: node.wbid,
+            cache_hgid: this.increment_hgid(),
             collapsed: node.collapsed,
+            parent_bid: node.parent_bid,
+            comes_after_bids: this.get_tabs_before(bid),
+            ancestor_bids: ancestorIds,
+            children_bids: childrenIds,
+            url: this.get_node_url(bid),
+            title: this.get_node_name(bid),
+            tab_bids: (node.type === 'window') ? node.tab_bids : undefined,
+            group_name: (node.type === 'group' || node.type === 'window') ? node.name : undefined,
             type: node.type,
-            parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
-            comesAfterIds: this._getTabsBefore(bruhId),
-            ancestorIds: ancestorIds,
-            childrenIds: childrenIds,
-            // @ts-ignore
-            groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
-            // @ts-ignore
-            url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
-            // @ts-ignore
-            title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
-            // @ts-ignore
-            tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid).map(bid => this.get_node(bid).node.id) : undefined,
-            // @ts-ignore
-            index: (node.type === "window") ? undefined : this.get_tab_node(bruhId).tab.index,
-        };
+        } as NodeStorageData;
 
-        return storageData as NodeStorageData;
+        return storageData;
     }
 
-    private _setNodeClosedState(bruhId: BruhId, isClosed: boolean): void {
-        const subtreeIds = this._getSubtree(bruhId);
-        for (const id of subtreeIds) {
-            const { node } = this.get_node(id);
-            if (node.type === 'window') {
-                this.get_window(node.wid).win.closed = isClosed;
-            } else {
-                this.get_tab(node.tid).tab.closed = isClosed;
-            }
-        }
-    }
+    archive_node(bid: BruhId): void {
+        const snapshot = this.get_node_storage_data(bid);
+        this.browserRestoreCache.set(bid, snapshot);
 
-    private _archiveNode(bruhId: BruhId): void {
-        const { node } = this.get_node(bruhId);
-        const snapshot = this._getNodeStorageData(bruhId);
-        this.browserRestoreCache.set(bruhId, snapshot);
-        this._setNodeClosedState(bruhId, true);
-
+        const node = this.get_node(bid);
         if (node.type === 'window') {
-            this.get_window(node.wid).win.isArchivedPristine = true;
+            node.is_archived_pristine = true;
         }
     }
 

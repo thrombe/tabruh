@@ -33,11 +33,11 @@ export type NodeStorageData = {
     collapsed: boolean,
 } | {
     type: "group",
-    groupAttrs: GroupName,
+    group_name: GroupName,
     collapsed: boolean,
 } | {
     type: "window",
-    groupAttrs: GroupName,
+    group_name: GroupName,
     tab_bids: BruhId[],
 });
 
@@ -75,7 +75,7 @@ export type Node = {
     parent_bid: BruhId & 0,
     collapsed: false,
 
-    active: BruhId,
+    active?: BruhId,
     tab_bids: BruhId[],
     is_archived_pristine?: boolean,
     closed: boolean,
