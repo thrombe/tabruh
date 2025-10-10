@@ -27,6 +27,7 @@ type Config = {
     dbg: {
         reset_state_on_load: boolean,
         log_events: boolean,
+        log_effects: boolean,
         log_sessions: boolean,
     },
     available_apis: {
@@ -78,6 +79,7 @@ class App {
             dbg: {
                 reset_state_on_load: true,
                 log_events: true,
+                log_effects: true,
                 log_sessions: false,
             },
             available_apis: {
@@ -352,6 +354,7 @@ class App {
     }
 
     async process_events() {
+        const effects = new utils.Deque<BrowserEffect>();
         while (true) {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
@@ -359,8 +362,23 @@ class App {
             if (this.config.dbg.log_events) {
                 this._log_event(event);
             }
-            await this._process_event(event).catch(console.error);
+
+            await this._process_event(event, effects).catch(console.error);
+            await this.process_effects(effects);
+
             this._broadcast_updates(event);
+        }
+    }
+
+    async process_effects(effects: utils.Deque<BrowserEffect>) {
+        while (true) {
+            const effect = effects.pop_front();
+            if (!effect) break;
+
+            if (this.config.dbg.log_effects) {
+                // this._log_effect(effect);
+            }
+            await this._process_effect(effects, effect).catch(console.error);
         }
     }
 
@@ -725,6 +743,101 @@ class App {
 
         this.add_tab_to_window(bid, win.bid, win.tab_bids.length);
         return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
+    }
+
+    async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
+        switch (event.type) {
+            case 'tab_created': {
+            } break;
+            case 'tab_removed': {
+            } break;
+            case 'tab_updated': {
+            } break;
+            case 'tab_moved': {
+            } break;
+            case 'tab_attached': {
+            } break;
+            case 'tab_detached': {
+            } break;
+            case 'tab_activated': {
+            } break;
+            case 'window_created': {
+            } break;
+            case 'window_removed': {
+            } break;
+            case 'window_focus_changed': {
+            } break;
+            case 'sessions_changed': {
+            } break;
+            case 'port_message': {
+                const msg = event.payload.message;
+                switch (msg.type) {
+                    case 'get_state_for_window': {
+                    } break;
+                    case 'get_all_window_states': {
+                    } break;
+                    case 'get_state_for_group_view': {
+                    } break;
+                    case 'focus_tab': {
+                    } break;
+                    case 'close_subtree': {
+                    } break;
+                    case 'close_single_tab': {
+                    } break;
+                    case 'toggle_collapse': {
+                    } break;
+                    case 'handle_drop': {
+                    } break;
+                    case 'duplicate_tab_smart': {
+                    } break;
+                    case 'unload_tab': {
+                    } break;
+                    case 'unload_tree': {
+                    } break;
+                    case 'load_tree': {
+                    } break;
+                    case 'move_subtree_to_new_window': {
+                    } break;
+                    case 'create_tab': {
+                    } break;
+                    case 'close_window': {
+                    } break;
+                    case 'restore_window': {
+                    } break;
+                    case 'delete_window_state': {
+                    } break;
+                    case 'flatten_tree': {
+                    } break;
+                    case 'create_group': {
+                    } break;
+                    case 'rename_node': {
+                    } break;
+                    default:
+                        throw utils.exhausted(msg);
+                }
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    async _process_effects(effects: utils.Deque<BrowserEffect>, effect: BrowserEffect) {
+        switch (effect.type) {
+            case 'effects': {
+                for (let i = effect.payload.effects.length; i > 0; i--) {
+                    const e = effect.payload.effects[i - 1]!;
+                    effects.push_front(e);
+                }
+            } break;
+            case 'node_removed': {
+            } break;
+            case 'tab_created': {
+            } break;
+            case 'tabs_moved': {
+            } break;
+            default:
+                throw utils.exhausted(effect);
+        }
     }
 
     clone_node(bid: BruhId, new_parent_bid: BruhId) {
@@ -1589,7 +1702,7 @@ class App {
         // }
     }
 
-    async _process_event(event: StateManagerEvent) {
+    async __process_event(event: StateManagerEvent) {
         switch (event.type) {
             case 'tabCreated': {
                 const tab = event.payload;
