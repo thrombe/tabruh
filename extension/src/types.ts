@@ -61,7 +61,7 @@ export type Node = {
 
     url: string,
     title: string,
-    fav_icon_url: string,
+    fav_icon_url?: string,
 } | {
     type: "group",
     parent_bid: BruhId,
@@ -170,6 +170,7 @@ export type BrowserEvent =
 export type BrowserEffect =
     | { type: 'effects', payload: { effects: BrowserEffect[] } }
     | { type: 'node_removed', payload: { node: Node } }
+    | { type: 'tab_created', payload: { bid: BruhId, wbid: BruhId, index: number } }
     | { type: 'tabs_moved', payload: { tbids: BruhId[], wbid: BruhId, index: number } }
     ;
 

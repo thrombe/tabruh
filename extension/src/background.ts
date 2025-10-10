@@ -682,9 +682,54 @@ class App {
         return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
     }
 
+    create_new_tab(parent_bid: BruhId, options: { bid?: BruhId, url?: string, title?: string, hgid?: HierarchyGenerationId }) {
+        const bid = options.bid ?? this.bruhid++ as BruhId;
+        const parent = this.get_node(parent_bid);
+        const win = this.get_window(parent.wbid);
+        const url = options.url ?? this.get_new_url();
+        if (this.parse_group_url_id(url)) throw new Error(`App.create_new_tab cannot create 'group'`);
+        const node: Node = {
+            bid,
+            url,
+            parent_bid: parent.bid,
+            wbid: parent.wbid,
+            hgid: options.hgid ?? this.increment_hgid(),
+            type: "tab",
+            collapsed: false,
+            discarded: true,
+            title: options.title ?? "New Tab",
+            fav_icon_url: undefined,
+        };
+        this.nodes.set(bid, node);
+
+        this.add_tab_to_window(bid, win.bid, win.tab_bids.length);
+        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
+    }
+
+    create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName }) {
+        const bid = options.bid ?? this.bruhid++ as BruhId;
+        const parent = this.get_node(parent_bid);
+        const win = this.get_window(parent.wbid);
+        const url = this.get_group_url(bid);
+        const node: Node = {
+            bid,
+            parent_bid: parent.bid,
+            wbid: parent.wbid,
+            hgid: options.hgid ?? this.increment_hgid(),
+            type: "group",
+            collapsed: false,
+            discarded: true,
+            name: options.name ?? { name: this.generate_unique_group_name(), generation: bid, is_custom: false },
+        };
+        this.nodes.set(bid, node);
+
+        this.add_tab_to_window(bid, win.bid, win.tab_bids.length);
+        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
+    }
+
     clone_node(bid: BruhId, new_parent_bid: BruhId) {
-        const originalNodeData = this.get_node(originalNodeId);
-        const originalTab = originalNodeData.node.type !== 'window' ? (originalNodeData as TabData).tab : null;
+        const node = this.get_node(bid);
+        const parent = this.get_node(new_parent_bid);
 
         const newBruhId = this.bruhid++ as BruhId;
         let url: string | undefined;
