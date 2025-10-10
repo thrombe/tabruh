@@ -273,10 +273,10 @@ class App {
                     case 'handle_drop':
                     case 'close_subtree':
                     case 'close_single_tab':
-                    case 'duplicate_tab_smart':
+                    case 'duplicate_tab':
                     case 'unload_tab':
                     case 'unload_tree':
-                    case 'load_tree':
+                    case 'reload_tree':
                     case 'move_subtree_to_new_window':
                     case 'create_tab':
                     case 'close_window':
@@ -328,10 +328,10 @@ class App {
                     case 'handle_drop':
                     case 'close_subtree':
                     case 'close_single_tab':
-                    case 'duplicate_tab_smart':
+                    case 'duplicate_tab':
                     case 'unload_tab':
                     case 'unload_tree':
-                    case 'load_tree':
+                    case 'reload_tree':
                     case 'move_subtree_to_new_window':
                     case 'create_tab':
                     case 'close_window':
@@ -700,7 +700,7 @@ class App {
         return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
     }
 
-    create_new_tab(parent_bid: BruhId, options: { bid?: BruhId, url?: string, title?: string, hgid?: HierarchyGenerationId }) {
+    create_new_tab(parent_bid: BruhId, options: { bid?: BruhId, url?: string, title?: string, hgid?: HierarchyGenerationId, index?: number }) {
         const bid = options.bid ?? this.bruhid++ as BruhId;
         const parent = this.get_node(parent_bid);
         const win = this.get_window(parent.wbid);
@@ -720,11 +720,11 @@ class App {
         };
         this.nodes.set(bid, node);
 
-        this.add_tab_to_window(bid, win.bid, win.tab_bids.length);
+        this.add_tab_to_window(bid, win.bid, options.index !== undefined ? options.index : win.tab_bids.length);
         return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
     }
 
-    create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName }) {
+    create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, index?: number }) {
         const bid = options.bid ?? this.bruhid++ as BruhId;
         const parent = this.get_node(parent_bid);
         const win = this.get_window(parent.wbid);
@@ -741,7 +741,7 @@ class App {
         };
         this.nodes.set(bid, node);
 
-        this.add_tab_to_window(bid, win.bid, win.tab_bids.length);
+        this.add_tab_to_window(bid, win.bid, options.index !== undefined ? options.index : win.tab_bids.length);
         return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
     }
 
@@ -773,32 +773,28 @@ class App {
                 const msg = event.payload.message;
                 switch (msg.type) {
                     case 'get_state_for_window': {
+                        const wid = msg.payload.wid;
+                        if (!this.window_bids.has(wid)) {
+                            return;
+                        }
+                        const wbid = this.window_bids.get(wid)!;
+                        const state = this.build_ui_state_for_render(wbid);
+                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
                     } break;
                     case 'get_all_window_states': {
+                        const states = this.nodes.values().filter(n => n.type == "window").map(n => this.build_ui_state_for_render(n.wbid));
+                        this._post(event.payload.port, { type: 'all_states_update', payload: { states: [...states] } });
                     } break;
                     case 'get_state_for_group_view': {
-                    } break;
-                    case 'focus_tab': {
+                        const root = this.get_tab(msg.payload.bid);
+                        const state = this.build_ui_state_for_render(root.wbid, root.bid);
+                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
                     } break;
                     case 'close_subtree': {
                     } break;
                     case 'close_single_tab': {
                     } break;
-                    case 'toggle_collapse': {
-                    } break;
                     case 'handle_drop': {
-                    } break;
-                    case 'duplicate_tab_smart': {
-                    } break;
-                    case 'unload_tab': {
-                    } break;
-                    case 'unload_tree': {
-                    } break;
-                    case 'load_tree': {
-                    } break;
-                    case 'move_subtree_to_new_window': {
-                    } break;
-                    case 'create_tab': {
                     } break;
                     case 'close_window': {
                     } break;
@@ -806,11 +802,104 @@ class App {
                     } break;
                     case 'delete_window_state': {
                     } break;
-                    case 'flatten_tree': {
+                    case 'duplicate_tab': {
+                    } break;
+                    case 'move_subtree_to_new_window': {
+                    } break;
+                    case 'reload_tree': {
+                        const root = this.get_node(msg.payload.bid);
+                        const win = this.get_window(root.wbid);
+                        if (win.closed) return;
+                        const bids = this.get_subtree(root.bid);
+
+                        let tbids = [];
+                        for (let bid of bids) {
+                            const node = this.get_node(bid);
+                            if (node.type == "window") {
+                                continue;
+                            }
+
+                            node.discarded = false;
+                            tbids.push(node.bid);
+                        }
+                        if (tbids.length > 0) {
+                            effects.push_back({ type: 'tabs_reloaded', payload: { tbids, wbid: win.bid } });
+                        }
+                    } break;
+                    case 'unload_tab': {
+                        const node = this.get_tab(msg.payload.bid);
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) return;
+                        if (win.active !== node.bid) {
+                            node.discarded = true;
+                            effects.push_back({ type: 'tabs_discarded', payload: { tbids: [node.bid], wbid: win.bid } });
+                        }
+                    } break;
+                    case 'unload_tree': {
+                        const root = this.get_node(msg.payload.bid);
+                        const win = this.get_window(root.wbid);
+                        if (win.closed) return;
+                        const bids = this.get_subtree(msg.payload.bid);;
+
+                        let tbids = [];
+                        for (let bid of bids) {
+                            const node = this.get_node(bid);
+                            if (node.type == "window") {
+                                continue;
+                            }
+
+                            if (win.active !== node.bid) {
+                                node.discarded = true;
+                                tbids.push(node.bid);
+                            }
+                        }
+
+                        if (tbids.length > 0) {
+                            effects.push_back({ type: 'tabs_discarded', payload: { tbids, wbid: win.bid } });
+                        }
+                    } break;
+                    case 'focus_tab': {
+                        const node = this.get_tab(msg.payload.bid);
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) return;
+                        win.active = node.bid;
+
+                        effects.push_back({ type: 'tab_focused', payload: { bid: node.bid } });
                     } break;
                     case 'create_group': {
+                        const parent = msg.payload.parent_bid;
+                        const effect = this.create_new_group(parent, {});
+                        effects.push_back(effect);
+                    } break;
+                    case 'create_tab': {
+                        const url = msg.payload.url;
+                        const parent = msg.payload.parent_bid;
+
+                        const bid = this.bruhid++ as BruhId;
+                        const target = this.get_target_index(bid, parent, msg.payload.action);
+                        let create_effect;
+                        if (!!url && this.parse_group_url_id(url) !== null) {
+                            create_effect = this.create_new_group(parent, { bid: bid, index: target.index });
+                        } else {
+                            create_effect = this.create_new_tab(parent, { bid: bid, url: url, index: target.index });
+                        }
+
+                        effects.push_back(create_effect);
+                    } break;
+                    case 'toggle_collapse': {
+                        const node = this.get_node(msg.payload.bid);
+                        node.collapsed = !node.collapsed;
+                    } break;
+                    case 'flatten_tree': {
+                        this.flatten_node(msg.payload.bid, msg.payload.recursive, this.increment_hgid());
                     } break;
                     case 'rename_node': {
+                        const node = this.get_node(msg.payload.bid);
+                        if (node.type == "tab") {
+                            throw new Error(`'tab' nodes cannot be renamed`);
+                        }
+                        node.name.name = msg.payload.new_name;
+                        node.name.is_custom = true;
                     } break;
                     default:
                         throw utils.exhausted(msg);
@@ -833,7 +922,13 @@ class App {
             } break;
             case 'tab_created': {
             } break;
+            case 'tab_focused': {
+            } break;
             case 'tabs_moved': {
+            } break;
+            case 'tabs_discarded': {
+            } break;
+            case 'tabs_reloaded': {
             } break;
             default:
                 throw utils.exhausted(effect);
