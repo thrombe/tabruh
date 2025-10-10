@@ -10,22 +10,13 @@ import type {
     HierarchyGenerationId,
     UiNode,
     UiStateForRender,
-    BruhTab,
-    BruhWindow,
     WindowId,
     BruhId,
     NodeStorageData,
-    GroupAttrs,
+    GroupName,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
-
-type StorageState = {
-    bruhid: BruhId,
-    hgid: HierarchyGenerationId,
-    nodes: Record<string, NodeStorageData>,
-    browserRestoreCache: Record<string, NodeStorageData>,
-};
 
 type Config = {
     dbg: {
@@ -43,9 +34,6 @@ type Config = {
 type UserConfig = {
     open_sidebar_on_new_windows: boolean,
 };
-
-type TabData = { node: Extract<Node, { type: "tab" | "group" }>, tab: BruhTab };
-type WindowData = { node: Extract<Node, { type: "window" }>, win: BruhWindow };
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -601,7 +589,6 @@ class App {
             isClosed: isClosed,
             generation: attrs.generation,
             tree: uiTree,
-            tabsById: new Map(this.tabs.entries()),
             rootIds,
         };
     }
