@@ -45,7 +45,7 @@ export type GroupName = {
     name: string;
     // use to sort windows on screen (persists when window <-> group conversions)
     generation: number,
-    is_custom: number,
+    is_custom: boolean,
 };
 
 export type Node = {
@@ -54,17 +54,17 @@ export type Node = {
     hgid: HierarchyGenerationId,
 } & ({
     type: "tab",
-    parentId: BruhId,
+    parent_bid: BruhId,
     collapsed: boolean,
 
     discarded: boolean,
 
     url: string,
     title: string,
-    favIconUrl: string,
+    fav_icon_url: string,
 } | {
     type: "group",
-    parentId: BruhId,
+    parent_bid: BruhId,
     collapsed: boolean,
 
     discarded: boolean,
@@ -72,12 +72,12 @@ export type Node = {
     name: GroupName,
 } | {
     type: "window",
-    parentId: BruhId & 0,
+    parent_bid: BruhId & 0,
     collapsed: false,
 
     active: BruhId,
-    tabIds: BruhId[],
-    isArchivedPristine?: boolean,
+    tab_bids: BruhId[],
+    is_archived_pristine?: boolean,
     closed: boolean,
 
     name: GroupName,
@@ -102,11 +102,11 @@ export type UiStateForRender = {
     id: BruhId,
     wbid: BruhId,
     name: string,
-    isCustomNamed: boolean,
-    isClosed: boolean,
+    is_custom_named: boolean,
+    is_closed: boolean,
     generation: number,
     tree: Map<BruhId, UiNode>,
-    rootIds: BruhId[],
+    root_bids: BruhId[],
 };
 
 export type UiNode = {

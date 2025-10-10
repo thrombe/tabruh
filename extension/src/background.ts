@@ -13,7 +13,10 @@ import type {
     BruhId,
     NodeStorageData,
     GroupName,
+    TabData,
+    UrlTabData,
     GroupTabData,
+    WindowData,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -47,7 +50,7 @@ class App {
     window_ids: Map<BruhId, WindowId> = new Map();
     tab_ids: Map<BruhId, TabId> = new Map();
     window_bids: Map<WindowId, BruhId> = new Map();
-    tab_bids: Map<WindowId, BruhId> = new Map();
+    tab_bids: Map<TabId, BruhId> = new Map();
     nodes: Map<BruhId, Node> = new Map();
     browserRestoreCache: Map<BruhId, NodeStorageData> = new Map();
 
@@ -151,7 +154,7 @@ class App {
         });
     }
 
-    private _isGroupTab(tab: browser.Tabs.Tab): boolean {
+    _is_group_tab(tab: browser.Tabs.Tab): boolean {
         if (!tab.url) return false;
         try {
             const url = new URL(tab.url);
@@ -167,7 +170,7 @@ class App {
 
     // TODO: need to add this check before calling tabs.create anywhere.
     // maybe just create a tab saying "sorry man. can't create this one for you"
-    private _isUrlFunny(url_str: string): boolean {
+    is_url_funny(url_str: string): boolean {
         try {
             const url = new URL(url_str);
             if (url.protocol === "chrome-extension:") {
@@ -186,14 +189,18 @@ class App {
         }
     }
 
-    private _getGroupUrl(id: BruhId): string {
+    get_new_url(): string {
+        return browser.runtime.getURL('new.html');
+    }
+
+    get_group_url(id: BruhId): string {
         const params = new URLSearchParams();
         params.set('view', 'group');
         params.set('id', String(id));
         return `${browser.runtime.getURL('overview.html')}?${params.toString()}`;
     }
 
-    private _parse_group_url_id(url: string): BruhId | null {
+    parse_group_url_id(url: string): BruhId | null {
         try {
             const urlObj = new URL(url);
             if (urlObj.protocol === 'moz-extension:' &&
@@ -207,7 +214,7 @@ class App {
         return null;
     }
 
-    private _generateUniqueGroupName(): string {
+    generate_unique_group_name(): string {
         let name: string;
         const existingNames = new Set(Array.from(this.nodes.values()).filter(node => node.type !== "tab").map(node => node.name.name));
 
@@ -220,7 +227,7 @@ class App {
         return name;
     }
 
-    private _post(port: browser.Runtime.Port, message: BackgroundResponse) {
+    _post(port: browser.Runtime.Port, message: BackgroundResponse) {
         try {
             port.postMessage(message);
         } catch (e) {
@@ -228,13 +235,13 @@ class App {
         }
     }
 
-    private _broadcast(message: BackgroundResponse) {
+    _broadcast(message: BackgroundResponse) {
         for (const port of this.ports) {
             this._post(port, message);
         }
     }
 
-    private _logEvent(event: StateManagerEvent) {
+    _log_event(event: StateManagerEvent) {
         switch (event.type) {
             case 'tab_created':
             case 'tab_removed':
@@ -287,7 +294,7 @@ class App {
         }
     }
 
-    private _broadcastUpdates(event: StateManagerEvent) {
+    _broadcast_updates(event: StateManagerEvent) {
         switch (event.type) {
             case 'tab_created':
             case 'tab_removed':
@@ -348,110 +355,81 @@ class App {
             if (!event) break;
 
             if (this.config.dbg.log_events) {
-                this._logEvent(event);
+                this._log_event(event);
             }
             await this._process_event(event).catch(console.error);
-            this._broadcastUpdates(event);
+            this._broadcast_updates(event);
         }
     }
 
-    get_tab(tid: TabId): TabData {
-        if (!this.tabs.has(tid)) throw new Error(`tab with tid: ${tid} does not exist`);
-        const tab = this.tabs.get(tid)!;
-        if (!this.tree.has(tab.id)) throw new Error(`window node with bid: ${tab.id} tid: ${tid} does not exist`);
-        const node = this.tree.get(tab.id)!;
-        return { tab: tab, node: node } as TabData;
+    get_tab(bid: BruhId): TabData {
+        const node = this.nodes.get(bid);
+        if (!node || node?.type === "window") throw new Error(`tab with bid: ${bid} does not exist`);
+        return node as TabData;
     }
 
-    get_window(wid: WindowId): WindowData {
-        if (!this.windows.has(wid)) throw new Error(`window with wid: ${wid} does not exist`);
-        const win = this.windows.get(wid)!;
-        if (!this.tree.has(win.id)) throw new Error(`window node with bid: ${win.id} wid: ${wid} does not exist`);
-        const node = this.tree.get(win.id)!;
-        return { win: win, node: node } as WindowData;
+    get_window(bid: BruhId): WindowData {
+        const node = this.nodes.get(bid);
+        if (!node || node?.type !== "window") throw new Error(`window with bid: ${bid} does not exist`);
+        return node as WindowData;
     }
 
     get_node(bid: BruhId) {
-        const node = this.tree.get(bid);
+        const node = this.nodes.get(bid);
         if (!node) throw Error(`node with bid ${bid} does not exist`);
-        if (node.type == "window") {
-            return this.get_window(node.wid);
-        } else {
-            return this.get_tab(node.tid);
-        }
-    }
-
-    get_tab_node(bid: BruhId) {
-        const node = this.get_node(bid);
-        if (node.node.type == "window") throw new Error(`node with bid: ${bid} expected type 'tab' | 'group' found 'window'`);
-        return this.get_tab(node.node.tid);
-    }
-
-    get_window_node(bid: BruhId) {
-        const node = this.get_node(bid);
-        if (node.node.type != "window") throw new Error(`node with bid: ${bid} expected type 'window' found '${node.node.type}'`);
-        return this.get_window(node.node.wid);
-    }
-
-    remove_tab(tid: TabId) {
-        const tab = this.tabs.get(tid);
-        if (!tab) throw new Error(`tab with tid: ${tid} does not exist`);
-        this.groupAttrs.delete(tab.id);
-        this.tree.delete(tab.id);
-        this.tabs.delete(tab.tid);
-    }
-
-    remove_window(wid: WindowId) {
-        const win = this.windows.get(wid);
-        if (!win) throw new Error(`window with wid: ${wid} does not exist`);
-        this.groupAttrs.delete(win.id);
-        this.tree.delete(win.id);
-        this.windows.delete(win.wid);
+        return node;
     }
 
     remove_node(bid: BruhId) {
-        const node = this.tree.get(bid);
+        const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
-        if (node.type == "window") {
-            this.remove_window(node.wid);
-        } else if (node.type == "tab" || node.type == "group") {
-            this.remove_tab(node.tid);
-        }
+        this.nodes.delete(bid);
+        const tid = this.tab_ids.get(bid);
+        if (tid !== undefined) this.tab_bids.delete(tid);
+        this.tab_ids.delete(bid);
     }
 
     get_node_name(bid: BruhId): string {
         const node = this.get_node(bid);
-        if (node.node.type == "window" || node.node.type == "group") {
-            return this.groupAttrs.get(bid)!.name;
+        if (node.type == "window" || node.type == "group") {
+            return node.name.name;
         } else {
-            return this.get_tab_node(bid).tab.title;
+            return node.title;
         }
     }
 
-    get_node_wid(bid: BruhId): WindowId {
+    get_node_url(bid: BruhId): string {
         const node = this.get_node(bid);
-        if (node.node.type == "window") {
-            return this.get_window_node(bid).win.wid;
+        if (node.type == "tab") {
+            return node.url;
         } else {
-            return this.get_tab_node(bid).tab.wid;
+            return this.get_group_url(bid);
         }
     }
 
     is_node_closed(bid: BruhId): boolean {
         const node = this.get_node(bid);
-        if (node.node.type == "window") {
-            return this.get_window_node(bid).win.closed;
-        } else {
-            return this.get_tab_node(bid).tab.closed;
-        }
+        const win = this.get_window(node.wbid);
+        return win.closed;
     }
 
-    private _getSubtree(rootId: BruhId): BruhId[] {
+    get_children_map(): Map<BruhId, BruhId[]> {
+        const map = new Map<BruhId, BruhId[]>();
+        for (const [_, node] of this.nodes) {
+            if (!map.has(node.parent_bid)) {
+                map.set(node.parent_bid, []);
+            }
+            map.get(node.parent_bid)!.push(node.bid);
+        }
+        return map;
+    }
+
+    get_subtree(rootId: BruhId): BruhId[] {
         const subtree: BruhId[] = [];
         const stack: BruhId[] = [rootId];
         const visited = new Set<BruhId>();
 
-        const childrenMap = this._getChildrenMap();
+        const childrenMap = this.get_children_map();
 
         while (stack.length > 0) {
             const currentId = stack.pop()!;
@@ -469,110 +447,103 @@ class App {
         return subtree;
     }
 
-    private _getChildrenMap(): Map<BruhId, BruhId[]> {
-        const map = new Map<BruhId, BruhId[]>();
-        for (const [_, w] of this.windows) {
-            for (const tid of w.tabIds) {
-                const tab = this.get_tab(tid);
-
-                if (!map.has(tab.node.parentId)) {
-                    map.set(tab.node.parentId, []);
-                }
-                map.get(tab.node.parentId)!.push(tab.tab.id);
-            }
-        }
-        return map;
+    get_ordered_tab_list(wbid: BruhId): BruhId[] {
+        return this.get_window(wbid).tab_bids;
     }
 
-    private _getOrderedTabList(windowId: WindowId): BruhId[] {
-        return this.get_window(windowId).win.tabIds.map(tid => this.get_tab(tid).tab.id);
-    }
-
-    private _getAncestors(nodeId: BruhId): BruhId[] {
+    get_ancestors(nodeId: BruhId): BruhId[] {
         const ancestors: BruhId[] = [];
-        let current = this.get_node(nodeId).node;
+        let current = this.get_node(nodeId);
         if (current.type === 'window') {
             return ancestors;
         }
 
-        let parent = this.get_node(current.parentId).node;
+        let parent = this.get_node(current.parent_bid);
         while (parent.type !== 'window') {
-            ancestors.push(parent.id);
-            parent = this.tree.get(parent.parentId)!;
+            ancestors.push(parent.bid);
+            parent = this.nodes.get(parent.parent_bid)!;
         }
         // last ancestor is a window
-        ancestors.push(parent.id);
+        ancestors.push(parent.bid);
         return ancestors;
     }
 
-    private _getTabsBefore(bid: BruhId): BruhId[] {
+    get_index(bid: BruhId) {
+        const node = this.get_tab(bid);
+        const win = this.get_window(node.wbid);
+        const index = win.tab_bids.indexOf(node.bid);
+        return index;
+    }
+
+    get_tabs_before(bid: BruhId): BruhId[] {
         const node = this.get_node(bid);
-        if (node.node.type == "window") {
+        if (node.type == "window") {
             return [];
         } else {
-            const tab = this.get_tab_node(bid).tab;
-            const orderedIds = this._getOrderedTabList(tab.wid);
-            const index = orderedIds.indexOf(tab.id);
-            return orderedIds.slice(0, index == -1 ? 0 : index);
+            const win = this.get_window(node.wbid);
+            const index = win.tab_bids.indexOf(node.bid);
+            return win.tab_bids.slice(0, index == -1 ? 0 : index);
         }
     }
 
-    private _buildUiStateForRender(windowId: WindowId, rootNodeId?: BruhId): UiStateForRender {
-        const win = this.get_window(windowId);
+    increment_hgid(): HierarchyGenerationId {
+        return this.hierarchy_generation_id++ as HierarchyGenerationId;
+    }
 
-        const childrenMap = this._getChildrenMap();
-        const rootIds: BruhId[] = [];
+    build_ui_state_for_render(wbid: BruhId, root_bid?: BruhId): UiStateForRender {
+        const win = this.get_window(wbid);
+
+        const childrenMap = this.get_children_map();
+        const root_bids: BruhId[] = [];
         const uiTree: Map<BruhId, UiNode> = new Map();
 
-        const rootId = rootNodeId || win.win.id;
+        const rootId = root_bid || wbid;
         let nodeIdsToIterate: BruhId[];
-        if (rootNodeId) {
-            nodeIdsToIterate = this._getSubtree(rootNodeId).slice(1);
+        if (root_bid) {
+            nodeIdsToIterate = this.get_subtree(root_bid).slice(1);
         } else {
-            nodeIdsToIterate = this._getOrderedTabList(windowId);
+            nodeIdsToIterate = win.tab_bids;
         }
 
         for (const bruhId of nodeIdsToIterate) {
-            const tnode = this.get_tab_node(bruhId);
-            const node = tnode.node;
-            const tab = tnode.tab;
+            const node = this.get_tab(bruhId);
+            const win = this.get_window(node.wbid);
 
-            uiTree.set(node.id, {
-                id: node.id,
-                tid: node.tid,
-                tab_index: tab.index,
-                title: tab.title,
-                url: tab.url,
-                favIconUrl: tab.favIconUrl,
+            uiTree.set(node.bid, {
+                id: node.bid,
+                tid: this.tab_ids.get(node.bid),
+                tab_index: this.get_index(node.bid),
+                title: this.get_node_name(node.bid),
+                url: this.get_node_url(node.bid),
+                favIconUrl: node.type == "tab" ? node.fav_icon_url : undefined,
                 isGroup: node.type === 'group',
-                isDiscarded: tab.discarded,
-                isActive: tab.active,
+                isDiscarded: node.discarded,
+                isActive: win.active === node.bid,
                 isCollapsed: node.collapsed,
-                children: childrenMap.get(node.id) || [],
+                children: childrenMap.get(node.bid) || [],
             });
 
-            if (node.parentId === rootId) {
-                rootIds.push(node.id);
+            if (node.parent_bid === rootId) {
+                root_bids.push(node.bid);
             }
         }
 
         const rootNode = this.get_node(rootId);
-        const attrs = this.groupAttrs.get(rootNode.node.id)!;
-        const isClosed = this.is_node_closed(rootNode.node.id);
+        if (rootNode.type == "tab") throw new Error(`root_bid ${rootId} expected to be 'window' or 'group'`);
 
         return {
-            id: rootNode.node.id,
-            windowId: win.win.wid,
-            name: attrs.name,
-            isCustomNamed: attrs.isCustomNamed,
-            isClosed: isClosed,
-            generation: attrs.generation,
+            id: rootNode.bid,
+            wbid: wbid,
+            name: rootNode.name.name,
+            is_custom_named: rootNode.name.is_custom,
+            is_closed: win.closed,
+            generation: rootNode.name.generation,
             tree: uiTree,
-            rootIds,
+            root_bids,
         };
     }
 
-    private _addTabToWindow(tid: TabId, wid: WindowId, index: number): void {
+    _addTabToWindow(tid: TabId, wid: WindowId, index: number): void {
         const { win } = this.get_window(wid);
         // Ensure we don't have duplicates
         const existingIndex = win.tabIds.indexOf(tid);
@@ -604,10 +575,6 @@ class App {
                 this.get_tab(tid).tab.index = i;
             }
         }
-    }
-
-    private _incrementHgid(): HierarchyGenerationId {
-        return ++this.hierarchy_generation_id as HierarchyGenerationId;
     }
 
     private _getNodeStorageData(bruhId: BruhId): NodeStorageData {
