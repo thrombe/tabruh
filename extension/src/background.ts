@@ -620,16 +620,6 @@ class App {
         }
     }
 
-    remove_node_and_reparent_children(bid: BruhId) {
-        const node = this.get_node(bid);
-
-        const children = this.get_children_map().get(bid) || [];
-        for (const childId of children) {
-            this.get_node(childId).parent_bid = node.parent_bid;
-        }
-        return this.remove_node(node.bid);
-    }
-
     get_target_index(bid: BruhId, target_bid: BruhId, position: DropAction) {
         const node = this.get_node(bid);
         const target = this.get_node(target_bid);
@@ -680,7 +670,20 @@ class App {
         const tid = this.tab_ids.get(bid);
         if (tid !== undefined) this.tab_bids.delete(tid);
         this.tab_ids.delete(bid);
+        const wid = this.window_ids.get(bid);
+        if (wid !== undefined) this.window_bids.delete(wid);
+        this.window_ids.delete(bid);
         return { type: 'node_removed', payload: { node } } as Extract<BrowserEffect, { type: 'node_removed' }>;
+    }
+
+    remove_node_and_reparent_children(bid: BruhId) {
+        const node = this.get_node(bid);
+
+        const children = this.get_children_map().get(bid) || [];
+        for (const childId of children) {
+            this.get_node(childId).parent_bid = node.parent_bid;
+        }
+        return this.remove_node(node.bid);
     }
 
     reparent_node(bid: BruhId, new_parent_bid: BruhId, index?: number) {
@@ -800,11 +803,18 @@ class App {
                     } break;
                     case 'restore_window': {
                     } break;
-                    case 'delete_window_state': {
-                    } break;
                     case 'duplicate_tab': {
                     } break;
                     case 'move_subtree_to_new_window': {
+                    } break;
+                    case 'delete_window_state': {
+                        const win = this.get_window(msg.payload.wbid);
+                        if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
+                        let _;
+                        _ = this.remove_node(win.bid);
+                        for (let bid of win.tab_bids) {
+                            _ = this.remove_node(bid);
+                        }
                     } break;
                     case 'reload_tree': {
                         const root = this.get_node(msg.payload.bid);
@@ -910,7 +920,7 @@ class App {
         }
     }
 
-    async _process_effects(effects: utils.Deque<BrowserEffect>, effect: BrowserEffect) {
+    async _process_effect(effects: utils.Deque<BrowserEffect>, effect: BrowserEffect) {
         switch (effect.type) {
             case 'effects': {
                 for (let i = effect.payload.effects.length; i > 0; i--) {
