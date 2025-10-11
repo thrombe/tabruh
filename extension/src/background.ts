@@ -271,11 +271,9 @@ class App {
 
                     case 'toggle_collapse':
                     case 'handle_drop':
-                    case 'close_subtree':
-                    case 'close_single_tab':
+                    case 'close_tabs':
                     case 'duplicate_tab':
-                    case 'unload_tab':
-                    case 'unload_tree':
+                    case 'unload_tabs':
                     case 'reload_tree':
                     case 'move_subtree_to_new_window':
                     case 'create_tab':
@@ -326,11 +324,9 @@ class App {
 
                     case 'toggle_collapse':
                     case 'handle_drop':
-                    case 'close_subtree':
-                    case 'close_single_tab':
+                    case 'close_tabs':
                     case 'duplicate_tab':
-                    case 'unload_tab':
-                    case 'unload_tree':
+                    case 'unload_tabs':
                     case 'reload_tree':
                     case 'move_subtree_to_new_window':
                     case 'create_tab':
@@ -666,6 +662,7 @@ class App {
     remove_node(bid: BruhId) {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
+        const storage_data = this.get_node_storage_data(bid);
         this.nodes.delete(bid);
         const tid = this.tab_ids.get(bid);
         if (tid !== undefined) this.tab_bids.delete(tid);
@@ -673,7 +670,7 @@ class App {
         const wid = this.window_ids.get(bid);
         if (wid !== undefined) this.window_bids.delete(wid);
         this.window_ids.delete(bid);
-        return { type: 'node_removed', payload: { node } } as Extract<BrowserEffect, { type: 'node_removed' }>;
+        return { type: 'node_removed', payload: { node, storage_data } } as Extract<BrowserEffect, { type: 'node_removed' }>;
     }
 
     remove_node_and_reparent_children(bid: BruhId) {
@@ -793,19 +790,48 @@ class App {
                         const state = this.build_ui_state_for_render(root.wbid, root.bid);
                         this._post(event.payload.port, { type: 'state_update', payload: { state } });
                     } break;
-                    case 'close_subtree': {
-                    } break;
-                    case 'close_single_tab': {
-                    } break;
                     case 'handle_drop': {
-                    } break;
-                    case 'close_window': {
                     } break;
                     case 'restore_window': {
                     } break;
                     case 'duplicate_tab': {
                     } break;
                     case 'move_subtree_to_new_window': {
+                    } break;
+                    case 'close_tabs': {
+                        const node = this.get_node(msg.payload.bid);
+                        if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                        if (msg.payload.recursive) {
+                            // if node == window: close all tabs, save restore cache, delete tab nodes, delete window node
+                            // else: close all subtree tabs, save restore cache, delete tab nodes
+                        } else {
+                            const effect = this.remove_node_and_reparent_children(node.bid);;
+                            effects.push_back(effect);
+                        }
+                    } break;
+                    case 'close_window': {
+                        // window is open (we can't close closed windows)
+                        // so we just fire effect, which then triggers the browser event
+                        // that handles the restore cache stuff
+
+                        const win = this.get_window(msg.payload.wbid);
+                        if (win.closed) return;
+                        win.closed = true;
+
+                        for (let tbid of win.tab_bids) {
+                            const node = this.get_tab(tbid);
+                            if (win.active !== node.bid) {
+                                node.discarded = true;
+                            }
+                        }
+
+                        // TODO: can't remove node here, cuz the restore cache logic needs it later
+                        //   maybe pass `this.get_node_storage_data(win.bid)` to the effect handler?
+                        // if (win.tab_bids.length == 1) {
+                        //     let _ = this.remove_node(win.bid);
+                        // }
+
+                        effects.push_back({ type: 'window_closed', payload: { wbid: win.bid } });
                     } break;
                     case 'delete_window_state': {
                         const win = this.get_window(msg.payload.wbid);
@@ -836,20 +862,11 @@ class App {
                             effects.push_back({ type: 'tabs_reloaded', payload: { tbids, wbid: win.bid } });
                         }
                     } break;
-                    case 'unload_tab': {
-                        const node = this.get_tab(msg.payload.bid);
+                    case 'unload_tabs': {
+                        const node = this.get_node(msg.payload.bid);
                         const win = this.get_window(node.wbid);
                         if (win.closed) return;
-                        if (win.active !== node.bid) {
-                            node.discarded = true;
-                            effects.push_back({ type: 'tabs_discarded', payload: { tbids: [node.bid], wbid: win.bid } });
-                        }
-                    } break;
-                    case 'unload_tree': {
-                        const root = this.get_node(msg.payload.bid);
-                        const win = this.get_window(root.wbid);
-                        if (win.closed) return;
-                        const bids = this.get_subtree(msg.payload.bid);;
+                        const bids = msg.payload.recursive ? this.get_subtree(msg.payload.bid) : [node.bid];
 
                         let tbids = [];
                         for (let bid of bids) {

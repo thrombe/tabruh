@@ -129,13 +129,11 @@ export type BackgroundRequest =
 
     | { type: 'get_state_for_group_view', payload: { bid: BruhId } }
     | { type: 'focus_tab', payload: { bid: BruhId } }
-    | { type: 'close_subtree', payload: { bid: BruhId } }
-    | { type: 'close_single_tab', payload: { bid: BruhId } }
+    | { type: 'close_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'toggle_collapse', payload: { bid: BruhId } }
     | { type: 'handle_drop', payload: { drag_data: DragData, target_bid: BruhId, action: DropAction } }
     | { type: 'duplicate_tab', payload: { bid: BruhId } }
-    | { type: 'unload_tab', payload: { bid: BruhId } }
-    | { type: 'unload_tree', payload: { bid: BruhId } }
+    | { type: 'unload_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'reload_tree', payload: { bid: BruhId } }
     | { type: 'move_subtree_to_new_window', payload: { bid: BruhId } }
     | { type: 'create_tab', payload: { url?: string, parent_bid: BruhId, action: DropAction } }
@@ -169,12 +167,13 @@ export type BrowserEvent =
 
 export type BrowserEffect =
     | { type: 'effects', payload: { effects: BrowserEffect[] } }
-    | { type: 'node_removed', payload: { node: Node } }
+    | { type: 'node_removed', payload: { node: Node, storage_data: NodeStorageData } }
     | { type: 'tab_created', payload: { bid: BruhId, wbid: BruhId, index: number } }
     | { type: 'tab_focused', payload: { bid: BruhId } }
     | { type: 'tabs_moved', payload: { tbids: BruhId[], wbid: BruhId, index: number } }
     | { type: 'tabs_discarded', payload: { tbids: BruhId[], wbid: BruhId } }
     | { type: 'tabs_reloaded', payload: { tbids: BruhId[], wbid: BruhId } }
+    | { type: 'window_closed', payload: { wbid: BruhId } }
     ;
 
 export type PortMessageEvent = {
