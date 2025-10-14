@@ -662,7 +662,6 @@ class App {
     remove_node(bid: BruhId) {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
-        const storage_data = this.get_node_storage_data(bid);
         this.nodes.delete(bid);
         const tid = this.tab_ids.get(bid);
         if (tid !== undefined) this.tab_bids.delete(tid);
@@ -670,7 +669,7 @@ class App {
         const wid = this.window_ids.get(bid);
         if (wid !== undefined) this.window_bids.delete(wid);
         this.window_ids.delete(bid);
-        return { type: 'node_removed', payload: { node, storage_data } } as Extract<BrowserEffect, { type: 'node_removed' }>;
+        return { type: 'node_removed', payload: { node } } as Extract<BrowserEffect, { type: 'node_removed' }>;
     }
 
     remove_node_and_reparent_children(bid: BruhId) {
@@ -745,6 +744,26 @@ class App {
         return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
     }
 
+    create_new_window(options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, closed?: boolean }) {
+        const bid = options.bid ?? this.bruhid++ as BruhId;
+        const node: Node = {
+            bid,
+            parent_bid: 0 as BruhId & 0,
+            wbid: bid,
+            hgid: options.hgid ?? this.increment_hgid(),
+            type: "window",
+            collapsed: false,
+            active: undefined,
+            tab_bids: [],
+            is_archived_pristine: false,
+            closed: options.closed ?? false,
+            name: options.name ?? { name: this.generate_unique_group_name(), generation: bid, is_custom: false },
+        };
+        this.nodes.set(bid, node);
+
+        return { type: 'window_created', payload: { wbid: bid, tbids: node.tab_bids } } as Extract<BrowserEffect, { type: 'window_created' }>;
+    }
+
     async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
         switch (event.type) {
             case 'tab_created': {
@@ -762,6 +781,7 @@ class App {
             case 'tab_activated': {
             } break;
             case 'window_created': {
+                // NOTE: when handling restore, take a look at the edge case mentioned in `move_subtree_to_new_window`
             } break;
             case 'window_removed': {
             } break;
@@ -795,28 +815,131 @@ class App {
                     case 'restore_window': {
                     } break;
                     case 'duplicate_tab': {
+                        const node = this.get_node(msg.payload.bid);
+                        if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+
+                        let effect;
+                        if (node.type == "group") {
+                            effect = this.create_new_group(node.parent_bid, { index: this.get_index(node.bid) });
+                        } else {
+                            effect = this.create_new_tab(node.parent_bid, {
+                                url: node.url,
+                                title: node.title,
+                                index: this.get_index(node.bid),
+                            });
+                        }
+
+                        if (!this.is_node_closed(node.bid)) {
+                            effects.push_back(effect);
+                        }
                     } break;
                     case 'move_subtree_to_new_window': {
+                        const node = this.get_node(msg.payload.bid);
+                        if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                        const is_closed = this.is_node_closed(node.bid);
+
+                        const subtree = this.get_subtree(node.bid);
+
+                        // this is very messy cuz moving a group to a new tab destroys the group tab
+                        let effect;
+                        if (node.type == "group") {
+                            effect = this.create_new_window({ name: node.name, closed: is_closed });
+                        } else {
+                            effect = this.create_new_window({ closed: is_closed });
+                        }
+                        let _ = this.reparent_node(node.bid, effect.payload.wbid, 0);
+                        if (node.type == "group") {
+                            if (!is_closed) {
+                                const storage = this.get_node_storage_data(node.bid);
+                                this.browserRestoreCache.set(storage.bid, storage);
+                            }
+                            const remove_group_effect = this.remove_node_and_reparent_children(node.bid);
+                            if (!is_closed) {
+                                effects.push_back(remove_group_effect);
+                            }
+                        }
+
+                        const old_win = this.get_window(node.wbid);
+                        if (old_win.tab_bids.length == 0) {
+                            // if we move all tabs from this window to a new window
+                            // browser will just remove this window.
+                            //
+                            // on restoring such a window, it clones one of the tabs that got moved. (atleast on ff)
+                            // so we just save the storage data for the window (with no tabs)
+                            // NOTE: this special case needs to be carefully handled in the browser restore handling code
+
+                            if (!is_closed) {
+                                const storage = this.get_node_storage_data(old_win.bid);
+                                this.browserRestoreCache.set(storage.bid, storage);
+                            }
+
+                            let _ = this.remove_node(old_win.bid);
+                        }
+
+                        if (!is_closed) {
+                            effects.push_back(effect);
+                        }
                     } break;
                     case 'close_tabs': {
                         const node = this.get_node(msg.payload.bid);
                         if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                        const win = this.get_window(node.wbid);
                         if (msg.payload.recursive) {
-                            // if node == window: close all tabs, save restore cache, delete tab nodes, delete window node
-                            // else: close all subtree tabs, save restore cache, delete tab nodes
+                            const subtree = this.get_subtree(node.bid);
+                            const closing_all_tabs = subtree.length == win.tab_bids.length;
+
+                            if (!win.closed) {
+                                for (let bid of subtree) {
+                                    const storage = this.get_node_storage_data(bid);
+                                    this.browserRestoreCache.set(storage.bid, storage);
+                                }
+
+                                if (closing_all_tabs) {
+                                    // if we are closing all tabs in the window
+                                    const storage = this.get_node_storage_data(win.bid);
+                                    this.browserRestoreCache.set(storage.bid, storage);
+                                }
+                            }
+
+                            let tbids = [];
+                            for (let bid of subtree) {
+                                const effect = this.remove_node(bid);
+
+                                if (effect.payload.node.type !== "window") {
+                                    tbids.push(bid);
+                                }
+                            }
+
+                            if (node.type == "window" || closing_all_tabs) {
+                                // difference between 'remove tabs' on a window and 'close window' is that
+                                // this one deletes window, whereas 'close window' just closes them, but remembers them for restoration via extension gui
+                                effects.push_back({ type: "window_closed", payload: { wbid: win.bid } });
+                            } else {
+                                effects.push_back({ type: "tabs_closed", payload: { tbids } });
+                            }
                         } else {
+                            if (!win.closed) {
+                                const storage = this.get_node_storage_data(node.bid);
+                                this.browserRestoreCache.set(storage.bid, storage);
+                            }
+
                             const effect = this.remove_node_and_reparent_children(node.bid);;
                             effects.push_back(effect);
                         }
                     } break;
                     case 'close_window': {
                         // window is open (we can't close closed windows)
-                        // so we just fire effect, which then triggers the browser event
-                        // that handles the restore cache stuff
 
                         const win = this.get_window(msg.payload.wbid);
                         if (win.closed) return;
                         win.closed = true;
+
+                        const storage = this.get_node_storage_data(win.bid);
+                        this.browserRestoreCache.set(storage.bid, storage);
+                        for (let bid of win.tab_bids) {
+                            const storage = this.get_node_storage_data(bid);
+                            this.browserRestoreCache.set(storage.bid, storage);
+                        }
 
                         for (let tbid of win.tab_bids) {
                             const node = this.get_tab(tbid);
@@ -825,11 +948,10 @@ class App {
                             }
                         }
 
-                        // TODO: can't remove node here, cuz the restore cache logic needs it later
-                        //   maybe pass `this.get_node_storage_data(win.bid)` to the effect handler?
-                        // if (win.tab_bids.length == 1) {
-                        //     let _ = this.remove_node(win.bid);
-                        // }
+                        if (win.tab_bids.length == 1) {
+                            let _ = this.remove_node(win.bid);
+                            _ = this.remove_node(win.tab_bids[0]!);
+                        }
 
                         effects.push_back({ type: 'window_closed', payload: { wbid: win.bid } });
                     } break;

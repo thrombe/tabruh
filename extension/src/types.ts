@@ -167,12 +167,14 @@ export type BrowserEvent =
 
 export type BrowserEffect =
     | { type: 'effects', payload: { effects: BrowserEffect[] } }
-    | { type: 'node_removed', payload: { node: Node, storage_data: NodeStorageData } }
+    | { type: 'node_removed', payload: { node: Node } }
     | { type: 'tab_created', payload: { bid: BruhId, wbid: BruhId, index: number } }
     | { type: 'tab_focused', payload: { bid: BruhId } }
     | { type: 'tabs_moved', payload: { tbids: BruhId[], wbid: BruhId, index: number } }
     | { type: 'tabs_discarded', payload: { tbids: BruhId[], wbid: BruhId } }
     | { type: 'tabs_reloaded', payload: { tbids: BruhId[], wbid: BruhId } }
+    | { type: 'tabs_closed', payload: { tbids: BruhId[] } }
+    | { type: 'window_created', payload: { wbid: BruhId, tbids: BruhId[] } }
     | { type: 'window_closed', payload: { wbid: BruhId } }
     ;
 
