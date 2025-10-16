@@ -787,10 +787,9 @@ class App {
         return { type: 'window_created', payload: { wbid: bid, tbids: node.tab_bids } } as Extract<BrowserEffect, { type: 'window_created' }>;
     }
 
-    clone_subtree(root_bid: BruhId, parent_bid: BruhId) {
+    clone_subtree(root_bid: BruhId, parent_bid: BruhId, index: number) {
         const root_node = this.get_node(root_bid);
         const parent_node = this.get_node(parent_bid);
-        const parent_index = this.get_index(parent_node.bid);
 
         const subtree = this.get_subtree(root_bid);
         const new_ids = new Map<BruhId, BruhId>();
@@ -808,14 +807,14 @@ class App {
                     bid: new_ids.get(bid)!,
                     url: node.url,
                     title: node.title,
-                    index: parent_index + i,
+                    index: index + i,
                 });
                 effects.push(new_node);
             } else if (node.type == "group" || node.type == "window") {
                 const new_node = this.create_new_group(new_ids.get(node.parent_bid)!, {
                     bid: new_ids.get(bid)!,
                     name: { ...node.name },
-                    index: parent_index + i,
+                    index: index + i,
                 });
                 effects.push(new_node);
             } else throw utils.exhausted(undefined as never);
@@ -878,35 +877,73 @@ class App {
                         const source_is_closed = this.is_node_closed(node.bid);
                         const target_is_closed = this.is_node_closed(target_node.bid);
 
-                        let effect;
+                        let effect: BrowserEffect;
                         const target = this.get_target_index(node.bid, msg.payload.target_bid, msg.payload.action);
-                        if (node.type == "window") {
-                            const new_group_effect = this.create_new_group(target.parent_bid, { index: target.index, name: node.name });
-                            const reparent_effect = this.reparent_node(node.bid, new_group_effect.payload.bid, target.index + 1);
-                            const window_remove_effect = this.remove_node_and_reparent_children(node.bid);
-                        } else {
-                            effect = this.reparent_node(node.bid, target.parent_bid, target.index);
-                        }
 
-                        if (source_is_closed && target_is_closed) {
-                            // if window: create group, reparent children, remove window
-                            // if tab: reparent node
-                        } else if (source_is_closed && !target_is_closed) {
+                        if (source_is_closed && !target_is_closed) {
                             // if window: create group, revive_tree at target, delete old tree
                             // if tab: revive_tree at target, delete old tree
 
                             // create new tabs for revived nodes/group
-                        } else if (!source_is_closed && target_is_closed) {
-                            // if window: create group, reparent children, remove window
-                            // if tab: reparent node
+                            effect = this.clone_subtree(node.bid, target.parent_bid, target.index);
 
-                            // close tree
-                        } else if (!source_is_closed && !target_is_closed) {
-                            // if window: create group, reparent children, remove window
-                            // if tab: reparent node
+                            const subtree = this.get_subtree(node.bid);
+                            for (const bid of subtree) {
+                                let _ = this.remove_node(bid);
+                            }
 
-                            // create browser tab for group, move tabs
-                        } else throw utils.exhausted(undefined as never);
+                            effects.push_back(effect);
+                        } else {
+                            if (!source_is_closed && target_is_closed) {
+                                const subtree = this.get_subtree(node.bid);
+                                for (let bid of subtree) {
+                                    const storage = this.get_node_storage_data(bid);
+                                    this.browserRestoreCache.set(storage.bid, storage);
+                                }
+                            }
+
+                            let moved_tbids;
+                            if (node.type == "window") {
+                                const new_group_effect = this.create_new_group(target.parent_bid, { index: target.index, name: node.name });
+                                const reparent_effect = this.reparent_node(node.bid, new_group_effect.payload.bid, target.index + 1);
+                                const window_remove_effect = this.remove_node_and_reparent_children(node.bid);
+                                effect = {
+                                    type: 'effects', payload: {
+                                        effects: [
+                                            new_group_effect,
+                                            reparent_effect,
+                                            window_remove_effect,
+                                        ]
+                                    }
+                                };
+                                moved_tbids = reparent_effect.payload.tbids;
+                            } else {
+                                effect = this.reparent_node(node.bid, target.parent_bid, target.index);
+                                moved_tbids = effect.payload.tbids;
+                            }
+
+                            if (source_is_closed && target_is_closed) {
+                                // if window: create group, reparent children, remove window
+                                // if tab: reparent node
+                            } else if (!source_is_closed && target_is_closed) {
+                                // if window: create group, reparent children, remove window
+                                // if tab: reparent node
+
+                                // close tree
+
+                                effects.push_back({ type: 'tabs_closed', payload: { tbids: moved_tbids } });
+                                if (node.type == 'window') {
+                                    effects.push_back({ type: 'window_closed', payload: { wbid: node.bid } });
+                                }
+                            } else if (!source_is_closed && !target_is_closed) {
+                                // if window: create group, reparent children, remove window
+                                // if tab: reparent node
+
+                                // create browser tab for group, move tabs
+                                effects.push_back(effect);
+                            } else throw utils.exhausted(undefined as never);
+                        }
+
                     } break;
                     case 'duplicate_tab': {
                         const node = this.get_node(msg.payload.bid);
