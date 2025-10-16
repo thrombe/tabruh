@@ -787,37 +787,50 @@ class App {
         return { type: 'window_created', payload: { wbid: bid, tbids: node.tab_bids } } as Extract<BrowserEffect, { type: 'window_created' }>;
     }
 
-    clone_subtree(root_bid: BruhId, parent_bid: BruhId, index: number) {
+    clone_subtree(root_bid: BruhId, parent_bid: BruhId | null, index: number) {
         const root_node = this.get_node(root_bid);
-        const parent_node = this.get_node(parent_bid);
 
         const subtree = this.get_subtree(root_bid);
         const new_ids = new Map<BruhId, BruhId>();
-        new_ids.set(root_node.parent_bid, parent_bid);
+        new_ids.set(root_node.parent_bid, parent_bid ?? 0 as BruhId);
         for (let bid of subtree) {
             new_ids.set(bid, this.bruhid++ as BruhId);
         }
 
+        const hgid = this.increment_hgid();
         const effects = [];
-        for (let i = 0; i < subtree.length; i++) {
-            const bid = subtree[i]!;
+        let i = index;
+        for (let bid of subtree) {
             const node = this.get_node(bid);
+            const pid = new_ids.get(node.parent_bid)!;
+
             if (node.type == "tab") {
-                const new_node = this.create_new_tab(new_ids.get(node.parent_bid)!, {
+                const new_node = this.create_new_tab(pid, {
                     bid: new_ids.get(bid)!,
                     url: node.url,
                     title: node.title,
-                    index: index + i,
+                    index: i,
+                    hgid,
                 });
+                i += 1;
                 effects.push(new_node);
-            } else if (node.type == "group" || node.type == "window") {
-                const new_node = this.create_new_group(new_ids.get(node.parent_bid)!, {
+            } else if (node.type == "group" || (node.type == "window" && pid == 0)) {
+                const new_node = this.create_new_group(pid, {
                     bid: new_ids.get(bid)!,
                     name: { ...node.name },
-                    index: index + i,
+                    index: i,
+                    hgid,
+                });
+                i += 1;
+                effects.push(new_node);
+            } else {
+                const new_node = this.create_new_window({
+                    bid: new_ids.get(bid)!,
+                    name: { ...node.name },
+                    hgid,
                 });
                 effects.push(new_node);
-            } else throw utils.exhausted(undefined as never);
+            };
         }
 
         return { type: 'effects', payload: { effects } } as Extract<BrowserEffect, { type: "effects" }>;
@@ -870,6 +883,11 @@ class App {
                         this._post(event.payload.port, { type: 'state_update', payload: { state } });
                     } break;
                     case 'restore_window': {
+                        const node = this.get_node(msg.payload.wbid);
+                        if (node.type !== "window") throw new Error(`expected 'window' found '${node.type}' bid: ${node.bid}`);
+                        if (!node.closed) throw new Error(`expected window to be closed for a restore operation bid: ${node.bid}`);
+                        const effect = this.clone_subtree(node.bid, null, 0);
+                        effects.push_back(effect);
                     } break;
                     case 'handle_drop': {
                         const node = this.get_node(msg.payload.drag_data.draggedNodeId);
