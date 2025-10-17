@@ -674,7 +674,7 @@ class App {
         const wid = this.window_ids.get(bid);
         if (wid !== undefined) this.window_bids.delete(wid);
         this.window_ids.delete(bid);
-        return { type: 'node_removed', payload: { node } } as Extract<BrowserEffect, { type: 'node_removed' }>;
+        return { type: 'node_removed', payload: { node, browser_id: tid === undefined ? wid : tid } } as Extract<BrowserEffect, { type: 'node_removed' }>;
     }
 
     remove_node_and_reparent_children(bid: BruhId) {
@@ -784,7 +784,7 @@ class App {
         };
         this.nodes.set(bid, node);
 
-        return { type: 'window_created', payload: { wbid: bid, tbids: node.tab_bids } } as Extract<BrowserEffect, { type: 'window_created' }>;
+        return { type: 'window_created', payload: { wbid: bid } } as Extract<BrowserEffect, { type: 'window_created' }>;
     }
 
     clone_subtree(root_bid: BruhId, parent_bid: BruhId | null, index: number) {
@@ -1050,21 +1050,24 @@ class App {
                                 }
                             }
 
-                            let tbids = [];
+                            let tids = [];
                             for (let bid of subtree) {
+                                const tid = this.tab_ids.get(bid)!;
                                 const effect = this.remove_node(bid);
 
                                 if (effect.payload.node.type !== "window") {
-                                    tbids.push(bid);
+                                    tids.push(tid);
                                 }
                             }
 
-                            if (node.type == "window" || closing_all_tabs) {
-                                // difference between 'remove tabs' on a window and 'close window' is that
-                                // this one deletes window, whereas 'close window' just closes them, but remembers them for restoration via extension gui
-                                effects.push_back({ type: "window_closed", payload: { wbid: win.bid } });
-                            } else {
-                                effects.push_back({ type: "tabs_closed", payload: { tbids } });
+                            if (!win.closed) {
+                                if (node.type == "window" || closing_all_tabs) {
+                                    // difference between 'remove tabs' on a window and 'close window' is that
+                                    // this one deletes window, whereas 'close window' just closes them, but remembers them for restoration via extension gui
+                                    effects.push_back({ type: "window_closed", payload: { wbid: win.bid } });
+                                } else {
+                                    effects.push_back({ type: "tabs_closed", payload: { tids } });
+                                }
                             }
                         } else {
                             if (!win.closed) {
@@ -1073,7 +1076,9 @@ class App {
                             }
 
                             const effect = this.remove_node_and_reparent_children(node.bid);;
-                            effects.push_back(effect);
+                            if (!win.closed) {
+                                effects.push_back(effect);
+                            }
                         }
                     } break;
                     case 'close_window': {
@@ -1217,16 +1222,75 @@ class App {
                 }
             } break;
             case 'node_removed': {
+                throw new Error(`unreachable ${effect.type} in _process_effect`);
             } break;
             case 'tab_created': {
+                const node = this.get_tab(effect.payload.bid);
+                const win = this.get_window(node.wbid);
+                const wid = this.window_ids.get(node.wbid);
+                const index = this.get_index(node.bid);
+                const active = win.active == node.wbid;
+
+                let url;
+                let title;
+                if (node.type == 'tab') {
+                    url = node.url;
+                    title = node.title;
+                } else {
+                    url = this.get_group_url(node.bid);
+                    title = node.name.name;
+                }
+
+                // title can only be supplied if tab is discarded at init
+                if (active) {
+                    title = undefined;
+                }
+                let tab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active });
+                this.tab_ids.set(node.bid, tab.id! as TabId);
+                this.tab_bids.set(tab.id! as TabId, node.bid);
             } break;
             case 'tab_focused': {
+                const node = this.get_tab(effect.payload.bid);
+                const tid = this.tab_ids.get(node.bid);
+                if (tid === undefined) throw new Error(`non null tid expected for '${effect.type}'`);
+                let _ = await browser.tabs.update(tid, { active: true });
             } break;
             case 'tabs_moved': {
+                const wid = this.window_ids.get(effect.payload.wbid);
+                if (wid === undefined) throw new Error(`non null wid expected for ${effect.type}`)
+                let _ = await browser.tabs.move(effect.payload.tbids, { windowId: wid, index: effect.payload.index });
             } break;
             case 'tabs_discarded': {
+                const tids = [];
+                for (const tbid of effect.payload.tbids) {
+                    let tid = this.tab_ids.get(tbid);
+                    if (tid === undefined) {
+                        throw new Error(`non null tid expected for ${effect.type}`);
+                    }
+                    tids.push(tid);
+                }
+                let _ = await browser.tabs.discard(tids as TabId[]);
             } break;
             case 'tabs_reloaded': {
+                for (const tbid of effect.payload.tbids) {
+                    let tid = this.tab_ids.get(tbid);
+                    if (tid === undefined) {
+                        throw new Error(`non null tid expected for ${effect.type}`);
+                    }
+
+                    let _ = await browser.tabs.reload(tid, {});
+                }
+            } break;
+            case 'tabs_closed': {
+                await browser.tabs.remove(effect.payload.tids);
+            } break;
+            case 'window_created': {
+                // TODO:
+            } break;
+            case 'window_closed': {
+                const wid = this.window_ids.get(effect.payload.wbid);
+                if (wid === undefined) throw new Error(`non null wid expected for '${effect.type}'`);
+                await browser.windows.remove(wid);
             } break;
             default:
                 throw utils.exhausted(effect);
