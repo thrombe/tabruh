@@ -790,7 +790,7 @@ class App {
     clone_subtree(root_bid: BruhId, parent_bid: BruhId | null, index: number) {
         const root_node = this.get_node(root_bid);
 
-        const subtree = this.get_subtree(root_bid);
+        let subtree = this.get_subtree(root_bid);
         const new_ids = new Map<BruhId, BruhId>();
         new_ids.set(root_node.parent_bid, parent_bid ?? 0 as BruhId);
         for (let bid of subtree) {
@@ -798,7 +798,17 @@ class App {
         }
 
         const hgid = this.increment_hgid();
-        const effects = [];
+        let new_window_effect;
+        if (root_node.type == "window" && ((parent_bid ?? 0) == 0)) {
+            new_window_effect = this.create_new_window({
+                bid: new_ids.get(root_node.bid)!,
+                name: { ...root_node.name },
+                hgid,
+            });
+            subtree = subtree.slice(1);
+        }
+
+        const new_tab_effects = [];
         let i = index;
         for (let bid of subtree) {
             const node = this.get_node(bid);
@@ -813,8 +823,8 @@ class App {
                     hgid,
                 });
                 i += 1;
-                effects.push(new_node);
-            } else if (node.type == "group" || (node.type == "window" && pid == 0)) {
+                new_tab_effects.push(new_node);
+            } else if (node.type == "group" || (node.type == "window" && pid !== 0)) {
                 const new_node = this.create_new_group(pid, {
                     bid: new_ids.get(bid)!,
                     name: { ...node.name },
@@ -822,18 +832,15 @@ class App {
                     hgid,
                 });
                 i += 1;
-                effects.push(new_node);
-            } else {
-                const new_node = this.create_new_window({
-                    bid: new_ids.get(bid)!,
-                    name: { ...node.name },
-                    hgid,
-                });
-                effects.push(new_node);
-            };
+                new_tab_effects.push(new_node);
+            } else throw new Error(`cannot handle 'window' here bid: ${bid}`);
         }
 
-        return { type: 'effects', payload: { effects } } as Extract<BrowserEffect, { type: "effects" }>;
+        if (new_window_effect !== undefined) {
+            return new_window_effect;
+        } else {
+            return { type: 'effects', payload: { effects: new_tab_effects } } as Extract<BrowserEffect, { type: "effects" }>;
+        }
     }
 
     async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
@@ -853,7 +860,7 @@ class App {
             case 'tab_activated': {
             } break;
             case 'window_created': {
-                // NOTE: when handling restore, take a look at the edge case mentioned in `move_subtree_to_new_window`
+                // handle NOTE(1005) here.
             } break;
             case 'window_removed': {
             } break;
@@ -923,14 +930,21 @@ class App {
                             let moved_tbids;
                             if (node.type == "window") {
                                 const new_group_effect = this.create_new_group(target.parent_bid, { index: target.index, name: node.name });
-                                const reparent_effect = this.reparent_node(node.bid, new_group_effect.payload.bid, target.index + 1);
-                                const window_remove_effect = this.remove_node_and_reparent_children(node.bid);
+                                const reparent_effect = this.reparent_children(node.bid, new_group_effect.payload.bid, target.index + 1);
+
+                                // same as NOTE(1005)
+                                if (!node.closed) {
+                                    const storage = this.get_node_storage_data(node.bid);
+                                    this.browserRestoreCache.set(storage.bid, storage);
+                                }
+                                const _ = this.remove_node(node.bid);
+
+                                reparent_effect.payload.tbids = reparent_effect.payload.tbids.slice(1);
                                 effect = {
                                     type: 'effects', payload: {
                                         effects: [
                                             new_group_effect,
                                             reparent_effect,
-                                            window_remove_effect,
                                         ]
                                     }
                                 };
@@ -949,9 +963,10 @@ class App {
 
                                 // close tree
 
-                                effects.push_back({ type: 'tabs_closed', payload: { tbids: moved_tbids } });
                                 if (node.type == 'window') {
                                     effects.push_back({ type: 'window_closed', payload: { wbid: node.bid } });
+                                } else {
+                                    effects.push_back({ type: 'tabs_closed', payload: { tids: moved_tbids.map(tbid => this.tab_ids.get(tbid)!) } });
                                 }
                             } else if (!source_is_closed && !target_is_closed) {
                                 // if window: create group, reparent children, remove window
@@ -1015,7 +1030,7 @@ class App {
                             //
                             // on restoring such a window, it clones one of the tabs that got moved. (atleast on ff)
                             // so we just save the storage data for the window (with no tabs)
-                            // NOTE: this special case needs to be carefully handled in the browser restore handling code
+                            // NOTE(1005): this special case needs to be carefully handled in the browser restore handling code
 
                             if (!is_closed) {
                                 const storage = this.get_node_storage_data(old_win.bid);
@@ -1258,7 +1273,7 @@ class App {
             case 'tabs_moved': {
                 const wid = this.window_ids.get(effect.payload.wbid);
                 if (wid === undefined) throw new Error(`non null wid expected for ${effect.type}`)
-                let _ = await browser.tabs.move(effect.payload.tbids, { windowId: wid, index: effect.payload.index });
+                let _ = await browser.tabs.move(effect.payload.tbids.map(tbid => this.tab_ids.get(tbid)!), { windowId: wid, index: effect.payload.index });
             } break;
             case 'tabs_discarded': {
                 const tids = [];
@@ -1285,7 +1300,48 @@ class App {
                 await browser.tabs.remove(effect.payload.tids);
             } break;
             case 'window_created': {
-                // TODO:
+                const win = this.get_window(effect.payload.wbid);
+                let tbids = [...win.tab_bids];
+                const indexof_active = tbids.indexOf(win.active ?? tbids[0]!);
+                if (indexof_active < 0) throw new Error(`win.active does not exist in win.tab_bids for wbid: ${win.bid}`);
+                const active = tbids.splice(indexof_active, 1)[0]!;
+
+                let bwin;
+                if (this.tab_ids.has(active)) {
+                    bwin = await browser.windows.create({
+                        tabId: this.tab_ids.get(active)!,
+                    });
+                } else {
+                    bwin = await browser.windows.create({
+                        url: this.get_node_url(active),
+                    });
+                    const tab = bwin.tabs![0]!;
+                    this.tab_ids.set(active, tab.id! as TabId);
+                    this.tab_bids.set(tab.id! as TabId, active);
+                }
+                this.window_ids.set(win.bid, bwin.id! as WindowId);
+                this.window_bids.set(bwin.id! as WindowId, win.bid);
+
+                let i = 0;
+                for (const tbid of tbids) {
+                    if (indexof_active == i) {
+                        i += 1;
+                    }
+                    if (this.tab_ids.has(tbid)) {
+                        let _ = await browser.tabs.move(this.tab_ids.get(tbid)!, { windowId: bwin.id!, index: i });
+                    } else {
+                        let tab = await browser.tabs.create({
+                            windowId: bwin.id!,
+                            url: this.get_node_url(tbid),
+                            index: i,
+                            discarded: true,
+                            active: false,
+                            title: this.get_node_name(tbid),
+                        });
+                        this.tab_ids.set(active, tab.id! as TabId);
+                        this.tab_bids.set(tab.id! as TabId, active);
+                    }
+                }
             } break;
             case 'window_closed': {
                 const wid = this.window_ids.get(effect.payload.wbid);
