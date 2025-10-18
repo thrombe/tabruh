@@ -843,11 +843,86 @@ class App {
         }
     }
 
+    async update_tab_info(btab: browser.Tabs.Tab) {
+        const tbid = this.tab_bids.get(btab.id as TabId)!;
+        const tab = this.get_tab(tbid);
+        tab.discarded = btab.discarded ?? false;
+
+        if (this.is_group_tab(btab)) {
+            if (tab.type === "tab") {
+                // TODO: convert this tab's state to a 'group'
+                // TODO: also maybe change the live tab's url to the correct group url
+            }
+        } else {
+            if (tab.type === "group") {
+                // TODO: convert this tab's state to a 'tab'
+                // TODO: also maybe set this tab's url to the correct group url
+                //  - note that the group name might need to cached somewhere. user might change the url by mistake, and changing it back should work nicely
+            }
+        }
+    }
+
+    async register_bwindow(bwin: browser.Windows.Window, bid: BruhId) {
+        this.window_ids.set(bid, bwin.id! as WindowId);
+        this.window_bids.set(bwin.id! as WindowId, bid);
+        await this._writeSessionPointer(bid, bwin.id as WindowId, "window");
+    }
+
+    async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
+        this.tab_ids.set(bid, btab.id! as TabId);
+        this.tab_bids.set(btab.id! as TabId, bid);
+        await this._writeSessionPointer(bid, btab.id as TabId, "tab");
+    }
+
     async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
         switch (event.type) {
             case 'tab_created': {
+                const btab = event.payload.tab;
+                if (btab.id === undefined || btab.windowId === undefined) return;
+                // TODO: check tab session storage
+                // TODO: set session storage if not already set
+                if (!this.window_bids.has(btab.windowId as WindowId)) {
+                    // TODO: create new window state
+                    // TODO: also check the session storage for this window
+                    throw new Error("todo");
+                }
+                const old_bid = await this._readSessionPointer(btab.id as TabId, "tab");
+                if (!!old_bid && this.browserRestoreCache.has(old_bid)) {
+                    // TODO: restore old tab
+                    throw new Error('todo');
+
+                    this.update_tab_info(btab);
+                    return;
+                }
+                if (this.tab_bids.has(btab.id as TabId)) {
+                    this.update_tab_info(btab);
+                    return;
+                }
+                const wbid = this.window_bids.get(btab.windowId as WindowId)!;
+
+                let effect;
+                if (this.is_group_tab(btab)) {
+                    effect = this.create_new_group(wbid, { index: btab.index });
+                } else {
+                    effect = this.create_new_tab(wbid, { index: btab.index, url: btab.url, title: btab.title });
+                }
+                const tbid = effect.payload.bid;
+                await this.register_btab(btab, tbid);
+                await this.update_tab_info(btab);
             } break;
             case 'tab_removed': {
+                if (!this.tab_bids.has(event.payload.tid)) return;
+                const tbid = this.tab_bids.get(event.payload.tid)!;
+                const tab = this.get_tab(tbid);
+                if (event.payload.remove_info.isWindowClosing) {
+                    if (!this.closing_window_tabs.has(tab.wbid)) {
+                        this.closing_window_tabs.set(tab.wbid, new Set());
+                    }
+                    this.closing_window_tabs.get(tab.wbid)!.add(tab.bid);
+                } else {
+                    const tbid = this.tab_bids.get(event.payload.tid)!;
+                    let _ = this.remove_node_and_reparent_children(tbid);
+                }
             } break;
             case 'tab_updated': {
             } break;
@@ -1260,9 +1335,8 @@ class App {
                 if (active) {
                     title = undefined;
                 }
-                let tab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active });
-                this.tab_ids.set(node.bid, tab.id! as TabId);
-                this.tab_bids.set(tab.id! as TabId, node.bid);
+                let btab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active });
+                await this.register_btab(btab, node.bid);
             } break;
             case 'tab_focused': {
                 const node = this.get_tab(effect.payload.bid);
@@ -1315,12 +1389,10 @@ class App {
                     bwin = await browser.windows.create({
                         url: this.get_node_url(active),
                     });
-                    const tab = bwin.tabs![0]!;
-                    this.tab_ids.set(active, tab.id! as TabId);
-                    this.tab_bids.set(tab.id! as TabId, active);
+                    const btab = bwin.tabs![0]!;
+                    await this.register_btab(btab, active);
                 }
-                this.window_ids.set(win.bid, bwin.id! as WindowId);
-                this.window_bids.set(bwin.id! as WindowId, win.bid);
+                await this.register_bwindow(bwin, win.bid);
 
                 let i = 0;
                 for (const tbid of tbids) {
@@ -1330,7 +1402,7 @@ class App {
                     if (this.tab_ids.has(tbid)) {
                         let _ = await browser.tabs.move(this.tab_ids.get(tbid)!, { windowId: bwin.id!, index: i });
                     } else {
-                        let tab = await browser.tabs.create({
+                        let btab = await browser.tabs.create({
                             windowId: bwin.id!,
                             url: this.get_node_url(tbid),
                             index: i,
@@ -1338,8 +1410,7 @@ class App {
                             active: false,
                             title: this.get_node_name(tbid),
                         });
-                        this.tab_ids.set(active, tab.id! as TabId);
-                        this.tab_bids.set(tab.id! as TabId, active);
+                        await this.register_btab(btab, active);
                     }
                 }
             } break;
