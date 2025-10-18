@@ -925,50 +925,55 @@ class App {
         await this.write_session_pointer(bid, btab.id as TabId, "tab");
     }
 
-    async _init_tree() {
-        // TODO: kinda broken
-        // await this._loadState();
-        const liveWindows = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
-        const hydratedBruhIds = new Set<BruhId>();
+    revive_window(bwin: browser.Windows.Window, old_bid: BruhId) {
 
-        for (const win of liveWindows) {
-            if (win.id === undefined) continue;
-            const wid = win.id as WindowId;
-            const bruhId = await this.read_session_pointer(wid, 'window');
+    }
 
-            if (bruhId && this.tree.has(bruhId)) {
-                hydratedBruhIds.add(bruhId);
-                const winData = this.get_window(wid);
-                winData.win.closed = false;
-                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
-            } else {
-                const winData = await this._createWindowNode(wid);
-                winData.win.closed = false;
-                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
+    revive_tab(btab: browser.Tabs.Tab, old_bid: BruhId) {
+
+    }
+
+    async init_tree() {
+        let bwins = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
+
+        let new_window_bids: Map<WindowId, BruhId> = new Map();
+        let new_tab_bids: Map<TabId, BruhId> = new Map();
+        for (const bwin of bwins) {
+            const wbid = this.bruhid++ as BruhId;
+            new_window_bids.set(bwin.id as WindowId, wbid);
+            await this.register_bwindow(bwin, wbid);
+
+            for (const btab of bwin.tabs!) {
+                const tbid = this.bruhid++ as BruhId;
+                new_tab_bids.set(btab.id as TabId, tbid);
+                await this.register_btab(btab, tbid);
             }
         }
 
-        for (const win of liveWindows) {
-            for (const tab of win.tabs ?? []) {
-                if (!tab.id) continue;
-                const tid = tab.id as TabId;
-                const bruhId = await this.read_session_pointer(tid, 'tab');
+        // TODO: save, load state and use it here to revive and stuff
+        for (const bwin of bwins) {
+            // const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
+            const new_win_effect = this.create_new_window({ bid: new_window_bids.get(bwin.id as WindowId)! });
+            const win = this.get_window(new_win_effect.payload.wbid);
 
-                if (bruhId && this.tree.has(bruhId)) {
-                    hydratedBruhIds.add(bruhId);
-                    await this._updateTabStateFromBrowser(tid, tab);
+            for (const btab of bwin.tabs!) {
+                // const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
+                const pbid = (btab.openerTabId !== undefined ? new_tab_bids.get(btab.openerTabId as TabId) : undefined) ?? win.bid;
+                let tab;
+                if (this.is_group_tab(btab)) {
+                    const new_tab_effect = this.create_new_group(pbid, { bid: new_tab_bids.get(btab.id as TabId)!, index: btab.index });
+                    tab = this.get_tab(new_tab_effect.payload.bid);
                 } else {
-                    await this._createTabNode(tab, { id: bruhId });
+                    const new_tab_effect = this.create_new_tab(pbid, {
+                        bid: new_tab_bids.get(btab.id as TabId)!,
+                        url: btab.url,
+                        title: btab.title ?? "Untitled",
+                        index: btab.index,
+                    });
+                    tab = this.get_tab(new_tab_effect.payload.bid);
                 }
             }
         }
-
-        // TODO: what's this stupid stuff?
-        // for (const bruhId of this.tree.keys()) {
-        //     if (!hydratedBruhIds.has(bruhId)) {
-        //         this._setNodeClosedState(bruhId, true);
-        //     }
-        // }
     }
 
     async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
