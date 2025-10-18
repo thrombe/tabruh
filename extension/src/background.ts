@@ -867,6 +867,33 @@ class App {
         }
     }
 
+    async write_session_pointer(bruhId: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
+        const data = { bruhId };
+        try {
+            if (type === 'tab') {
+                await browser.sessions.setTabValue(id as TabId, this.session_pointer_key, data);
+            } else {
+                await browser.sessions.setWindowValue(id as WindowId, this.session_pointer_key, data);
+            }
+        } catch (e) {
+            console.warn(`Could not set session pointer for ${type} ${id}:`, e);
+        }
+    }
+
+    async read_session_pointer(id: TabId | WindowId, type: 'tab' | 'window'): Promise<BruhId | undefined> {
+        try {
+            let data: any;
+            if (type === 'tab') {
+                data = await browser.sessions.getTabValue(id as TabId, this.session_pointer_key);
+            } else {
+                data = await browser.sessions.getWindowValue(id as WindowId, this.session_pointer_key);
+            }
+            return data?.bruhId;
+        } catch (e) {
+            return undefined;
+        }
+    }
+
     async update_tab_info(btab: browser.Tabs.Tab) {
         const tbid = this.tab_bids.get(btab.id as TabId)!;
         const tab = this.get_tab(tbid);
@@ -889,13 +916,59 @@ class App {
     async register_bwindow(bwin: browser.Windows.Window, bid: BruhId) {
         this.window_ids.set(bid, bwin.id! as WindowId);
         this.window_bids.set(bwin.id! as WindowId, bid);
-        await this._writeSessionPointer(bid, bwin.id as WindowId, "window");
+        await this.write_session_pointer(bid, bwin.id as WindowId, "window");
     }
 
     async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
         this.tab_ids.set(bid, btab.id! as TabId);
         this.tab_bids.set(btab.id! as TabId, bid);
-        await this._writeSessionPointer(bid, btab.id as TabId, "tab");
+        await this.write_session_pointer(bid, btab.id as TabId, "tab");
+    }
+
+    async _init_tree() {
+        // TODO: kinda broken
+        // await this._loadState();
+        const liveWindows = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
+        const hydratedBruhIds = new Set<BruhId>();
+
+        for (const win of liveWindows) {
+            if (win.id === undefined) continue;
+            const wid = win.id as WindowId;
+            const bruhId = await this.read_session_pointer(wid, 'window');
+
+            if (bruhId && this.tree.has(bruhId)) {
+                hydratedBruhIds.add(bruhId);
+                const winData = this.get_window(wid);
+                winData.win.closed = false;
+                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
+            } else {
+                const winData = await this._createWindowNode(wid);
+                winData.win.closed = false;
+                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
+            }
+        }
+
+        for (const win of liveWindows) {
+            for (const tab of win.tabs ?? []) {
+                if (!tab.id) continue;
+                const tid = tab.id as TabId;
+                const bruhId = await this.read_session_pointer(tid, 'tab');
+
+                if (bruhId && this.tree.has(bruhId)) {
+                    hydratedBruhIds.add(bruhId);
+                    await this._updateTabStateFromBrowser(tid, tab);
+                } else {
+                    await this._createTabNode(tab, { id: bruhId });
+                }
+            }
+        }
+
+        // TODO: what's this stupid stuff?
+        // for (const bruhId of this.tree.keys()) {
+        //     if (!hydratedBruhIds.has(bruhId)) {
+        //         this._setNodeClosedState(bruhId, true);
+        //     }
+        // }
     }
 
     async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
@@ -910,7 +983,7 @@ class App {
                     // TODO: also check the session storage for this window
                     throw new Error("todo");
                 }
-                const old_bid = await this._readSessionPointer(btab.id as TabId, "tab");
+                const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
                 if (!!old_bid && this.browserRestoreCache.has(old_bid)) {
                     // TODO: restore old tab
                     throw new Error('todo');
@@ -1510,7 +1583,7 @@ class App {
 
         this.tree.set(newBruhId, node);
         this.tabs.set(newTab.id! as TabId, bruhTab);
-        await this._writeSessionPointer(newBruhId, newTab.id! as TabId, 'tab');
+        await this.write_session_pointer(newBruhId, newTab.id! as TabId, 'tab');
         this._addTabToWindow(newTab.id! as TabId, windowId, newTab.index);
 
         const children = this._getChildrenMap().get(originalNodeId) || [];
@@ -1713,7 +1786,7 @@ class App {
         }
 
         if (!is_target_closed) {
-            await this._writeSessionPointer(bid, newGroupTid, 'tab');
+            await this.write_session_pointer(bid, newGroupTid, 'tab');
         }
     }
 
@@ -1809,7 +1882,7 @@ class App {
             return this.get_window(wid);
         }
 
-        const bruhId = await this._readSessionPointer(wid, 'window');
+        const bruhId = await this.read_session_pointer(wid, 'window');
 
         // This is a browser restore if we find a bruhId.
         // if no restore cache, we can't restore anyway.
@@ -1868,7 +1941,7 @@ class App {
 
             this.tree.set(bid, node);
             this.windows.set(wid, bruhWin);
-            await this._writeSessionPointer(bid, wid, 'window');
+            await this.write_session_pointer(bid, wid, 'window');
             this.browserRestoreCache.delete(bruhId); // Clear the cache entry.
 
             const new_ids = new Map();
@@ -1925,12 +1998,12 @@ class App {
             this._reindexWindowTabs(wid);
 
             // Write the session pointer and clear the cache entry for this now-live node.
-            await this._writeSessionPointer(bruhId, newTid, 'tab');
+            await this.write_session_pointer(bruhId, newTid, 'tab');
             this.browserRestoreCache.delete(bruhId);
         } else {
             // non-pristine restore
             // The user has edited the session, so we restore this tab as a new entity, but use data from restore cache
-            await this._writeSessionPointer(bid, browserTab.id as TabId, 'tab');
+            await this.write_session_pointer(bid, browserTab.id as TabId, 'tab');
             this.browserRestoreCache.delete(bruhId);
             if (this.pre_allocated_ids_for_non_pristine_restore.has(wid)) {
                 this.pre_allocated_ids_for_non_pristine_restore.get(wid)!.left_to_restore.delete(bruhId);
@@ -2058,7 +2131,7 @@ class App {
         this.tree.set(bruhId, node);
         this.tabs.set(tid, bruhTab);
         if (!options?.closed) {
-            await this._writeSessionPointer(bruhId, tid, 'tab');
+            await this.write_session_pointer(bruhId, tid, 'tab');
         }
 
         if (isGroup) {
@@ -2097,7 +2170,7 @@ class App {
         this.tree.set(bruhId, node);
         this.windows.set(wid, bruhWin);
         if (!options?.closed) {
-            await this._writeSessionPointer(bruhId, wid, 'window');
+            await this.write_session_pointer(bruhId, wid, 'window');
         }
         return { node, win: bruhWin };
     }
@@ -2255,79 +2328,6 @@ class App {
         }
     }
 
-    private async _writeSessionPointer(bruhId: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
-        const data = { bruhId };
-        try {
-            if (type === 'tab') {
-                await browser.sessions.setTabValue(id as TabId, this.session_pointer_key, data);
-            } else {
-                await browser.sessions.setWindowValue(id as WindowId, this.session_pointer_key, data);
-            }
-        } catch (e) {
-            console.warn(`Could not set session pointer for ${type} ${id}:`, e);
-        }
-    }
-
-    private async _readSessionPointer(id: TabId | WindowId, type: 'tab' | 'window'): Promise<BruhId | undefined> {
-        try {
-            let data: any;
-            if (type === 'tab') {
-                data = await browser.sessions.getTabValue(id as TabId, this.session_pointer_key);
-            } else {
-                data = await browser.sessions.getWindowValue(id as WindowId, this.session_pointer_key);
-            }
-            return data?.bruhId;
-        } catch (e) {
-            return undefined;
-        }
-    }
-
-    async init_tree() {
-        // TODO: kinda broken
-        // await this._loadState();
-        const liveWindows = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
-        const hydratedBruhIds = new Set<BruhId>();
-
-        for (const win of liveWindows) {
-            if (win.id === undefined) continue;
-            const wid = win.id as WindowId;
-            const bruhId = await this._readSessionPointer(wid, 'window');
-
-            if (bruhId && this.tree.has(bruhId)) {
-                hydratedBruhIds.add(bruhId);
-                const winData = this.get_window(wid);
-                winData.win.closed = false;
-                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
-            } else {
-                const winData = await this._createWindowNode(wid);
-                winData.win.closed = false;
-                winData.win.tabIds = (win.tabs ?? []).map(t => t.id as TabId);
-            }
-        }
-
-        for (const win of liveWindows) {
-            for (const tab of win.tabs ?? []) {
-                if (!tab.id) continue;
-                const tid = tab.id as TabId;
-                const bruhId = await this._readSessionPointer(tid, 'tab');
-
-                if (bruhId && this.tree.has(bruhId)) {
-                    hydratedBruhIds.add(bruhId);
-                    await this._updateTabStateFromBrowser(tid, tab);
-                } else {
-                    await this._createTabNode(tab, { id: bruhId });
-                }
-            }
-        }
-
-        // TODO: what's this stupid stuff?
-        // for (const bruhId of this.tree.keys()) {
-        //     if (!hydratedBruhIds.has(bruhId)) {
-        //         this._setNodeClosedState(bruhId, true);
-        //     }
-        // }
-    }
-
     async __process_event(event: StateManagerEvent) {
         switch (event.type) {
             case 'tabCreated': {
@@ -2338,7 +2338,7 @@ class App {
                     await this._createOrRestoreWindow(tab.windowId as WindowId);
                 }
 
-                const bruhId = await this._readSessionPointer(tab.id as TabId, 'tab');
+                const bruhId = await this.read_session_pointer(tab.id as TabId, 'tab');
                 if (bruhId) {
                     await this._createOrRestoreTab(bruhId, tab);
                 } else {
