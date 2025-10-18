@@ -664,6 +664,30 @@ class App {
         }
     }
 
+    mark_window_closed(wbid: BruhId) {
+        let win = this.get_window(wbid);
+        win.closed = true;
+
+        const storage = this.get_node_storage_data(win.bid);
+        this.browserRestoreCache.set(storage.bid, storage);
+        for (let bid of win.tab_bids) {
+            const storage = this.get_node_storage_data(bid);
+            this.browserRestoreCache.set(storage.bid, storage);
+        }
+
+        for (let tbid of win.tab_bids) {
+            const node = this.get_tab(tbid);
+            if (win.active !== node.bid) {
+                node.discarded = true;
+            }
+        }
+
+        if (win.tab_bids.length == 1) {
+            let _ = this.remove_node(win.bid);
+            _ = this.remove_node(win.tab_bids[0]!);
+        }
+    }
+
     remove_node(bid: BruhId) {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
@@ -964,6 +988,14 @@ class App {
                 // handle NOTE(1005) here.
             } break;
             case 'window_removed': {
+                if (!this.window_bids.has(event.payload.wid)) return;
+                const wbid = this.window_bids.get(event.payload.wid)!;
+                if (this.closing_window_tabs.has(wbid)) {
+                    let tbids = this.closing_window_tabs.get(wbid)!;
+                    this.closing_window_tabs.delete(wbid);
+
+                    this.mark_window_closed(wbid);
+                }
             } break;
             case 'window_focus_changed': {
                 // nothing to do
@@ -1204,26 +1236,8 @@ class App {
 
                         const win = this.get_window(msg.payload.wbid);
                         if (win.closed) return;
-                        win.closed = true;
 
-                        const storage = this.get_node_storage_data(win.bid);
-                        this.browserRestoreCache.set(storage.bid, storage);
-                        for (let bid of win.tab_bids) {
-                            const storage = this.get_node_storage_data(bid);
-                            this.browserRestoreCache.set(storage.bid, storage);
-                        }
-
-                        for (let tbid of win.tab_bids) {
-                            const node = this.get_tab(tbid);
-                            if (win.active !== node.bid) {
-                                node.discarded = true;
-                            }
-                        }
-
-                        if (win.tab_bids.length == 1) {
-                            let _ = this.remove_node(win.bid);
-                            _ = this.remove_node(win.tab_bids[0]!);
-                        }
+                        this.mark_window_closed(win.bid);
 
                         effects.push_back({ type: 'window_closed', payload: { wbid: win.bid } });
                     } break;
