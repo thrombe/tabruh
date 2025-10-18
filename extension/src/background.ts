@@ -925,14 +925,40 @@ class App {
                 }
             } break;
             case 'tab_updated': {
+                if (!this.tab_bids.has(event.payload.tid)) return;
+                await this.update_tab_info(event.payload.tab);
             } break;
             case 'tab_moved': {
+                if (!this.tab_bids.has(event.payload.tid)) return;
+                const tbid = this.tab_bids.get(event.payload.tid)!;
+                const node = this.get_tab(tbid);
+                const current_index = this.get_index(tbid);
+                if (current_index == event.payload.move_info.toIndex) {
+                    return;
+                }
+                if (current_index == event.payload.move_info.fromIndex) {
+                    this.add_tab_to_window(tbid, node.wbid, event.payload.move_info.toIndex);
+                }
             } break;
             case 'tab_attached': {
+                if (!this.tab_bids.has(event.payload.tid)) return;
+                const tbid = this.tab_bids.get(event.payload.tid)!;
+                const node = this.get_tab(tbid);
+                const wbid = this.window_bids.get(event.payload.attach_info.newWindowId as WindowId)!;
+                const current_index = this.get_index(tbid);
+                if (node.wbid == wbid && current_index == event.payload.attach_info.newPosition) return;
+                this.add_tab_to_window(node.bid, wbid, event.payload.attach_info.newPosition);
             } break;
             case 'tab_detached': {
+                // we just rely on 'tab_attached' to do the state changes for detach too
             } break;
             case 'tab_activated': {
+                if (!this.tab_bids.has(event.payload.activated_info.tabId as TabId)) return;
+                if (!this.window_bids.has(event.payload.activated_info.windowId as WindowId)) return;
+                const wbid = this.window_bids.get(event.payload.activated_info.windowId as WindowId)!;
+                const tbid = this.tab_bids.get(event.payload.activated_info.tabId as TabId)!;
+                const win = this.get_window(wbid);
+                win.active = tbid;
             } break;
             case 'window_created': {
                 // handle NOTE(1005) here.
@@ -940,8 +966,10 @@ class App {
             case 'window_removed': {
             } break;
             case 'window_focus_changed': {
+                // nothing to do
             } break;
             case 'sessions_changed': {
+                // nothing to do
             } break;
             case 'port_message': {
                 const msg = event.payload.message;
