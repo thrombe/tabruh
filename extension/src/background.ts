@@ -47,6 +47,7 @@ class App {
 
     config: Config;
     user_config: UserConfig;
+    bruh_session_key: string;
     bruhid: BruhId = 1 as BruhId;
     hierarchy_generation_id: HierarchyGenerationId = 1 as HierarchyGenerationId;
 
@@ -56,10 +57,12 @@ class App {
     tab_bids: Map<TabId, BruhId> = new Map();
     nodes: Map<BruhId, Node> = new Map();
     tab_name_cache: Map<BruhId, GroupName> = new Map();
-    browserRestoreCache: Map<BruhId, NodeStorageData> = new Map();
+    browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
 
     // win -> []tab
     closing_window_tabs: Map<BruhId, Set<BruhId>> = new Map();
+
+    // TODO:
     restoring_bids: Set<BruhId> = new Set();
     forget_bids: Set<BruhId> = new Set();
     // win -> _
@@ -95,10 +98,15 @@ class App {
             open_sidebar_on_new_windows: false,
         };
 
+        // TODO: use bruh_session_key to do the same thing instead of this.
         if (this.config.dbg.reset_state_on_load) {
             this.session_pointer_key += Math.random().toString();
             this.storage_key += Math.random().toString();
         }
+
+        // just a random number that can uniquely identify the storage data saved by *this* tabruh and not some broken version.
+        // TODO: maybe use uuid of some kind
+        this.bruh_session_key = Math.random().toString();
     }
 
     static async init() {
@@ -615,7 +623,7 @@ class App {
 
     archive_node(bid: BruhId): void {
         const snapshot = this.get_node_storage_data(bid);
-        this.browserRestoreCache.set(bid, snapshot);
+        this.browser_restore_cache.set(bid, snapshot);
 
         const node = this.get_node(bid);
         if (node.type === 'window') {
@@ -671,10 +679,10 @@ class App {
         win.closed = true;
 
         const storage = this.get_node_storage_data(win.bid);
-        this.browserRestoreCache.set(storage.bid, storage);
+        this.browser_restore_cache.set(storage.bid, storage);
         for (let bid of win.tab_bids) {
             const storage = this.get_node_storage_data(bid);
-            this.browserRestoreCache.set(storage.bid, storage);
+            this.browser_restore_cache.set(storage.bid, storage);
         }
 
         for (let tbid of win.tab_bids) {
@@ -870,8 +878,8 @@ class App {
         }
     }
 
-    async write_session_pointer(bruhId: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
-        const data = { bruhId };
+    async write_session_pointer(bid: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
+        const data = { bid, bruh_session_key: this.bruh_session_key };
         try {
             if (type === 'tab') {
                 await browser.sessions.setTabValue(id as TabId, this.session_pointer_key, data);
@@ -891,7 +899,11 @@ class App {
             } else {
                 data = await browser.sessions.getWindowValue(id as WindowId, this.session_pointer_key);
             }
-            return data?.bruhId;
+            if (this.bruh_session_key == data?.bruh_session_key) {
+                return data?.bid;
+            } else {
+                return undefined;
+            }
         } catch (e) {
             return undefined;
         }
@@ -946,7 +958,43 @@ class App {
     }
 
     revive_window(bwin: browser.Windows.Window, old_bid: BruhId) {
+        const cache = this.browser_restore_cache.get(old_bid);
+        if (cache) {
 
+            // reparent the restored tab.
+            if (this.tree.has(parent_id) && isPristine) {
+                const orderedTabs = this._getOrderedTabList(browserTab.windowId as WindowId);
+                let index = orderedTabs.length;
+                for (let tbid of cacheData.comesAfterIds.toReversed()) {
+                    const i = orderedTabs.indexOf(new_ids.get(tbid) ?? tbid);
+                    if (i != -1) {
+                        index = i + 1;
+                        break;
+                    }
+                }
+                this._setParent(bid, parent_id);
+                this._addTabToWindow(browserTab.id as TabId, browserTab.windowId as WindowId, index);
+                this._reindexWindowTabs(wid);
+            } else {
+                this._addTabToWindow(browserTab.id as TabId, browserTab.windowId as WindowId, cacheData.index);
+                this._reindexWindowTabs(wid);
+            }
+
+            // child reclamation
+            for (const _childId of cacheData.childrenIds) {
+                const childId = new_ids.get(_childId) ?? _childId;
+                if (this.tree.has(childId)) {
+                    const childNode = this.get_tab_node(childId).node;
+                    // only restore if the archieve was done after this child was repositioned manually
+                    if (childNode.hgid <= cacheData.cache_hgid) {
+                        this._setParent(childId, bid);
+                    }
+                }
+            }
+
+        } else {
+
+        }
     }
 
     revive_tab(btab: browser.Tabs.Tab, old_bid: BruhId) {
@@ -1009,7 +1057,7 @@ class App {
                     throw new Error("todo");
                 }
                 const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
-                if (!!old_bid && this.browserRestoreCache.has(old_bid)) {
+                if (!!old_bid && this.browser_restore_cache.has(old_bid)) {
                     // TODO: restore old tab
                     throw new Error('todo');
 
@@ -1156,7 +1204,7 @@ class App {
                                 const subtree = this.get_subtree(node.bid);
                                 for (let bid of subtree) {
                                     const storage = this.get_node_storage_data(bid);
-                                    this.browserRestoreCache.set(storage.bid, storage);
+                                    this.browser_restore_cache.set(storage.bid, storage);
                                 }
                             }
 
@@ -1168,7 +1216,7 @@ class App {
                                 // same as NOTE(1005)
                                 if (!node.closed) {
                                     const storage = this.get_node_storage_data(node.bid);
-                                    this.browserRestoreCache.set(storage.bid, storage);
+                                    this.browser_restore_cache.set(storage.bid, storage);
                                 }
                                 const _ = this.remove_node(node.bid);
 
@@ -1248,7 +1296,7 @@ class App {
                         if (node.type == "group") {
                             if (!is_closed) {
                                 const storage = this.get_node_storage_data(node.bid);
-                                this.browserRestoreCache.set(storage.bid, storage);
+                                this.browser_restore_cache.set(storage.bid, storage);
                             }
                             const remove_group_effect = this.remove_node_and_reparent_children(node.bid);
                             if (!is_closed) {
@@ -1267,7 +1315,7 @@ class App {
 
                             if (!is_closed) {
                                 const storage = this.get_node_storage_data(old_win.bid);
-                                this.browserRestoreCache.set(storage.bid, storage);
+                                this.browser_restore_cache.set(storage.bid, storage);
                             }
 
                             let _ = this.remove_node(old_win.bid);
@@ -1288,13 +1336,13 @@ class App {
                             if (!win.closed) {
                                 for (let bid of subtree) {
                                     const storage = this.get_node_storage_data(bid);
-                                    this.browserRestoreCache.set(storage.bid, storage);
+                                    this.browser_restore_cache.set(storage.bid, storage);
                                 }
 
                                 if (closing_all_tabs) {
                                     // if we are closing all tabs in the window
                                     const storage = this.get_node_storage_data(win.bid);
-                                    this.browserRestoreCache.set(storage.bid, storage);
+                                    this.browser_restore_cache.set(storage.bid, storage);
                                 }
                             }
 
@@ -1320,7 +1368,7 @@ class App {
                         } else {
                             if (!win.closed) {
                                 const storage = this.get_node_storage_data(node.bid);
-                                this.browserRestoreCache.set(storage.bid, storage);
+                                this.browser_restore_cache.set(storage.bid, storage);
                             }
 
                             const effect = this.remove_node_and_reparent_children(node.bid);;
@@ -1911,11 +1959,11 @@ class App {
 
         // This is a browser restore if we find a bruhId.
         // if no restore cache, we can't restore anyway.
-        if (!bruhId || !this.browserRestoreCache.has(bruhId)) {
+        if (!bruhId || !this.browser_restore_cache.has(bruhId)) {
             return await this._createWindowNode(wid);
         }
 
-        const cacheData = this.browserRestoreCache.get(bruhId) as Extract<NodeStorageData, { type: "window" }>;
+        const cacheData = this.browser_restore_cache.get(bruhId) as Extract<NodeStorageData, { type: "window" }>;
 
         const existingNodeData = this.tree.has(bruhId) ? this.get_window_node(bruhId) : null;
         const isPristine = existingNodeData?.win.isArchivedPristine ?? false;
@@ -1939,7 +1987,7 @@ class App {
             }
 
             // The window is now live, so we can clear its entry from the restore cache.
-            this.browserRestoreCache.delete(bruhId);
+            this.browser_restore_cache.delete(bruhId);
 
             return { node, win: bruhWin };
         } else {
@@ -1967,7 +2015,7 @@ class App {
             this.tree.set(bid, node);
             this.windows.set(wid, bruhWin);
             await this.write_session_pointer(bid, wid, 'window');
-            this.browserRestoreCache.delete(bruhId); // Clear the cache entry.
+            this.browser_restore_cache.delete(bruhId); // Clear the cache entry.
 
             const new_ids = new Map();
             this.pre_allocated_ids_for_non_pristine_restore.set(wid, { ids: new_ids, left_to_restore: new Set(cacheData.tab_bids) });
@@ -1982,7 +2030,7 @@ class App {
     }
 
     private async _createOrRestoreTab(bruhId: BruhId, browserTab: browser.Tabs.Tab): Promise<void> {
-        const cacheData = this.browserRestoreCache.get(bruhId) as Exclude<NodeStorageData, { type: "window" }>;
+        const cacheData = this.browser_restore_cache.get(bruhId) as Exclude<NodeStorageData, { type: "window" }>;
         if (!cacheData) {
             // This tab was not in our cache, so treat it as entirely new.
             await this._createTabNode(browserTab, { id: bruhId });
@@ -2024,12 +2072,12 @@ class App {
 
             // Write the session pointer and clear the cache entry for this now-live node.
             await this.write_session_pointer(bruhId, newTid, 'tab');
-            this.browserRestoreCache.delete(bruhId);
+            this.browser_restore_cache.delete(bruhId);
         } else {
             // non-pristine restore
             // The user has edited the session, so we restore this tab as a new entity, but use data from restore cache
             await this.write_session_pointer(bid, browserTab.id as TabId, 'tab');
-            this.browserRestoreCache.delete(bruhId);
+            this.browser_restore_cache.delete(bruhId);
             if (this.pre_allocated_ids_for_non_pristine_restore.has(wid)) {
                 this.pre_allocated_ids_for_non_pristine_restore.get(wid)!.left_to_restore.delete(bruhId);
             }
@@ -2269,7 +2317,7 @@ class App {
         }
 
         const cacheStorage: Record<string, NodeStorageData> = {};
-        for (const [bruhId, nodeData] of this.browserRestoreCache.entries()) {
+        for (const [bruhId, nodeData] of this.browser_restore_cache.entries()) {
             cacheStorage[bruhId] = nodeData;
         }
 
@@ -2348,7 +2396,7 @@ class App {
             const cacheStorage = savedState.browserRestoreCache;
             for (const bruhIdStr in cacheStorage) {
                 const bruhId = Number(bruhIdStr) as BruhId;
-                this.browserRestoreCache.set(bruhId, cacheStorage[bruhIdStr]!);
+                this.browser_restore_cache.set(bruhId, cacheStorage[bruhIdStr]!);
             }
         }
     }
@@ -2670,7 +2718,7 @@ class App {
                             const subtree = this._getSubtree(win.id);
                             for (const id of subtree) {
                                 this.remove_node(id);
-                                this.browserRestoreCache.delete(id);
+                                this.browser_restore_cache.delete(id);
                             }
                         } else {
                             await browser.windows.remove(win.wid);

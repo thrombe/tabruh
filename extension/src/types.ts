@@ -9,6 +9,7 @@ export type BruhId = utils.Branded<number, "BruhId">;
 export type HierarchyGenerationId = utils.Branded<number, "HgId">;
 
 export type StorageState = {
+    bruh_session_key: string,
     bruhid: BruhId,
     hgid: HierarchyGenerationId,
     nodes: Record<string, NodeStorageData>,
