@@ -1229,6 +1229,8 @@ class App {
             case 'tab_removed': {
                 if (!this.tab_bids.has(event.payload.tid)) return;
                 const tbid = this.tab_bids.get(event.payload.tid)!;
+                // can't remove the tabs here that are moved to a closed window
+                if (this.is_node_closed(tbid)) return;
                 const tab = this.get_tab(tbid);
                 if (event.payload.remove_info.isWindowClosing) {
                     if (!this.closing_window_tabs.has(tab.wbid)) {
