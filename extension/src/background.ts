@@ -872,7 +872,6 @@ class App {
                     index: i,
                     hgid,
                 });
-                i += 1;
                 new_tab_effects.push(new_node);
             } else if (node.type == "group" || (node.type == "window" && pid !== 0)) {
                 const new_node = this.create_new_group(pid, {
@@ -881,9 +880,10 @@ class App {
                     index: i,
                     hgid,
                 });
-                i += 1;
                 new_tab_effects.push(new_node);
             } else throw new Error(`cannot handle 'window' here bid: ${bid}`);
+
+            i += 1;
         }
 
         if (new_window_effect !== undefined) {
@@ -974,7 +974,7 @@ class App {
         tab.discarded = btab.discarded ?? false;
 
         if (tab.type == "tab") {
-            if (btab.title) {
+            if (btab.title && !btab.discarded) {
                 tab.title = btab.title;
             }
             if (btab.url && btab.url != "about:blank") {
