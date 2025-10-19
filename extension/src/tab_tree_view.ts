@@ -47,7 +47,7 @@ export class TabTreeView {
     public render(state: UiStateForRender) {
         this.currentRenderState = state;
         this.container.innerHTML = '';
-        if (state.isClosed) {
+        if (state.is_closed) {
             this.container.classList.add('closed-group');
         } else {
             this.container.classList.remove('closed-group');
@@ -61,7 +61,7 @@ export class TabTreeView {
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
 
-        for (const rootId of state.rootIds) {
+        for (const rootId of state.root_bids) {
             const nodeElement = this.renderNode(rootId, state);
             rootContainer.appendChild(nodeElement);
         }
@@ -111,7 +111,7 @@ export class TabTreeView {
     }
 
     private renderNode(nodeId: BruhId, state: UiStateForRender): HTMLDivElement {
-        const { tree, isClosed } = state;
+        const { tree, is_closed } = state;
         const node = tree.get(nodeId)!;
         const nodeWrapper = document.createElement('div');
         nodeWrapper.dataset.nodeId = String(node.id);
@@ -123,16 +123,16 @@ export class TabTreeView {
         }
         nodeElement.draggable = true;
 
-        if (node.isDiscarded || isClosed) nodeElement.classList.add('discarded-tab');
+        if (node.isDiscarded || is_closed) nodeElement.classList.add('discarded-tab');
         if (node.isActive) nodeElement.classList.add('focused-tab');
 
-        if (!isClosed) {
-            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'FOCUS_TAB', payload: { nodeId: node.id } }));
+        if (!is_closed) {
+            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'focus_tab', payload: { bid: node.id } }));
         }
         nodeElement.addEventListener('mousedown', (event) => {
             if (event.button === 1) {
                 event.preventDefault();
-                this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } });
+                this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
             }
         });
         nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
@@ -144,7 +144,7 @@ export class TabTreeView {
             const dragData: DragData = {
                 type: 'tabs',
                 draggedNodeId: node.id,
-                sourceWindowId: state.windowId,
+                sourceWindowId: state.wbid,
                 movedNodeIds,
             };
             this.currentDragData = dragData;
@@ -156,7 +156,7 @@ export class TabTreeView {
         nodeElement.addEventListener('dragend', (event) => {
             nodeElement.classList.remove('dragging');
             if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedNodeId) {
-                this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootNodeId: this.currentDragData.draggedNodeId } });
+                this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: this.currentDragData.draggedNodeId } });
             }
             this.currentDragData = null;
         });
@@ -204,7 +204,7 @@ export class TabTreeView {
             delete nodeElement.dataset.dropAction;
 
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !state.windowId) return;
+            if (!dataTransfer || !state.wbid) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -215,11 +215,11 @@ export class TabTreeView {
                 this.currentDragData = null;
                 if (dragData.movedNodeIds.includes(node.id)) return;
 
-                this.sendMessage({ type: 'HANDLE_DROP', payload: { dragData, targetNodeId: node.id, action } });
+                this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: node.id, action } });
+                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
             }
         });
 
@@ -232,7 +232,7 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'TOGGLE_COLLAPSE', payload: { nodeId: node.id } });
+                this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
             });
 
             if (node.isCollapsed) {
@@ -267,7 +267,7 @@ export class TabTreeView {
         const closeButton = document.createElement('button');
         closeButton.className = 'close-tab-button';
         closeButton.innerHTML = ICON_CLOSE;
-        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId: node.id } }); });
+        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
         nodeElement.append(collapseContainer, contentWrapper, closeButton);
 
         nodeWrapper.appendChild(nodeElement);
@@ -295,7 +295,7 @@ export class TabTreeView {
             const dragData: DragData = {
                 type: 'window',
                 draggedNodeId: state.id,
-                sourceWindowId: state.windowId,
+                sourceWindowId: state.wbid,
                 movedNodeIds,
             };
             this.currentDragData = dragData;
@@ -313,7 +313,7 @@ export class TabTreeView {
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
         nameSpan.textContent = state.name;
-        if (state.isClosed) {
+        if (state.is_closed) {
             nameSpan.textContent = `[Closed] ${state.name}`;
         }
         nameSpan.addEventListener('click', () => {
@@ -326,11 +326,7 @@ export class TabTreeView {
             input.select();
             const save = () => {
                 if (input.value.trim()) {
-                    if (this.viewType === 'group') {
-                        this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId: state.id, newName: input.value.trim() } });
-                    } else {
-                        this.sendMessage({ type: 'RENAME_WINDOW', payload: { windowId: state.windowId, newName: input.value.trim() } });
-                    }
+                    this.sendMessage({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
                 }
                 header.replaceChild(nameSpan, input);
             };
@@ -359,8 +355,8 @@ export class TabTreeView {
         button.textContent = '+';
         button.addEventListener('click', () => {
             this.sendMessage({
-                type: 'CREATE_TAB',
-                payload: { windowId: state.windowId, parentId: state.id }
+                type: 'create_tab',
+                payload: { parent_bid: state.id, action: "inside" }
             });
         });
 
@@ -379,7 +375,6 @@ export class TabTreeView {
             const dataTransfer = event.dataTransfer;
             if (!dataTransfer || !this.currentRenderState) return;
 
-            const action = this.viewType == "group" ? 'inside' : 'root';
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
                 const dragDataStr = dataTransfer.getData('application/json');
@@ -388,17 +383,17 @@ export class TabTreeView {
                 this.currentDragData = null;
 
                 this.sendMessage({
-                    type: 'HANDLE_DROP', payload: {
-                        dragData,
-                        targetNodeId: state.id,
-                        action,
+                    type: 'handle_drop', payload: {
+                        drag_data: dragData,
+                        target_bid: state.id,
+                        action: "inside",
                     }
                 });
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
 
-                this.sendMessage({ type: 'CREATE_TAB_FROM_URL', payload: { url, windowId: state.windowId, parentId: state.id, action } });
+                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: state.id, action: "inside" } });
             }
         });
         return button;
@@ -482,14 +477,14 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        if (state.isClosed) {
-            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'RESTORE_WINDOW', payload: { windowId: state.windowId } }));
+        if (state.is_closed) {
+            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'restore_window', payload: { wbid: state.wbid } }));
             createSeparator();
-            createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'DELETE_WINDOW_STATE', payload: { windowId: state.windowId } }));
+            createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
         } else {
-            createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: state.windowId, parentId: state.id } }));
+            createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'create_group', payload: { parent_bid: state.id } }));
             createSeparator();
-            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_WINDOW', payload: { windowId: state.windowId } }));
+            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'close_window', payload: { wbid: state.wbid } }));
         }
     }
 
@@ -514,7 +509,7 @@ export class TabTreeView {
                 nodeElement.replaceChild(titleElement, input);
             }
             if (newName !== node.title) {
-                this.sendMessage({ type: 'RENAME_NODE', payload: { nodeId, newName } });
+                this.sendMessage({ type: 'rename_node', payload: { bid: nodeId, new_name: newName } });
             }
         };
 
@@ -559,7 +554,7 @@ export class TabTreeView {
         const node = this.currentRenderState.tree.get(nodeId);
         if (!node) return;
 
-        const isNodeClosed = node.isDiscarded || this.currentRenderState.isClosed;
+        const isNodeClosed = node.isDiscarded || this.currentRenderState.is_closed;
 
         if (node.isGroup) {
             createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(nodeId));
@@ -567,33 +562,33 @@ export class TabTreeView {
         }
 
         createItem('New Group Here', ICON_GROUP, () => {
-            if (this.currentRenderState?.windowId) {
-                this.sendMessage({ type: 'CREATE_GROUP', payload: { windowId: this.currentRenderState.windowId, parentId: nodeId } })
+            if (this.currentRenderState?.wbid) {
+                this.sendMessage({ type: 'create_group', payload: { parent_bid: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'DUPLICATE_TAB_SMART', payload: { nodeId } }));
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'duplicate_tab', payload: { bid: nodeId } }));
         createSeparator();
 
         if (!isNodeClosed) {
-            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'LOAD_TREE', payload: { nodeId } }));
-            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TAB', payload: { nodeId } }));
+            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'reload_tree', payload: { bid: nodeId } }));
+            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
 
             if (node.children.length > 0) {
-                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'UNLOAD_TREE', payload: { nodeId } }));
+                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
             }
             createSeparator();
         }
 
-        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'CLOSE_SINGLE_TAB', payload: { nodeId } }));
+        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
         if (node.children.length > 0) {
-            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'CLOSE_SUBTREE', payload: { nodeId } }));
+            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
         }
-        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'MOVE_SUBTREE_TO_NEW_WINDOW', payload: { rootNodeId: nodeId } }));
+        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
         createSeparator();
 
         if (node.children.length > 0) {
-            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'FLATTEN_IMMEDIATE', payload: { nodeId } }));
-            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'FLATTEN_TREE', payload: { nodeId } }));
+            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
+            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
             createSeparator();
         }
 

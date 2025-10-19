@@ -95,7 +95,7 @@ export type DropAction = 'above' | 'below' | 'inside';
 
 export type DragData = {
     type: DragType,
-    sourceWindowId: WindowId,
+    sourceWindowId: BruhId,
     draggedNodeId: BruhId,
     movedNodeIds: BruhId[],
 };

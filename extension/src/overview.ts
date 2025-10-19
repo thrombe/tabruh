@@ -74,19 +74,19 @@ class OverviewPage {
 
     private requestInitialState() {
         if (this.viewMode === 'group' && this.groupViewNodeId) {
-            this.sendMessage({ type: 'GET_STATE_FOR_GROUP_VIEW', payload: { nodeId: this.groupViewNodeId } });
+            this.sendMessage({ type: 'get_state_for_group_view', payload: { bid: this.groupViewNodeId } });
         } else {
-            this.sendMessage({ type: 'GET_ALL_WINDOW_STATES', payload: {} });
+            this.sendMessage({ type: 'get_all_window_states', payload: {} });
         }
     }
 
     private sortWindowStates(states: UiStateForRender[]): UiStateForRender[] {
         return states.sort((a, b) => {
-            if (a.isClosed !== b.isClosed) {
-                return a.isClosed ? 1 : -1;
+            if (a.is_closed !== b.is_closed) {
+                return a.is_closed ? 1 : -1;
             }
-            if (a.isCustomNamed !== b.isCustomNamed) {
-                return a.isCustomNamed ? -1 : 1;
+            if (a.is_custom_named !== b.is_custom_named) {
+                return a.is_custom_named ? -1 : 1;
             }
             return a.generation - b.generation;
         });
@@ -125,13 +125,13 @@ class OverviewPage {
 
     private handleMessage(message: BackgroundResponse) {
         switch (message.type) {
-            case 'ALL_STATES_UPDATE': {
+            case 'all_states_update': {
                 if (this.viewMode === 'overview') {
                     this.renderOverviewLayout(message.payload.states);
                 }
                 break;
             }
-            case 'STATE_UPDATE': {
+            case 'state_update': {
                 if (this.viewMode === 'group') {
                     document.title = message.payload.state.name;
                     this.renderGroupLayout(message.payload.state);
@@ -142,7 +142,7 @@ class OverviewPage {
                 }
                 break;
             }
-            case 'RENDER_ALL': {
+            case 'render_all': {
                 this.requestInitialState();
                 break;
             }

@@ -34,7 +34,7 @@ class TabTreeSidebar {
 
     private requestState() {
         if (this.windowId) {
-            this.sendMessage({ type: 'GET_STATE_FOR_WINDOW', payload: { windowId: this.windowId } });
+            this.sendMessage({ type: 'get_state_for_window', payload: { wid: this.windowId } });
         }
     }
 
@@ -47,9 +47,9 @@ class TabTreeSidebar {
     }
 
     private handleMessage(message: BackgroundResponse) {
-        if (message.type === 'RENDER_ALL') {
+        if (message.type === 'render_all') {
             this.requestState();
-        } else if (message.type === 'STATE_UPDATE' && this.view) {
+        } else if (message.type === 'state_update' && this.view) {
             // In sidebar, we only care about updates for our own window/group.
             // The background script already filters this, so we just render.
             this.view.render(message.payload.state);
