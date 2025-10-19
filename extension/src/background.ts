@@ -29,7 +29,6 @@ type Config = {
         reset_state_on_load: boolean,
         log_events: boolean,
         log_effects: boolean,
-        log_sessions: boolean,
     },
     available_apis: {
         session_values: boolean,
@@ -84,7 +83,6 @@ class App {
                 reset_state_on_load: true,
                 log_events: true,
                 log_effects: true,
-                log_sessions: false,
             },
             available_apis: {
                 session_values: session_values,
@@ -263,12 +261,12 @@ class App {
             case 'tab_detached':
             case 'window_created':
             case 'window_removed':
+            case 'sessions_changed':
                 console.log(Date.now(), event.type, event.payload);
                 break;
             case 'tab_updated':
             case 'tab_activated':
             case 'window_focus_changed':
-            case 'sessions_changed':
                 break;
             case 'port_message':
                 const message = event.payload.message;
@@ -302,6 +300,25 @@ class App {
                 break;
             default:
                 throw utils.exhausted(event);
+        }
+    }
+
+    _log_effect(effect: BrowserEffect) {
+        switch (effect.type) {
+            case 'effects':
+            case 'node_removed':
+            case 'tab_created':
+            case 'tab_focused':
+            case 'tabs_moved':
+            case 'tabs_discarded':
+            case 'tabs_reloaded':
+            case 'tabs_closed':
+            case 'window_created':
+            case 'window_closed':
+                console.log(Date.now(), effect.type, effect.payload);
+                break;
+            default:
+                throw utils.exhausted(effect);
         }
     }
 
@@ -382,7 +399,7 @@ class App {
             if (!effect) break;
 
             if (this.config.dbg.log_effects) {
-                // this._log_effect(effect);
+                this._log_effect(effect);
             }
             await this._process_effect(effects, effect).catch(console.error);
         }
@@ -938,6 +955,7 @@ class App {
     }
 
     async write_session_pointer(bid: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
+        if (!this.config.available_apis.session_values) return;
         const data = { bid, bruh_session_key: this.bruh_session_key };
         try {
             if (type === 'tab') {
@@ -951,6 +969,7 @@ class App {
     }
 
     async read_session_pointer(id: TabId | WindowId, type: 'tab' | 'window'): Promise<BruhId | undefined> {
+        if (!this.config.available_apis.session_values) return;
         try {
             let data: any;
             if (type === 'tab') {
