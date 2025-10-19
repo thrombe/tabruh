@@ -966,6 +966,18 @@ class App {
         const tab = this.get_tab(tbid);
         tab.discarded = btab.discarded ?? false;
 
+        if (tab.type == "tab") {
+            if (btab.title) {
+                tab.title = btab.title;
+            }
+            if (btab.url && btab.url != "about:blank") {
+                tab.url = btab.url;
+            }
+            if (btab.favIconUrl) {
+                tab.fav_icon_url = btab.favIconUrl;
+            }
+        }
+
         if (btab.url == "about:blank") return;
         if (this.is_group_tab(btab)) {
             if (tab.type === "tab") {
