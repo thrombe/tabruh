@@ -698,8 +698,8 @@ class App {
         }
 
         if (win.tab_bids.length == 1) {
-            let _ = this.remove_node(win.bid);
-            _ = this.remove_node(win.tab_bids[0]!);
+            let _ = this.remove_node(win.tab_bids[0]!);
+            _ = this.remove_node(win.bid);
         }
     }
 
@@ -1344,6 +1344,7 @@ class App {
                             effect = this.clone_subtree(node.bid, target.parent_bid, target.index);
 
                             const subtree = this.get_subtree(node.bid);
+                            subtree.reverse();
                             for (const bid of subtree) {
                                 let _ = this.remove_node(bid);
                             }
@@ -1554,10 +1555,10 @@ class App {
                         const win = this.get_window(msg.payload.wbid);
                         if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
                         let _;
-                        _ = this.remove_node(win.bid);
                         for (let bid of win.tab_bids) {
                             _ = this.remove_node(bid);
                         }
+                        _ = this.remove_node(win.bid);
                     } break;
                     case 'reload_tree': {
                         const root = this.get_node(msg.payload.bid);
