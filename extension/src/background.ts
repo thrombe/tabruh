@@ -55,6 +55,7 @@ class App {
     window_bids: Map<WindowId, BruhId> = new Map();
     tab_bids: Map<TabId, BruhId> = new Map();
     nodes: Map<BruhId, Node> = new Map();
+    tab_name_cache: Map<BruhId, GroupName> = new Map();
     browserRestoreCache: Map<BruhId, NodeStorageData> = new Map();
 
     // win -> []tab
@@ -605,6 +606,7 @@ class App {
             title: this.get_node_name(bid),
             tab_bids: (node.type === 'window') ? node.tab_bids : undefined,
             group_name: (node.type === 'group' || node.type === 'window') ? node.name : undefined,
+            cached_group_name: node.type == "tab" ? this.tab_name_cache.get(node.bid) : undefined,
             type: node.type,
         } as NodeStorageData;
 
@@ -692,6 +694,7 @@ class App {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
         this.nodes.delete(bid);
+        this.tab_name_cache.delete(bid);
         const tid = this.tab_ids.get(bid);
         if (tid !== undefined) this.tab_bids.delete(tid);
         this.tab_ids.delete(bid);
@@ -901,14 +904,31 @@ class App {
 
         if (this.is_group_tab(btab)) {
             if (tab.type === "tab") {
-                // TODO: convert this tab's state to a 'group'
-                // TODO: also maybe change the live tab's url to the correct group url
+                const name = this.tab_name_cache.get(tab.bid);
+                this.tab_name_cache.delete(tab.bid);
+                const _ = this.create_new_group(tab.parent_bid, {
+                    bid: tab.bid,
+                    hgid: tab.hgid,
+                    name: name,
+                    index: this.get_index(tab.bid),
+                });
+            }
+
+            if (btab.url) {
+                const url_bid = this.parse_group_url_id(btab.url);
+                if (url_bid != tab.bid) {
+                    await browser.tabs.update(btab.id!, { url: this.get_group_url(tab.bid) });
+                }
             }
         } else {
             if (tab.type === "group") {
-                // TODO: convert this tab's state to a 'tab'
-                // TODO: also maybe set this tab's url to the correct group url
-                //  - note that the group name might need to cached somewhere. user might change the url by mistake, and changing it back should work nicely
+                this.tab_name_cache.set(tab.bid, tab.name);
+                const _ = this.create_new_tab(tab.parent_bid, {
+                    bid: tab.bid,
+                    hgid: tab.hgid,
+                    index: this.get_index(tab.bid),
+                    title: btab.title,
+                });
             }
         }
     }

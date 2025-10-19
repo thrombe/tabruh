@@ -31,6 +31,7 @@ export type NodeStorageData = {
     url: string,
     title: string,
     collapsed: boolean,
+    cached_group_name?: GroupName,
 } | {
     type: "group",
     group_name: GroupName,
