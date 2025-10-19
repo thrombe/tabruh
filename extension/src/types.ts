@@ -177,7 +177,7 @@ export type BrowserEffect =
     | { type: 'tabs_reloaded', payload: { tbids: BruhId[], wbid: BruhId } }
     | { type: 'tabs_closed', payload: { tids: TabId[] } }
     | { type: 'window_created', payload: { wbid: BruhId } }
-    | { type: 'window_closed', payload: { wbid: BruhId } }
+    | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
 export type PortMessageEvent = {
