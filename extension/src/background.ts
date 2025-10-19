@@ -637,7 +637,9 @@ class App {
         const target = this.get_node(target_bid);
         const target_win = this.get_window(target.wbid);
 
-        const lastDescendantId = this.get_subtree(target.bid).pop()!;
+        const source_subtree = this.get_subtree(bid);
+        const target_subtree = this.get_subtree(target.bid);
+        const lastDescendantId = target_subtree[target_subtree.length - 1]!;
         const lastDescendantIndex = this.get_index(lastDescendantId);
         const targetIndex = this.get_index(target.bid);
         let currentIndex = target_win.tab_bids.indexOf(bid);
@@ -649,16 +651,16 @@ class App {
         switch (position) {
             case 'above':
                 newParentId = target.parent_bid;
-                index = currentIndex > targetIndex ? targetIndex : targetIndex - 1;
+                index = currentIndex > targetIndex ? targetIndex : targetIndex - source_subtree.length;
                 break;
             case 'below':
                 newParentId = target.parent_bid;
-                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex + 1 - source_subtree.length;
                 break;
             case 'inside':
             default:
                 newParentId = target.bid;
-                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex;
+                index = currentIndex > lastDescendantIndex ? lastDescendantIndex + 1 : lastDescendantIndex + 1 - source_subtree.length;
                 break;
         }
 
@@ -1388,7 +1390,6 @@ class App {
                                 }
                                 const _ = this.remove_node(node.bid);
 
-                                reparent_effect.payload.tbids = reparent_effect.payload.tbids.slice(1);
                                 effect = {
                                     type: 'effects', payload: {
                                         effects: [
