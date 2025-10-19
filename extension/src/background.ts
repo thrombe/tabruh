@@ -1083,6 +1083,7 @@ class App {
                 non_pristine_restore.left_to_restore.delete(old_bid);
                 if (non_pristine_restore.left_to_restore.size == 0) {
                     this.pre_allocated_bids_for_non_pristine_restore.delete(win.bid);
+                    win.is_archived_pristine = undefined;
                 }
             }
             const new_ids = non_pristine_restore?.ids ?? new Map();
@@ -1329,6 +1330,11 @@ class App {
                         if (!node.closed) throw new Error(`expected window to be closed for a restore operation bid: ${node.bid}`);
                         const effect = this.clone_subtree(node.bid, null, 0);
                         effects.push_back(effect);
+
+                        // @ts-ignore
+                        const wbid = effect.payload.wbid as BruhId;
+                        const win = this.get_window(wbid);
+                        win.is_archived_pristine = undefined;
 
                         const subtree = this.get_subtree(node.bid);
                         subtree.reverse();
