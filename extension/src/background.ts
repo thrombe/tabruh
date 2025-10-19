@@ -1832,8 +1832,9 @@ class App {
                             active: false,
                             title: this.get_node_name(tbid),
                         });
-                        await this.register_btab(btab, active);
+                        await this.register_btab(btab, tbid);
                     }
+                    i += 1;
                 }
             } break;
             case 'window_closed': {
