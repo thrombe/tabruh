@@ -62,15 +62,14 @@ class App {
 
     // win -> []tab
     closing_window_tabs: Map<BruhId, Set<BruhId>> = new Map();
-
-    // TODO:
-    restoring_bids: Set<BruhId> = new Set();
-    forget_bids: Set<BruhId> = new Set();
     // win -> _
     pre_allocated_bids_for_non_pristine_restore: Map<BruhId, {
         ids: Map<BruhId, BruhId>,
         left_to_restore: Set<BruhId>,
     }> = new Map();
+
+    // TODO:
+    forget_bids: Set<BruhId> = new Set();
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_key = "tabruh-app-state";
@@ -681,6 +680,7 @@ class App {
         this.window_ids.delete(wbid);
         let win = this.get_window(wbid);
         win.closed = true;
+        win.is_archived_pristine = true;
 
         const storage = this.get_node_storage_data(win.bid);
         this.browser_restore_cache.set(storage.bid, storage);
@@ -1016,7 +1016,6 @@ class App {
         }
 
         const node = this.nodes.get(old_bid) as Extract<Node, { type: "window" }> | undefined;
-        // TODO: mark is_pristine or whatever whenever state is modified on a closed window via extension actions
         const is_pristine = node?.is_archived_pristine ?? false;
 
         if (node && is_pristine) {
@@ -1317,8 +1316,18 @@ class App {
                     case 'handle_drop': {
                         const node = this.get_node(msg.payload.drag_data.draggedNodeId);
                         const target_node = this.get_node(msg.payload.target_bid);
-                        const source_is_closed = this.is_node_closed(node.bid);
-                        const target_is_closed = this.is_node_closed(target_node.bid);
+
+                        const source_win = this.get_window(node.wbid);
+                        const target_win = this.get_window(target_node.wbid);
+                        if (source_win.closed) {
+                            source_win.is_archived_pristine = false;
+                        }
+                        if (target_win.closed) {
+                            target_win.is_archived_pristine = false;
+                        }
+
+                        const source_is_closed = source_win.closed;
+                        const target_is_closed = target_win.closed;
 
                         let effect: BrowserEffect;
                         const target = this.get_target_index(node.bid, msg.payload.target_bid, msg.payload.action);
@@ -1400,6 +1409,11 @@ class App {
                         const node = this.get_node(msg.payload.bid);
                         if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
 
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+
                         let effect;
                         if (node.type == "group") {
                             effect = this.create_new_group(node.parent_bid, { index: this.get_index(node.bid) });
@@ -1418,7 +1432,11 @@ class App {
                     case 'move_subtree_to_new_window': {
                         const node = this.get_node(msg.payload.bid);
                         if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
-                        const is_closed = this.is_node_closed(node.bid);
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+                        const is_closed = win.closed;
 
                         const subtree = this.get_subtree(node.bid);
 
@@ -1466,6 +1484,10 @@ class App {
                         const node = this.get_node(msg.payload.bid);
                         if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
                         const win = this.get_window(node.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+
                         if (msg.payload.recursive) {
                             const subtree = this.get_subtree(node.bid);
                             const closing_all_tabs = subtree.length == win.tab_bids.length;
@@ -1585,21 +1607,32 @@ class App {
                         effects.push_back({ type: 'tab_focused', payload: { bid: node.bid } });
                     } break;
                     case 'create_group': {
-                        const parent = msg.payload.parent_bid;
-                        const effect = this.create_new_group(parent, {});
+                        const parent_bid = msg.payload.parent_bid;
+                        const parent = this.get_node(parent_bid);
+                        const win = this.get_window(parent.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+
+                        const effect = this.create_new_group(parent.bid, {});
                         effects.push_back(effect);
                     } break;
                     case 'create_tab': {
                         const url = msg.payload.url;
-                        const parent = msg.payload.parent_bid;
+                        const parent_bid = msg.payload.parent_bid;
+                        const parent = this.get_node(parent_bid);
+                        const win = this.get_window(parent.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
 
                         const bid = this.bruhid++ as BruhId;
-                        const target = this.get_target_index(bid, parent, msg.payload.action);
+                        const target = this.get_target_index(bid, parent.bid, msg.payload.action);
                         let create_effect;
                         if (!!url && this.parse_group_url_id(url) !== null) {
-                            create_effect = this.create_new_group(parent, { bid: bid, index: target.index });
+                            create_effect = this.create_new_group(parent.bid, { bid: bid, index: target.index });
                         } else {
-                            create_effect = this.create_new_tab(parent, { bid: bid, url: url, index: target.index });
+                            create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index });
                         }
 
                         effects.push_back(create_effect);
@@ -1609,13 +1642,25 @@ class App {
                         node.collapsed = !node.collapsed;
                     } break;
                     case 'flatten_tree': {
-                        this.flatten_node(msg.payload.bid, msg.payload.recursive, this.increment_hgid());
+                        const node = this.get_node(msg.payload.bid);
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+
+                        this.flatten_node(node.bid, msg.payload.recursive, this.increment_hgid());
                     } break;
                     case 'rename_node': {
                         const node = this.get_node(msg.payload.bid);
                         if (node.type == "tab") {
                             throw new Error(`'tab' nodes cannot be renamed`);
                         }
+
+                        const win = this.get_window(node.wbid);
+                        if (win.closed) {
+                            win.is_archived_pristine = false;
+                        }
+
                         node.name.name = msg.payload.new_name;
                         node.name.is_custom = true;
                     } break;
