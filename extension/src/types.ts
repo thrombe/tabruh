@@ -178,8 +178,6 @@ export type BrowserEffect =
     | { type: 'tabs_closed', payload: { tids: TabId[] } }
     | { type: 'window_created', payload: { wbid: BruhId } }
     | { type: 'window_closed', payload: { wbid: BruhId } }
-    | { type: 'tab_session_storage_update', payload: { tbid: BruhId, tid: TabId } }
-    | { type: 'window_session_storage_update', payload: { wbid: BruhId, wid: WindowId } }
     ;
 
 export type PortMessageEvent = {
