@@ -19,6 +19,7 @@ import type {
     WindowData,
     DropAction,
     BrowserEffect,
+    StorageState,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -370,6 +371,7 @@ class App {
 
             await this._process_event(event, effects).catch(console.error);
             await this.process_effects(effects);
+            await this.save_state().catch(console.error);
 
             this._broadcast_updates(event);
         }
@@ -875,6 +877,50 @@ class App {
             return new_window_effect;
         } else {
             return { type: 'effects', payload: { effects: new_tab_effects } } as Extract<BrowserEffect, { type: "effects" }>;
+        }
+    }
+
+    async save_state() {
+        const nodes: Record<string, NodeStorageData> = {};
+        for (const [bid, node] of this.nodes.entries()) {
+            const storage = this.get_node_storage_data(bid);
+            nodes[bid.toString()] = storage;
+        }
+
+        const cache: Record<string, NodeStorageData> = {};
+        for (const [bid, storage] of this.browser_restore_cache.entries()) {
+            cache[bid.toString()] = storage;
+        }
+
+        const state_to_save: StorageState = {
+            bruh_session_key: this.bruh_session_key,
+            bruhid: this.bruhid,
+            hgid: this.hierarchy_generation_id,
+            nodes,
+            browser_restore_cache: cache,
+        };
+        await browser.storage.local.set({ [this.storage_key]: state_to_save });
+    }
+
+    async load_state() {
+        const result = await browser.storage.local.get(this.storage_key);
+        const state = result[this.storage_key] as StorageState;
+        if (!state) return;
+
+        this.bruh_session_key = state.bruh_session_key;
+        this.bruhid = state.bruhid;
+        this.hierarchy_generation_id = state.hgid;
+
+        const cache = state.browser_restore_cache;
+        for (const bstrid in cache) {
+            const bid = Number(bstrid) as BruhId;
+            this.browser_restore_cache.set(bid, cache[bstrid]!);
+        }
+
+        const nodes = state.nodes;
+        for (const bstrid in nodes) {
+            const bid = Number(bstrid) as BruhId;
+            // TODO: do something with nodes here?
         }
     }
 
@@ -2279,124 +2325,6 @@ class App {
                 const correctUrl = this._getGroupUrl(bruhTab.id);
                 bruhTab.url = correctUrl;
                 await browser.tabs.update(tid, { url: correctUrl });
-            }
-        }
-    }
-
-    private async _saveState(): Promise<void> {
-        const nodeStorage: Record<string, NodeStorageData> = {};
-        const childrenMap = this._getChildrenMap();
-
-        for (const [bruhId, node] of this.tree.entries()) {
-            const wid = this.get_node_wid(bruhId);
-            // this can happen when we do a pristine restore of a window, but the tabs haven't been migrated yet.
-            if (!this.windows.has(wid)) continue;
-            const storageNode: NodeStorageData = {
-                bruhId: bruhId,
-                hgid: node.hgid,
-                windowBid: this.get_window(wid).node.id,
-                cache_hgid: node.hgid,
-                collapsed: node.collapsed,
-                type: node.type,
-                parentId: node.type === 'window' ? (0 as BruhId) : node.parentId,
-                ancestorIds: this._getAncestors(bruhId),
-                childrenIds: childrenMap.get(bruhId) || [],
-                comesAfterIds: this._getTabsBefore(bruhId),
-                // @ts-ignore
-                groupAttrs: (node.type === 'group' || node.type === 'window') ? this.groupAttrs.get(bruhId) : undefined,
-                // @ts-ignore
-                url: node.type === 'tab' ? this.get_tab_node(bruhId).tab.url : undefined,
-                // @ts-ignore
-                title: node.type === 'tab' ? this.get_tab_node(bruhId).tab.title : undefined,
-                // @ts-ignore
-                tab_bids: (node.type === 'window') ? this._getOrderedTabList(node.wid) : undefined,
-                // @ts-ignore
-                index: (node.type === "window") ? undefined : this.get_tab_node(bruhId).tab.index,
-            };
-            nodeStorage[bruhId] = storageNode as NodeStorageData;
-        }
-
-        const cacheStorage: Record<string, NodeStorageData> = {};
-        for (const [bruhId, nodeData] of this.browser_restore_cache.entries()) {
-            cacheStorage[bruhId] = nodeData;
-        }
-
-        const stateToSave: StorageState = {
-            bruhid: this.bruhid,
-            hgid: this.hierarchy_generation_id,
-            nodes: nodeStorage,
-            browserRestoreCache: cacheStorage,
-        };
-        await browser.storage.local.set({ [this.storage_key]: stateToSave });
-    }
-
-    private async _loadState(): Promise<void> {
-        const result = await browser.storage.local.get(this.storage_key);
-        const savedState = result[this.storage_key] as StorageState;
-        if (!savedState) return;
-
-        this.bruhid = savedState.bruhid;
-        this.hierarchy_generation_id = savedState.hgid;
-
-        const nodes = savedState.nodes;
-        for (const bruhIdStr in nodes) {
-            const bruhId = Number(bruhIdStr) as BruhId;
-            const storageNode = nodes[bruhIdStr]!;
-
-            // TODO: wid and tid are not saved, and can't save. what dodo
-            if (storageNode.type === 'window') {
-                const wid = -bruhId as WindowId;
-                this.tree.set(bruhId, {
-                    id: bruhId,
-                    type: 'window',
-                    wid: wid,
-                    parentId: 0 as BruhId & 0,
-                    hgid: storageNode.hgid,
-                    collapsed: false,
-                });
-                this.windows.set(wid, { id: bruhId, wid: wid, tabIds: [], closed: true });
-                this.groupAttrs.set(bruhId, storageNode.groupAttrs);
-            } else {
-                const tid = -bruhId as TabId;
-                this.tree.set(bruhId, {
-                    id: bruhId,
-                    type: storageNode.type,
-                    tid: tid,
-                    parentId: storageNode.parentId,
-                    hgid: storageNode.hgid,
-                    collapsed: storageNode.collapsed,
-                });
-
-                let url: string;
-                let title: string;
-                if (storageNode.type === 'group') {
-                    this.groupAttrs.set(bruhId, storageNode.groupAttrs);
-                    title = storageNode.groupAttrs.name;
-                    url = this._getGroupUrl(bruhId);
-                } else {
-                    title = storageNode.title;
-                    url = storageNode.url;
-                }
-
-                this.tabs.set(tid, {
-                    id: bruhId,
-                    tid: tid,
-                    wid: -storageNode.windowBid as WindowId,
-                    index: storageNode.comesAfterIds.length,
-                    url,
-                    title,
-                    active: false,
-                    discarded: true,
-                    closed: true,
-                });
-            }
-        }
-
-        if (savedState.browserRestoreCache) {
-            const cacheStorage = savedState.browserRestoreCache;
-            for (const bruhIdStr in cacheStorage) {
-                const bruhId = Number(bruhIdStr) as BruhId;
-                this.browser_restore_cache.set(bruhId, cacheStorage[bruhIdStr]!);
             }
         }
     }

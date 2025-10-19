@@ -13,7 +13,7 @@ export type StorageState = {
     bruhid: BruhId,
     hgid: HierarchyGenerationId,
     nodes: Record<string, NodeStorageData>,
-    browserRestoreCache: Record<string, NodeStorageData>,
+    browser_restore_cache: Record<string, NodeStorageData>,
 };
 
 export type NodeStorageData = {
