@@ -633,14 +633,13 @@ class App {
     }
 
     get_target_index(bid: BruhId, target_bid: BruhId, position: DropAction) {
-        const node = this.get_node(bid);
         const target = this.get_node(target_bid);
         const target_win = this.get_window(target.wbid);
 
         const lastDescendantId = this.get_subtree(target.bid).pop()!;
         const lastDescendantIndex = this.get_index(lastDescendantId);
         const targetIndex = this.get_index(target.bid);
-        let currentIndex = target_win.tab_bids.indexOf(node.bid);
+        let currentIndex = target_win.tab_bids.indexOf(bid);
         currentIndex = currentIndex >= 0 ? currentIndex : Infinity;
 
         let newParentId: BruhId;
@@ -1163,6 +1162,11 @@ class App {
                         index: btab.index,
                     });
                     tab = this.get_tab(new_tab_effect.payload.bid);
+                }
+                await this.update_tab_info(btab);
+
+                if (btab.active) {
+                    win.active = tab.bid;
                 }
             }
         }
