@@ -1583,7 +1583,7 @@ class App {
 
                             const effect = this.remove_node_and_reparent_children(node.bid);;
                             if (!win.closed) {
-                                effects.push_back({ type: "tabs_closed", payload: { tids: [effect.payload.browser_id as TabId] } });
+                                effects.push_back(effect);
                             }
                         }
                     } break;
@@ -1736,7 +1736,11 @@ class App {
                 }
             } break;
             case 'node_removed': {
-                throw new Error(`unreachable ${effect.type} in _process_effect`);
+                if (effect.payload.node.type == "window") {
+                    await browser.windows.remove(effect.payload.browser_id);
+                } else {
+                    await browser.tabs.remove(effect.payload.browser_id);
+                }
             } break;
             case 'tab_created': {
                 const node = this.get_tab(effect.payload.bid);
