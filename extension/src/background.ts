@@ -706,6 +706,9 @@ class App {
     remove_node(bid: BruhId) {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
+        if (node.type !== "window") {
+            this.remove_tab_from_window(node.bid, node.wbid);
+        }
         this.nodes.delete(bid);
         this.tab_name_cache.delete(bid);
         const tid = this.tab_ids.get(bid);
@@ -1537,7 +1540,7 @@ class App {
 
                             const effect = this.remove_node_and_reparent_children(node.bid);;
                             if (!win.closed) {
-                                effects.push_back(effect);
+                                effects.push_back({ type: "tabs_closed", payload: { tids: [effect.payload.browser_id as TabId] } });
                             }
                         }
                     } break;
