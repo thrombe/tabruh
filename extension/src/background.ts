@@ -1210,12 +1210,13 @@ class App {
                     return;
                 }
                 const wbid = this.window_bids.get(btab.windowId as WindowId)!;
+                const pid = (btab.openerTabId !== undefined ? this.tab_bids.get(btab.openerTabId as TabId) : undefined) ?? wbid;
 
                 let effect;
                 if (this.is_group_tab(btab)) {
-                    effect = this.create_new_group(wbid, { index: btab.index });
+                    effect = this.create_new_group(pid, { index: btab.index });
                 } else {
-                    effect = this.create_new_tab(wbid, { index: btab.index, url: btab.url, title: btab.title });
+                    effect = this.create_new_tab(pid, { index: btab.index, url: btab.url, title: btab.title });
                 }
                 const tbid = effect.payload.bid;
                 await this.register_btab(btab, tbid);
