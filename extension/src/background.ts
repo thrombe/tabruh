@@ -593,6 +593,7 @@ class App {
             // win.active remains same
         }
 
+        tab.wbid = wbid;
         win.tab_bids.splice(index, 0, tbid);
     }
 
@@ -732,16 +733,16 @@ class App {
 
     reparent_node(bid: BruhId, new_parent_bid: BruhId, index?: number) {
         const node = this.get_node(bid);
-        node.parent_bid = new_parent_bid;
-
         const parent = this.get_node(new_parent_bid);
         if (index === undefined) {
             index = this.get_target_index(node.bid, parent.bid, "inside").index;
         }
         const tbids_to_move = this.get_subtree(node.bid);
+
+        node.parent_bid = new_parent_bid;
         for (let i = 0; i < tbids_to_move.length; i++) {
             const tbid = tbids_to_move[i]!;
-            this.add_tab_to_window(node.bid, parent.wbid, index + i);
+            this.add_tab_to_window(tbid, parent.wbid, index + i);
         }
 
         return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
