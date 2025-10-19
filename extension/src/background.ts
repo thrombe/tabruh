@@ -851,6 +851,10 @@ class App {
                 name: { ...root_node.name },
                 hgid,
             });
+            if (root_node.active) {
+                const new_win = this.get_window(new_window_effect.payload.wbid);
+                new_win.active = new_ids.get(root_node.active)!;
+            }
             subtree = subtree.slice(1);
         }
 
