@@ -1141,6 +1141,14 @@ class App {
             // NOTE: if non_pristine_restore is non-null, we have a complete window restore case - else it's a bunch of tabs being restored on a existing window
             if (non_pristine_restore) {
                 non_pristine_restore.left_to_restore.delete(old_bid);
+                // TODO: this will leak if
+                //  - window closed
+                //  - extension disabled
+                //  - window restored
+                //  - tabs edited
+                //  - window closed
+                //  - extension enabled
+                //  - window restored (via browser)
                 if (non_pristine_restore.left_to_restore.size == 0) {
                     this.pre_allocated_bids_for_non_pristine_restore.delete(win.bid);
                     win.is_archived_pristine = undefined;
@@ -1260,81 +1268,101 @@ class App {
             }
         }
 
-        // we create completely new windows here
-        for (const bwin of bwins) {
-            if (old_wbids.has(bwin.id as WindowId)) continue;
-            let new_win_effect = this.create_new_window({});
-            await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
-        }
-
+        const new_tabs_to_reparent_via_opener_id = new Set();
+        const closed_windows_to_preserve: BruhId[] = [];
         // in this pass we try to restore only the windows that were open/closed+pristine, because the non-pristine closed windows
         // can only be restored by the extension
         for (const bwin of bwins) {
             const old_wbid = old_wbids.get(bwin.id as WindowId);
-            if (!old_wbid) continue;
-            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
-            if (!node || (node.closed && !node.is_archived_pristine)) continue;
-            await this.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
-        }
-
-        // windows that were restored via the browser restore api after the state for it was deleted
-        for (const bwin of bwins) {
-            const old_wbid = old_wbids.get(bwin.id as WindowId);
-            if (!old_wbid) continue;
-            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
-            if (node) continue;
-            await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
-        }
-
-        for (const bwin of bwins) {
-            const old_wbid = old_wbids.get(bwin.id as WindowId);
-            if (!old_wbid) continue;
-            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
-            if (!node || (node.closed && node.is_archived_pristine)) continue;
-            // TODO: move over all state for thiese windows
-        }
-
-        let new_window_bids: Map<WindowId, BruhId> = new Map();
-        let new_tab_bids: Map<TabId, BruhId> = new Map();
-        for (const bwin of bwins) {
-            const wbid = this.bruhid++ as BruhId;
-            new_window_bids.set(bwin.id as WindowId, wbid);
-            await this.register_bwindow(bwin.id as WindowId, wbid);
-
-            for (const btab of bwin.tabs!) {
-                const tbid = this.bruhid++ as BruhId;
-                new_tab_bids.set(btab.id as TabId, tbid);
-                await this.register_btab(btab, tbid);
-            }
-        }
-
-        // TODO: save, load state and use it here to revive and stuff
-        for (const bwin of bwins) {
-            // const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
-            const new_win_effect = this.create_new_window({ bid: new_window_bids.get(bwin.id as WindowId)! });
-            const win = this.get_window(new_win_effect.payload.wbid);
-
-            for (const btab of bwin.tabs!) {
-                // const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
-                const pbid = (btab.openerTabId !== undefined ? new_tab_bids.get(btab.openerTabId as TabId) : undefined) ?? win.bid;
-                let tab;
-                if (this.is_group_tab(btab)) {
-                    const new_tab_effect = this.create_new_group(pbid, { bid: new_tab_bids.get(btab.id as TabId)!, index: btab.index });
-                    tab = this.get_tab(new_tab_effect.payload.bid);
+            if (!old_wbid) {
+                // we create completely new windows here
+                let new_win_effect = this.create_new_window({});
+                await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+            } else {
+                const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
+                if (!node) {
+                    // windows that were restored via the browser restore api after the state for it was deleted
+                    await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
                 } else {
-                    const new_tab_effect = this.create_new_tab(pbid, {
-                        bid: new_tab_bids.get(btab.id as TabId)!,
-                        url: btab.url,
-                        title: btab.title ?? "Untitled",
-                        index: btab.index,
-                    });
-                    tab = this.get_tab(new_tab_effect.payload.bid);
+                    if (!node.is_archived_pristine) {
+                        // move over all state for these nodes after tab restoration
+                        closed_windows_to_preserve.push(old_wbid);
+                    }
+                    await this.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
                 }
-                await this.update_tab_info(btab);
+            }
 
+            // TODO: MAYBE: there's probably a subtle bug somewhere in here,
+            //    where a non-pristine/pristine restored tab is moved to a pristine/non-pristine restored window,
+            //    and the restore logic explodes
+            // NOTE tho:
+            //  - we never can do a pristine restore here cuz this.nodes does not contain a window with .is_archived_pristine = true
+            const win = this.get_window(this.window_bids.get(bwin.id as WindowId)!);
+            for (const btab of bwin.tabs!) {
+                const old_tbid = old_tbids.get(btab.id as TabId);
+                if (!old_tbid) {
+                    if (btab.openerTabId !== undefined) {
+                        new_tabs_to_reparent_via_opener_id.add(btab.id!);
+                    }
+                    let tab;
+                    if (this.is_group_tab(btab)) {
+                        const new_tab_effect = this.create_new_group(win.bid, { index: btab.index });
+                        tab = this.get_tab(new_tab_effect.payload.bid);
+                    } else {
+                        const new_tab_effect = this.create_new_tab(win.bid, {
+                            url: btab.url,
+                            title: btab.title ?? "Untitled",
+                            index: btab.index,
+                        });
+                        tab = this.get_tab(new_tab_effect.payload.bid);
+                    }
+                    await this.register_btab(btab, tab.bid);
+                    await this.update_tab_info(btab);
+                } else {
+                    const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
+                    if (!node) {
+                        await this.restore_tab(btab, old_tbid, this.browser_restore_cache);
+                    } else {
+                        await this.restore_tab(btab, old_tbid, state.node_storage_data);
+                    }
+                }
+
+                const tab = this.get_tab(this.tab_bids.get(btab.id as TabId)!);
                 if (btab.active) {
                     win.active = tab.bid;
                 }
+            }
+        }
+
+        for (const [wbid, data] of this.pre_allocated_bids_for_non_pristine_restore.entries()) {
+            this.pre_allocated_bids_for_non_pristine_restore.delete(wbid);
+            const win = this.get_window(wbid);
+            win.is_archived_pristine = undefined;
+        }
+
+        for (const tid of new_tabs_to_reparent_via_opener_id) {
+            for (const bwin of bwins) {
+                for (const btab of bwin.tabs!) {
+                    if (btab.id !== tid) {
+                        const bid = this.tab_bids.get(tid as TabId)!;
+                        const node = this.get_node(bid);
+                        if (!this.tab_bids.has(btab.openerTabId! as TabId)) {
+                            break;
+                        }
+                        const pbid = this.tab_bids.get(btab.openerTabId as TabId)!;
+                        this.reparent_node(node.bid, pbid);
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (const wbid of closed_windows_to_preserve) {
+            const wnode = state.nodes.get(wbid)! as Extract<Node, { type: "window" }>;
+            this.nodes.set(wnode.bid, wnode);
+            for (const tbid of wnode.tab_bids) {
+                const tnode = state.nodes.get(tbid)! as Exclude<Node, { type: "window" }>;
+                this.nodes.set(tnode.bid, tnode);
             }
         }
     }
