@@ -47,6 +47,7 @@ class App {
 
     config: Config;
     user_config: UserConfig;
+    extension_version: string;
     bruh_session_key: string;
     bruhid: BruhId = 1 as BruhId;
     hierarchy_generation_id: HierarchyGenerationId = 1 as HierarchyGenerationId;
@@ -77,6 +78,9 @@ class App {
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     constructor() {
+        const version = manifest["version"];
+        this.extension_version = version;
+
         const session_values = browser.sessions.setWindowValue !== undefined;
         this.config = {
             dbg: {
@@ -108,8 +112,8 @@ class App {
     }
 
     static async init() {
-        const plugin_version = manifest["version"];
-        console.log(`tabruh loaded: v${plugin_version}`);
+        const version = manifest["version"];
+        console.log(`tabruh loaded: v${version}`);
 
         let self = new App();
         await self.init_tree();
@@ -927,6 +931,7 @@ class App {
         }
 
         const state_to_save: StorageState = {
+            state_version: this.extension_version,
             bruh_session_key: this.bruh_session_key,
             bruhid: this.bruhid,
             hgid: this.hierarchy_generation_id,
@@ -953,6 +958,7 @@ class App {
                 browser_restore_cache.set(bid, storage);
             }
             return {
+                state_version: this.extension_version,
                 bruh_session_key: this.bruh_session_key,
                 bruhid: this.bruhid,
                 hierarchy_generation_id: this.hierarchy_generation_id,
@@ -982,6 +988,7 @@ class App {
 
 
         return {
+            state_version: state.state_version,
             bruh_session_key: state.bruh_session_key,
             bruhid: state.bruhid,
             hierarchy_generation_id: state.hgid,
