@@ -913,10 +913,12 @@ class App {
     }
 
     async save_state() {
-        const nodes: Record<string, NodeStorageData> = {};
+        const nodes: Record<string, Node> = {};
+        const node_storage: Record<string, NodeStorageData> = {};
         for (const [bid, node] of this.nodes.entries()) {
             const storage = this.get_node_storage_data(bid);
-            nodes[bid.toString()] = storage;
+            node_storage[bid.toString()] = storage;
+            nodes[bid.toString()] = node;
         }
 
         const cache: Record<string, NodeStorageData> = {};
@@ -928,7 +930,8 @@ class App {
             bruh_session_key: this.bruh_session_key,
             bruhid: this.bruhid,
             hgid: this.hierarchy_generation_id,
-            nodes,
+            nodes: nodes,
+            node_storage_data: node_storage,
             browser_restore_cache: cache,
         };
         await browser.storage.local.set({ [this.storage_key]: state_to_save });
@@ -937,23 +940,55 @@ class App {
     async load_state() {
         const result = await browser.storage.local.get(this.storage_key);
         const state = result[this.storage_key] as StorageState;
-        if (!state) return;
-
-        this.bruh_session_key = state.bruh_session_key;
-        this.bruhid = state.bruhid;
-        this.hierarchy_generation_id = state.hgid;
-
-        const cache = state.browser_restore_cache;
-        for (const bstrid in cache) {
-            const bid = Number(bstrid) as BruhId;
-            this.browser_restore_cache.set(bid, cache[bstrid]!);
+        if (!state) {
+            const nodes: Map<BruhId, Node> = new Map();
+            const node_storage: Map<BruhId, NodeStorageData> = new Map();
+            for (const [bid, node] of this.nodes.entries()) {
+                const storage = this.get_node_storage_data(bid);
+                node_storage.set(bid, storage);
+                nodes.set(bid, node);
+            }
+            const browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
+            for (const [bid, storage] of this.browser_restore_cache.entries()) {
+                browser_restore_cache.set(bid, storage);
+            }
+            return {
+                bruh_session_key: this.bruh_session_key,
+                bruhid: this.bruhid,
+                hierarchy_generation_id: this.hierarchy_generation_id,
+                nodes: nodes,
+                node_storage_data: node_storage,
+                browser_restore_cache: this.browser_restore_cache,
+            };
         }
 
-        const nodes = state.nodes;
-        for (const bstrid in nodes) {
+        const cache: Map<BruhId, NodeStorageData> = new Map();
+        for (const bstrid in state.browser_restore_cache) {
             const bid = Number(bstrid) as BruhId;
-            // TODO: do something with nodes here?
+            cache.set(bid, state.browser_restore_cache[bstrid]!);
         }
+
+        const nodes: Map<BruhId, Node> = new Map();
+        for (const bstrid in state.nodes) {
+            const bid = Number(bstrid) as BruhId;
+            nodes.set(bid, state.nodes[bstrid]!);
+        }
+
+        const node_storage: Map<BruhId, NodeStorageData> = new Map();
+        for (const bstrid in state.node_storage_data) {
+            const bid = Number(bstrid) as BruhId;
+            node_storage.set(bid, state.node_storage_data[bstrid]!);
+        }
+
+
+        return {
+            bruh_session_key: state.bruh_session_key,
+            bruhid: state.bruhid,
+            hierarchy_generation_id: state.hgid,
+            nodes: nodes,
+            node_storage_data: node_storage,
+            browser_restore_cache: cache,
+        };
     }
 
     async write_session_pointer(bid: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
@@ -1050,9 +1085,9 @@ class App {
         await this.write_session_pointer(bid, btab.id as TabId, "tab");
     }
 
-    async restore_window(wid: WindowId, old_bid: BruhId) {
-        const cache = this.browser_restore_cache.get(old_bid);
-        this.browser_restore_cache.delete(old_bid);
+    async restore_window(wid: WindowId, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid);
+        restore_cache.delete(old_bid);
         if (!cache || cache.type !== "window") {
             throw new Error(`wrong cache for window bid: ${old_bid} tid: ${wid}`);
         }
@@ -1086,9 +1121,9 @@ class App {
         }
     }
 
-    async restore_tab(btab: browser.Tabs.Tab, old_bid: BruhId) {
-        const cache = this.browser_restore_cache.get(old_bid);
-        this.browser_restore_cache.delete(old_bid);
+    async restore_tab(btab: browser.Tabs.Tab, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid);
+        restore_cache.delete(old_bid);
         if (!cache || cache.type === "window") {
             throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.id}`);
         }
@@ -1140,7 +1175,7 @@ class App {
 
             // for parent reclamation, either the parent is not yet restored, or the parent is restored. (in no case can it just not be restored)
             const pid = new_ids.get(cache.parent_bid) ?? cache.parent_bid;
-            if (this.nodes.has(pid)) {
+            if (this.nodes.has(pid) && win.tab_bids.indexOf(pid) >= 0) {
                 tab.parent_bid = pid;
             }
 
@@ -1157,7 +1192,7 @@ class App {
             // child reclamation
             for (const _child_id of cache.children_bids) {
                 const child_id = new_ids.get(_child_id) ?? _child_id;
-                if (this.nodes.has(child_id)) {
+                if (this.nodes.has(child_id) && win.tab_bids.indexOf(child_id) >= 0) {
                     const child_node = this.get_tab(child_id);
                     // only restore if the archieve was done after this child was repositioned manually
                     if (child_node.hgid <= cache.cache_hgid) {
@@ -1169,9 +1204,95 @@ class App {
     }
 
     async init_tree() {
-        // TODO: fix
-        // await this.load_state();
+        const state = await this.load_state();
+        this.bruh_session_key = state.bruh_session_key;
+        this.bruhid = state.bruhid;
+        this.hierarchy_generation_id = state.hierarchy_generation_id;
+        this.browser_restore_cache = state.browser_restore_cache;
+
+        // need to take care of quite a few cases here
+        // - this code runs as soon as the browser starts (like before user clicks "restore last session")
+        //   (what happens to the "restore last session" window/tab)
+        //   - no windows/tabs exist (maybe just the "restore last session" ones?)
+        //   - so we can just mark all alive windows dead, save the browserrestorecache for safekeeping
+        //     and let the restore mechanism take care of initializing the windows/tabs
+        // - user disables/enables the extension.
+        //   - windows/tabs already exist. so the browser.* calls below will have some windows/tabs
+        //   - the state can be pretty stale here, a bunch of tabs that we think are alive might have been closed
+        //     and a bunch of new tabs might be opened.
+        //   - we can't do the "pristine" restores now.
+        //     - what could work is to never try pristine restores.
+        //     - we have the restore_cache-like state for all nodes, and we just do non-pristine restores, first from
+        //       this special cache, if not there, from the browser_restore_cache.
+        //     - but here, we need to somehow preserve the closed nodes (that are not restored)
+        //       and keep the 'alive' nodes that went missing as closed
+        //     - so i'll just do a smol trick here, and just
+        //       - mark the missing windows closed
+        //       - the 'alive' windows that are still alive will just lose/gain tabs
+        //       - for some closed window that gets restored, we just pretend to restore it in a non-pristine way
+
+        // plan:
+        // - what do pre_allocated_bids_for_non_pristine_restore?
+        //   if some tabs are missing, the entry in this map will persist, even though all tabs in the actual window are restored
+        //   - huh?
+        //     - clear cache.tab_bids to [] when restoring a window (to make sure pre_allocated_bids_for_non_pristine_restore is empty)
+        //     - when 'restoring', pass the new_bid instead of the old one, and make sure the cache has the new bids everywhere?
+        //   - huhh?
+        //     - just restore like usual
+        //     - clear pre_allocated_bids_for_non_pristine_restore to `new Map()`
+        //     - set win.is_archived_pristine to undefined for those windows still in here.
+
         let bwins = await browser.windows.getAll({ populate: true, windowTypes: ['normal'] });
+
+        // collect old ids
+        const old_tbids = new Map();
+        const old_wbids = new Map();
+        for (const bwin of bwins) {
+            const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
+            if (old_wbid) {
+                old_wbids.set(bwin.id as WindowId, old_wbid);
+            }
+            for (const btab of bwin.tabs!) {
+                const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
+                if (old_tbid) {
+                    old_tbids.set(btab.id as TabId, old_tbid);
+                }
+            }
+        }
+
+        // we create completely new windows here
+        for (const bwin of bwins) {
+            if (old_wbids.has(bwin.id as WindowId)) continue;
+            let new_win_effect = this.create_new_window({});
+            await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+        }
+
+        // in this pass we try to restore only the windows that were open/closed+pristine, because the non-pristine closed windows
+        // can only be restored by the extension
+        for (const bwin of bwins) {
+            const old_wbid = old_wbids.get(bwin.id as WindowId);
+            if (!old_wbid) continue;
+            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
+            if (!node || (node.closed && !node.is_archived_pristine)) continue;
+            await this.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
+        }
+
+        // windows that were restored via the browser restore api after the state for it was deleted
+        for (const bwin of bwins) {
+            const old_wbid = old_wbids.get(bwin.id as WindowId);
+            if (!old_wbid) continue;
+            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
+            if (node) continue;
+            await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
+        }
+
+        for (const bwin of bwins) {
+            const old_wbid = old_wbids.get(bwin.id as WindowId);
+            if (!old_wbid) continue;
+            const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
+            if (!node || (node.closed && node.is_archived_pristine)) continue;
+            // TODO: move over all state for thiese windows
+        }
 
         let new_window_bids: Map<WindowId, BruhId> = new Map();
         let new_tab_bids: Map<TabId, BruhId> = new Map();
@@ -1226,14 +1347,14 @@ class App {
                 if (!this.window_bids.has(btab.windowId as WindowId)) {
                     const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
                     if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                        await this.restore_window(btab.windowId as WindowId, old_wbid);
+                        await this.restore_window(btab.windowId as WindowId, old_wbid, this.browser_restore_cache);
                     } else {
                         let _ = this.create_new_window({});
                     }
                 }
                 const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
                 if (old_bid && this.browser_restore_cache.has(old_bid)) {
-                    await this.restore_tab(btab, old_bid);
+                    await this.restore_tab(btab, old_bid, this.browser_restore_cache);
                     return;
                 }
                 if (this.tab_bids.has(btab.id as TabId)) {
@@ -1311,7 +1432,7 @@ class App {
 
                 const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
                 if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                    await this.restore_window(bwin.id as WindowId, old_wbid);
+                    await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
                 } else {
                     let _ = this.create_new_window({});
                 }

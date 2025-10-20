@@ -12,7 +12,8 @@ export type StorageState = {
     bruh_session_key: string,
     bruhid: BruhId,
     hgid: HierarchyGenerationId,
-    nodes: Record<string, NodeStorageData>,
+    nodes: Record<string, Node>,
+    node_storage_data: Record<string, NodeStorageData>,
     browser_restore_cache: Record<string, NodeStorageData>,
 };
 
