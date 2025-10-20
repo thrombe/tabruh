@@ -785,7 +785,7 @@ class App {
         return effect;
     }
 
-    create_new_tab(parent_bid: BruhId, options: { bid?: BruhId, url?: string, title?: string, hgid?: HierarchyGenerationId, index?: number }) {
+    create_new_tab(parent_bid: BruhId, options: { bid?: BruhId, url?: string, title?: string, hgid?: HierarchyGenerationId, index?: number, collapsed?: boolean }) {
         const bid = options.bid ?? this.bruhid++ as BruhId;
         const parent = this.get_node(parent_bid);
         const win = this.get_window(parent.wbid);
@@ -798,7 +798,7 @@ class App {
             wbid: parent.wbid,
             hgid: options.hgid ?? this.increment_hgid(),
             type: "tab",
-            collapsed: false,
+            collapsed: options.collapsed ?? false,
             discarded: true,
             title: options.title ?? "New Tab",
             fav_icon_url: undefined,
@@ -809,7 +809,7 @@ class App {
         return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
     }
 
-    create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, index?: number }) {
+    create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, index?: number, collapsed?: boolean }) {
         const bid = options.bid ?? this.bruhid++ as BruhId;
         const parent = this.get_node(parent_bid);
         const win = this.get_window(parent.wbid);
@@ -820,7 +820,7 @@ class App {
             wbid: parent.wbid,
             hgid: options.hgid ?? this.increment_hgid(),
             type: "group",
-            collapsed: false,
+            collapsed: options.collapsed ?? false,
             discarded: true,
             name: options.name ?? { name: this.generate_unique_group_name(), generation: bid, is_custom: false },
         };
@@ -888,6 +888,7 @@ class App {
                     title: node.title,
                     index: i,
                     hgid,
+                    collapsed: node.collapsed,
                 });
                 new_tab_effects.push(new_node);
             } else if (node.type == "group" || (node.type == "window" && pid !== 0)) {
@@ -896,6 +897,7 @@ class App {
                     name: { ...node.name },
                     index: i,
                     hgid,
+                    collapsed: node.collapsed,
                 });
                 new_tab_effects.push(new_node);
             } else throw new Error(`cannot handle 'window' here bid: ${bid}`);
@@ -1118,6 +1120,7 @@ class App {
                     bid,
                     hgid: cache.hgid,
                     name: cache.group_name,
+                    collapsed: cache.collapsed,
                 });
             } else {
                 let _ = this.create_new_tab(win.bid, {
@@ -1125,6 +1128,7 @@ class App {
                     hgid: cache.hgid,
                     url: cache.url,
                     title: cache.title,
+                    collapsed: cache.collapsed,
                 });
                 if (cache.cached_group_name) {
                     this.tab_name_cache.set(bid, cache.cached_group_name);
