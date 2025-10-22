@@ -2083,14 +2083,6 @@ class App {
 };
 
 async function main() {
-    let app = await App.init();
-    await app.attach_listeners();
-    await app.init_tree();
-    let _ = app.process_events();
-
-    // @ts-ignore
-    globalThis.app = app;
-
     browser.runtime.onInstalled.addListener(async () => {
         browser.menus.create({
             id: "open-overview",
@@ -2119,6 +2111,14 @@ async function main() {
             });
         }
     });
+
+    let app = await App.init();
+    // @ts-ignore
+    globalThis.app = app;
+
+    await app.attach_listeners();
+    await app.init_tree();
+    await app.process_events();
 }
 
 main()
