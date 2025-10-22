@@ -25,11 +25,6 @@ import * as utils from './utils';
 import manifest from './manifest.jsonc';
 
 type Config = {
-    dbg: {
-        reset_state_on_load: boolean,
-        log_events: boolean,
-        log_effects: boolean,
-    },
     available_apis: {
         session_values: boolean,
     },
@@ -38,11 +33,13 @@ type Config = {
     },
 };
 type UserConfig = {
+    dbg_reset_state_on_load: boolean,
+    dbg_log_events: boolean,
+    dbg_log_effects: boolean,
     open_sidebar_on_new_windows: boolean,
 };
 type ConfigStorage = {
     config_version: string,
-    config: Config,
     user_config: UserConfig,
 };
 
@@ -87,11 +84,6 @@ class App {
 
         const session_values = browser.sessions.setWindowValue !== undefined;
         this.config = {
-            dbg: {
-                reset_state_on_load: false,
-                log_events: true,
-                log_effects: true,
-            },
             available_apis: {
                 session_values: session_values,
             },
@@ -101,6 +93,9 @@ class App {
         };
 
         this.user_config = {
+            dbg_reset_state_on_load: false,
+            dbg_log_events: true,
+            dbg_log_effects: true,
             open_sidebar_on_new_windows: false,
         };
 
@@ -124,6 +119,30 @@ class App {
                 title: "Overview Page",
                 contexts: ["browser_action"],
             });
+            browser.menus.create({
+                id: "clear-state",
+                title: "Clear state",
+                contexts: ["all"],
+            });
+            browser.menus.create({
+                id: "clear-config",
+                title: "Clear config",
+                contexts: ["all"],
+            });
+
+            for (const key in this.user_config) {
+                // @ts-ignore
+                const val = this.user_config[key];
+                if (typeof val === "boolean") {
+                    browser.menus.create({
+                        id: key,
+                        type: "checkbox",
+                        title: {}[key] ?? key,
+                        contexts: ["all"],
+                        checked: val,
+                    });
+                }
+            }
         });
         browser.menus.onClicked.addListener(async (info, tab) => {
             switch (info.menuItemId) {
@@ -132,8 +151,28 @@ class App {
                         url: browser.runtime.getURL("overview.html"),
                     });
                 } break;
+                case "clear-state": {
+                    await browser.storage.local.remove(this.storage_state_key);
+                } break;
+                case "clear-config": {
+                    await browser.storage.local.remove(this.storage_config_key);
+                } break;
                 default:
-                    console.error("unknown menu item id " + info.menuItemId);
+                    console.warn("unknown menu item id " + info.menuItemId);
+            }
+
+            for (const key in this.user_config) {
+                if (key != info.menuItemId) continue;
+                // @ts-ignore
+                this.user_config[key] = !this.user_config[key];
+            }
+
+            for (const key in this.user_config) {
+                if (key != info.menuItemId) continue;
+                await browser.menus.update(key, {
+                    // @ts-ignore
+                    checked: this.user_config[key],
+                });
             }
         });
 
@@ -411,7 +450,7 @@ class App {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
 
-            if (this.config.dbg.log_events) {
+            if (this.user_config.dbg_log_events) {
                 this._log_event(event);
             }
 
@@ -428,7 +467,7 @@ class App {
             const effect = effects.pop_front();
             if (!effect) break;
 
-            if (this.config.dbg.log_effects) {
+            if (this.user_config.dbg_log_effects) {
                 this._log_effect(effect);
             }
             await this._process_effect(effects, effect).catch(console.error);
@@ -985,7 +1024,6 @@ class App {
         if (!config) {
             return {
                 config_version: this.extension_version,
-                config: { ...this.config },
                 user_config: { ...this.user_config },
             };
         } else {
@@ -1272,10 +1310,9 @@ class App {
     async init_tree() {
         const config = await this.load_config();
         // TODO: some way to easily migrate using `config.config_version`
-        this.config = config.config;
         this.user_config = config.user_config;
 
-        if (this.config.dbg.reset_state_on_load) {
+        if (this.user_config.dbg_reset_state_on_load) {
             return;
         }
         const state = await this.load_state();
