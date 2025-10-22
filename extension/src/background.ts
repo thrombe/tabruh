@@ -67,9 +67,8 @@ class App {
         ids: Map<BruhId, BruhId>,
         left_to_restore: Set<BruhId>,
     }> = new Map();
-
-    // TODO:
-    forget_bids: Set<BruhId> = new Set();
+    forget_tids: Set<TabId> = new Set();
+    forget_wids: Set<WindowId> = new Set();
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_key = "tabruh-app-state";
@@ -1504,7 +1503,21 @@ class App {
                 // nothing to do
             } break;
             case 'sessions_changed': {
-                // nothing to do
+                const sessions = await browser.sessions.getRecentlyClosed();
+                for (let session of sessions) {
+                    if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
+                        if (this.forget_tids.has(session.tab.id as TabId)) {
+                            this.forget_tids.delete(session.tab.id as TabId);
+                            await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
+                        }
+                    }
+                    if (session.window && session.window.id !== undefined && session.window.sessionId !== undefined) {
+                        if (this.forget_wids.has(session.window.id as WindowId)) {
+                            this.forget_wids.delete(session.window.id as WindowId);
+                            await browser.sessions.forgetClosedWindow(session.window.sessionId);
+                        }
+                    }
+                }
             } break;
             case 'port_message': {
                 const msg = event.payload.message;
@@ -1623,14 +1636,18 @@ class App {
                                 // if tab: reparent node
 
                                 // close tree
-
                                 if (node.type == 'window') {
                                     if (wid === undefined) {
                                         throw new Error(`non-null wid expected here`);
                                     }
+                                    this.forget_wids.add(wid);
                                     effects.push_back({ type: 'window_closed', payload: { wid: wid } });
                                 } else {
-                                    effects.push_back({ type: 'tabs_closed', payload: { tids: moved_tbids.map(tbid => this.tab_ids.get(tbid)!) } });
+                                    const moved_tids = moved_tbids.map(tbid => this.tab_ids.get(tbid)!);
+                                    for (const tid of moved_tids) {
+                                        this.forget_tids.add(tid);
+                                    }
+                                    effects.push_back({ type: 'tabs_closed', payload: { tids: moved_tids } });
                                 }
                             } else if (!source_is_closed && !target_is_closed) {
                                 // if window: create group, reparent children, remove window
