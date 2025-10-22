@@ -1320,7 +1320,23 @@ class App {
             const win = this.get_window(this.window_bids.get(bwin.id as WindowId)!);
             for (const btab of bwin.tabs!) {
                 const old_tbid = old_tbids.get(btab.id as TabId);
-                if (!old_tbid) {
+                let needs_new_tab = false;
+                if (old_tbid) {
+                    const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
+                    if (!node) {
+                        if (this.browser_restore_cache.has(old_tbid)) {
+                            await this.restore_tab(btab, old_tbid, this.browser_restore_cache);
+                        } else {
+                            needs_new_tab = true;
+                        }
+                    } else {
+                        await this.restore_tab(btab, old_tbid, state.node_storage_data);
+                    }
+                } else {
+                    needs_new_tab = true;
+                }
+
+                if (needs_new_tab) {
                     if (btab.openerTabId !== undefined) {
                         new_tabs_to_reparent_via_opener_id.add(btab.id!);
                     }
@@ -1338,13 +1354,6 @@ class App {
                     }
                     await this.register_btab(btab, tab.bid);
                     await this.update_tab_info(btab);
-                } else {
-                    const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
-                    if (!node) {
-                        await this.restore_tab(btab, old_tbid, this.browser_restore_cache);
-                    } else {
-                        await this.restore_tab(btab, old_tbid, state.node_storage_data);
-                    }
                 }
 
                 const tab = this.get_tab(this.tab_bids.get(btab.id as TabId)!);
