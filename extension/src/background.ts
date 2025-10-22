@@ -124,11 +124,6 @@ class App {
                 title: "Clear state",
                 contexts: ["all"],
             });
-            browser.menus.create({
-                id: "clear-config",
-                title: "Clear config",
-                contexts: ["all"],
-            });
 
             for (const key in this.user_config) {
                 // @ts-ignore
@@ -152,10 +147,8 @@ class App {
                     });
                 } break;
                 case "clear-state": {
-                    await browser.storage.local.remove(this.storage_state_key);
-                } break;
-                case "clear-config": {
                     await browser.storage.local.remove(this.storage_config_key);
+                    await browser.storage.local.remove(this.storage_state_key);
                 } break;
                 default:
                     console.warn("unknown menu item id " + info.menuItemId);
@@ -1031,9 +1024,9 @@ class App {
         }
     }
 
-    async load_state() {
-        const result = await browser.storage.local.get(this.storage_state_key);
-        const state = result[this.storage_state_key] as StorageState;
+    async load_state(key: string) {
+        const result = await browser.storage.local.get(key);
+        const state = result[key] as StorageState;
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
             const node_storage: Map<BruhId, NodeStorageData> = new Map();
@@ -1312,11 +1305,11 @@ class App {
         // TODO: some way to easily migrate using `config.config_version`
         this.user_config = config.user_config;
 
-        if (this.user_config.dbg_reset_state_on_load) {
-            return;
-        }
-        const state = await this.load_state();
+        let state = await this.load_state(this.storage_state_key);
         // TODO: some way to easily migrate using `state.state_version`
+        if (this.user_config.dbg_reset_state_on_load) {
+            state = await this.load_state("blah");
+        }
         this.bruh_session_key = state.bruh_session_key;
         this.bruhid = state.bruhid;
         this.hierarchy_generation_id = state.hierarchy_generation_id;
