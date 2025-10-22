@@ -84,7 +84,7 @@ class App {
         const session_values = browser.sessions.setWindowValue !== undefined;
         this.config = {
             dbg: {
-                reset_state_on_load: true,
+                reset_state_on_load: false,
                 log_events: true,
                 log_effects: true,
             },
@@ -941,6 +941,10 @@ class App {
         await browser.storage.local.set({ [this.storage_key]: state_to_save });
     }
 
+    async delete_state() {
+        await browser.storage.local.remove(this.storage_key);
+    }
+
     async load_state() {
         const result = await browser.storage.local.get(this.storage_key);
         const state = result[this.storage_key] as StorageState;
@@ -1274,8 +1278,14 @@ class App {
             }
         }
 
+        const windows_to_preserve: Set<BruhId> = new Set();
+        for (const [bid, node] of state.nodes.entries()) {
+            if (node.type == "window") {
+                windows_to_preserve.add(bid);
+            }
+        }
+
         const new_tabs_to_reparent_via_opener_id = new Set();
-        const closed_windows_to_preserve: BruhId[] = [];
         // in this pass we try to restore only the windows that were open/closed+pristine, because the non-pristine closed windows
         // can only be restored by the extension
         for (const bwin of bwins) {
@@ -1290,9 +1300,14 @@ class App {
                     // windows that were restored via the browser restore api after the state for it was deleted
                     await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
                 } else {
-                    if (!node.is_archived_pristine) {
-                        // move over all state for these nodes after tab restoration
-                        closed_windows_to_preserve.push(old_wbid);
+                    // windows that are open/closed, but still in state
+                    if (node.is_archived_pristine) {
+                        // we don't copy over anything that was 'pristine', and the window for it was restored
+                        windows_to_preserve.delete(old_wbid);
+                    }
+                    if (!node.closed) {
+                        // no copying over if node wasn't closed and was restored here.
+                        windows_to_preserve.delete(old_wbid);
                     }
                     await this.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
                 }
@@ -1363,8 +1378,12 @@ class App {
             }
         }
 
-        for (const wbid of closed_windows_to_preserve) {
+        for (const wbid of windows_to_preserve) {
             const wnode = state.nodes.get(wbid)! as Extract<Node, { type: "window" }>;
+            if (!wnode.closed) {
+                wnode.closed = true;
+                wnode.is_archived_pristine = true;
+            }
             this.nodes.set(wnode.bid, wnode);
             for (const tbid of wnode.tab_bids) {
                 const tnode = state.nodes.get(tbid)! as Exclude<Node, { type: "window" }>;
