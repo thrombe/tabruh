@@ -116,7 +116,6 @@ class App {
         console.log(`tabruh loaded: v${version}`);
 
         let self = new App();
-        await self.init_tree();
         return self;
     }
 
@@ -2034,6 +2033,7 @@ class App {
 async function main() {
     let app = await App.init();
     await app.attach_listeners();
+    await app.init_tree();
     let _ = app.process_events();
 
     // @ts-ignore
