@@ -40,6 +40,11 @@ type Config = {
 type UserConfig = {
     open_sidebar_on_new_windows: boolean,
 };
+type ConfigStorage = {
+    config_version: string,
+    config: Config,
+    user_config: UserConfig,
+};
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -71,13 +76,13 @@ class App {
     forget_wids: Set<WindowId> = new Set();
 
     private session_pointer_key = "tabruh-bruh-id";
-    private storage_key = "tabruh-app-state";
+    private storage_state_key = "tabruh-app-state";
+    private storage_config_key = "tabruh-app-config";
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
-    constructor() {
-        const version = manifest["version"];
+    constructor(version: string) {
         this.extension_version = version;
 
         const session_values = browser.sessions.setWindowValue !== undefined;
@@ -104,15 +109,44 @@ class App {
         this.bruh_session_key = Math.random().toString();
     }
 
-    static async init() {
+    static init() {
         const version = manifest["version"];
         console.log(`tabruh loaded: v${version}`);
 
-        let self = new App();
+        let self = new App(version);
         return self;
     }
 
-    async attach_listeners() {
+    attach_listeners() {
+        browser.runtime.onInstalled.addListener(async () => {
+            browser.menus.create({
+                id: "open-overview",
+                title: "Overview Page",
+                contexts: ["browser_action"],
+            });
+        });
+        browser.menus.onClicked.addListener(async (info, tab) => {
+            switch (info.menuItemId) {
+                case "open-overview": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("overview.html"),
+                    });
+                } break;
+                default:
+                    console.error("unknown menu item id " + info.menuItemId);
+            }
+        });
+
+        browser.browserAction.onClicked.addListener(async (tab, info) => {
+            if (info?.button == 0) {
+                await browser.sidebarAction.toggle();
+            } else if (info?.button == 1) {
+                await browser.tabs.create({
+                    url: browser.runtime.getURL("overview.html"),
+                });
+            }
+        });
+
         browser.runtime.onConnect.addListener((port) => {
             this.ports.add(port);
 
@@ -931,16 +965,37 @@ class App {
             node_storage_data: node_storage,
             browser_restore_cache: cache,
         };
-        await browser.storage.local.set({ [this.storage_key]: state_to_save });
+        await browser.storage.local.set({ [this.storage_state_key]: state_to_save });
+        await browser.storage.local.set({
+            [this.storage_config_key]: {
+                config_version: this.extension_version,
+                config: this.config,
+                user_config: this.user_config,
+            } as ConfigStorage,
+        });
     }
 
     async delete_state() {
-        await browser.storage.local.remove(this.storage_key);
+        await browser.storage.local.remove(this.storage_state_key);
+    }
+
+    async load_config(): Promise<ConfigStorage> {
+        const result = await browser.storage.local.get(this.storage_config_key);
+        const config = result[this.storage_config_key] as ConfigStorage;
+        if (!config) {
+            return {
+                config_version: this.extension_version,
+                config: { ...this.config },
+                user_config: { ...this.user_config },
+            };
+        } else {
+            return config;
+        }
     }
 
     async load_state() {
-        const result = await browser.storage.local.get(this.storage_key);
-        const state = result[this.storage_key] as StorageState;
+        const result = await browser.storage.local.get(this.storage_state_key);
+        const state = result[this.storage_state_key] as StorageState;
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
             const node_storage: Map<BruhId, NodeStorageData> = new Map();
@@ -1215,10 +1270,16 @@ class App {
     }
 
     async init_tree() {
+        const config = await this.load_config();
+        // TODO: some way to easily migrate using `config.config_version`
+        this.config = config.config;
+        this.user_config = config.user_config;
+
         if (this.config.dbg.reset_state_on_load) {
             return;
         }
         const state = await this.load_state();
+        // TODO: some way to easily migrate using `state.state_version`
         this.bruh_session_key = state.bruh_session_key;
         this.bruhid = state.bruhid;
         this.hierarchy_generation_id = state.hierarchy_generation_id;
@@ -2083,40 +2144,11 @@ class App {
 };
 
 async function main() {
-    browser.runtime.onInstalled.addListener(async () => {
-        browser.menus.create({
-            id: "open-overview",
-            title: "Overview Page",
-            contexts: ["browser_action"],
-        });
-    });
-    browser.menus.onClicked.addListener(async (info, tab) => {
-        switch (info.menuItemId) {
-            case "open-overview": {
-                await browser.tabs.create({
-                    url: browser.runtime.getURL("overview.html"),
-                });
-            } break;
-            default:
-                console.error("unknown menu item id " + info.menuItemId);
-        }
-    });
-
-    browser.browserAction.onClicked.addListener(async (tab, info) => {
-        if (info?.button == 0) {
-            await browser.sidebarAction.toggle();
-        } else if (info?.button == 1) {
-            await browser.tabs.create({
-                url: browser.runtime.getURL("overview.html"),
-            });
-        }
-    });
-
-    let app = await App.init();
+    let app = App.init();
     // @ts-ignore
     globalThis.app = app;
 
-    await app.attach_listeners();
+    app.attach_listeners();
     await app.init_tree();
     await app.process_events();
 }
