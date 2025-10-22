@@ -99,12 +99,6 @@ class App {
             open_sidebar_on_new_windows: false,
         };
 
-        // TODO: use bruh_session_key to do the same thing instead of this.
-        if (this.config.dbg.reset_state_on_load) {
-            this.session_pointer_key += Math.random().toString();
-            this.storage_key += Math.random().toString();
-        }
-
         // just a random number that can uniquely identify the storage data saved by *this* tabruh and not some broken version.
         // TODO: maybe use uuid of some kind
         this.bruh_session_key = Math.random().toString();
@@ -1221,6 +1215,9 @@ class App {
     }
 
     async init_tree() {
+        if (this.config.dbg.reset_state_on_load) {
+            return;
+        }
         const state = await this.load_state();
         this.bruh_session_key = state.bruh_session_key;
         this.bruhid = state.bruhid;
@@ -1512,6 +1509,14 @@ class App {
                 // nothing to do
             } break;
             case 'sessions_changed': {
+                // TODO: completely broken. does not contain ids anywhere. not sure how to even link sessionId to tabs/windows
+                // NOTE: there's no reasonable way to know what tab/window a session belongs to.
+                //  - what is possible tho - is to sort of track the tabs/windows that *just* got closed and match them to newly created sessions.
+                if (true) {
+                    this.forget_tids.clear();
+                    this.forget_wids.clear();
+                }
+
                 const sessions = await browser.sessions.getRecentlyClosed();
                 for (let session of sessions) {
                     if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
