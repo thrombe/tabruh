@@ -1407,7 +1407,8 @@ class App {
                     if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
                         await this.restore_window(btab.windowId as WindowId, old_wbid, this.browser_restore_cache);
                     } else {
-                        let _ = this.create_new_window({});
+                        let new_win_effect = this.create_new_window({});
+                        await this.register_bwindow(btab.windowId as WindowId, new_win_effect.payload.wbid);
                     }
                 }
                 const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
@@ -1492,7 +1493,8 @@ class App {
                 if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
                     await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
                 } else {
-                    let _ = this.create_new_window({});
+                    let new_win_effect = this.create_new_window({});
+                    await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
                 }
             } break;
             case 'window_removed': {
