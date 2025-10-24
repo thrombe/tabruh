@@ -1,0 +1,83 @@
+@import "./styles.css";
+
+body {
+  overflow: hidden;
+  background-color: var(--gruvbox-bg);
+  color: var(--gruvbox-fg);
+}
+
+.settings-container {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  @apply w-48 flex-shrink-0 p-4;
+  background-color: var(--gruvbox-hover-accent);
+  border-right: 1px solid var(--gruvbox-border-2);
+}
+
+.sidebar-button {
+  @apply w-full text-left p-2 rounded-md mb-2 text-lg;
+  background: none;
+  border: none;
+  color: var(--gruvbox-border);
+  cursor: pointer;
+}
+
+.sidebar-button:hover {
+  background-color: var(--gruvbox-hover);
+  color: var(--gruvbox-fg);
+}
+
+.sidebar-button.active {
+  background-color: var(--gruvbox-blue);
+  color: var(--gruvbox-bg);
+  font-weight: bold;
+}
+
+.content {
+  @apply flex-grow p-6 overflow-y-auto;
+  display: flex;
+  flex-direction: row; /* For snapshots view */
+}
+
+/* Settings View */
+.settings-view-container { @apply w-full; }
+.settings-section { @apply mb-8; }
+.settings-title { @apply text-2xl font-bold mb-4 border-b-2; border-color: var(--gruvbox-border-2); padding-bottom: 0.5rem; }
+.setting-item { @apply flex items-center mb-4; }
+.setting-item label { @apply flex-grow text-base; }
+.setting-item input[type="checkbox"] { @apply w-5 h-5; }
+
+/* Snapshots View */
+.snapshots-list-pane {
+  @apply w-80 flex-shrink-0 pr-4 mr-4;
+  border-right: 1px solid var(--gruvbox-border-2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.snapshots-detail-pane {
+  @apply flex-grow overflow-y-auto;
+  height: 100%;
+}
+.snapshots-header { @apply flex items-center justify-between mb-4; }
+.snapshot-item { @apply p-2 rounded-md cursor-pointer mb-2 flex justify-between items-center; }
+.snapshot-item:hover { background-color: var(--gruvbox-hover); }
+.snapshot-item.selected { background-color: var(--gruvbox-hover-accent); }
+.snapshot-name { @apply font-semibold truncate; }
+.snapshot-date { @apply text-xs; color: var(--gruvbox-border); }
+.snapshot-menu-btn { @apply w-6 h-6 rounded flex items-center justify-center; }
+.snapshot-menu-btn:hover { background-color: var(--gruvbox-hover-accent); }
+.no-snapshot-selected { @apply flex items-center justify-center h-full text-xl; color: var(--gruvbox-border); }
+
+.button {
+    @apply px-4 py-2 rounded-md font-semibold;
+    background-color: var(--gruvbox-blue);
+    color: var(--gruvbox-bg);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.button:hover { background-color: #a9b665; }

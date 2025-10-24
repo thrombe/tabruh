@@ -23,28 +23,13 @@ import type {
     StorageState,
     BruhExport,
     SideberryExport,
+    Config,
+    UserConfig,
+    Snapshot,
+    ConfigStorage,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
-
-type Config = {
-    available_apis: {
-        session_values: boolean,
-    },
-    features: {
-        restore_strategy: "SessionsValues" | "SessionHistory",
-    },
-};
-type UserConfig = {
-    dbg_reset_state_on_load: boolean,
-    dbg_log_events: boolean,
-    dbg_log_effects: boolean,
-    open_sidebar_on_new_windows: boolean,
-};
-type ConfigStorage = {
-    config_version: string,
-    user_config: UserConfig,
-};
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
@@ -74,6 +59,8 @@ class App {
     }> = new Map();
     forget_tids: Set<TabId> = new Set();
     forget_wids: Set<WindowId> = new Set();
+
+    snapshots: Snapshot[] = [];
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_state_key = "tabruh-app-state";
@@ -123,6 +110,11 @@ class App {
                 contexts: ["browser_action"],
             });
             browser.menus.create({
+                id: "open-settings",
+                title: "Open Settings",
+                contexts: ["browser_action"],
+            });
+            browser.menus.create({
                 id: "export-state",
                 title: "Export State",
                 contexts: ["browser_action"],
@@ -157,6 +149,11 @@ class App {
                 case "open-overview": {
                     await browser.tabs.create({
                         url: browser.runtime.getURL("overview.html"),
+                    });
+                } break;
+                case "open-settings": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("settings.html"),
                     });
                 } break;
                 case "export-state": {
@@ -372,6 +369,8 @@ class App {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
                     case 'get_all_window_states':
+                    case 'get_user_config':
+                    case 'get_snapshots':
                         break;
 
                     case 'toggle_collapse':
@@ -391,6 +390,11 @@ class App {
                     case 'focus_tab':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -458,6 +462,8 @@ class App {
                     case 'get_all_window_states':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
+                    case 'get_user_config':
+                    case 'get_snapshots':
                         break;
 
                     case 'toggle_collapse':
@@ -475,6 +481,11 @@ class App {
                     case 'create_group':
                     case 'rename_node':
                     case 'focus_tab':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -1138,6 +1149,85 @@ class App {
         return bruhExport;
     }
 
+    create_snapshot(name: string): void {
+        const snapshot: Snapshot = {
+            id: crypto.randomUUID(),
+            name,
+            timestamp: new Date().toISOString(),
+            data: this.get_export_data(),
+        };
+        this.snapshots.push(snapshot);
+    }
+
+    delete_snapshot(id: string): void {
+        this.snapshots = this.snapshots.filter(s => s.id !== id);
+    }
+
+    restore_snapshot_window(id: string, window_index: number): void {
+        const snapshot = this.snapshots.find(s => s.id === id);
+        if (!snapshot) return;
+
+        const windowData = snapshot.data.windows[window_index];
+        if (!windowData) return;
+
+        const singleWindowExport: BruhExport = {
+            ...snapshot.data,
+            windows: [windowData],
+        };
+
+        this.load_export_data(singleWindowExport);
+    }
+
+    restore_snapshot_subtree(id: string, window_index: number, tab_index: number): void {
+        const snapshot = this.snapshots.find(s => s.id === id);
+        if (!snapshot) return;
+
+        const windowData = snapshot.data.windows[window_index];
+        if (!windowData) return;
+
+        const subtreeIndices = new Set<number>();
+        const queue = [tab_index];
+        while (queue.length > 0) {
+            const currentIndex = queue.shift()!;
+            if (subtreeIndices.has(currentIndex)) continue;
+            subtreeIndices.add(currentIndex);
+
+            for (let i = 0; i < windowData.tabs.length; i++) {
+                if (windowData.tabs[i]!.parent_index === currentIndex) {
+                    queue.push(i);
+                }
+            }
+        }
+
+        const sortedSubtreeIndices = Array.from(subtreeIndices).sort((a, b) => a - b);
+        const oldIndexToNewIndex = new Map<number, number>();
+        sortedSubtreeIndices.forEach((oldIndex, newIndex) => {
+            oldIndexToNewIndex.set(oldIndex, newIndex);
+        });
+
+        const subtreeTabs = sortedSubtreeIndices.map(oldIndex => {
+            const tab = { ...windowData.tabs[oldIndex]! };
+            if (tab.parent_index !== null && oldIndexToNewIndex.has(tab.parent_index)) {
+                tab.parent_index = oldIndexToNewIndex.get(tab.parent_index)!;
+            } else {
+                tab.parent_index = null; // Root of the subtree becomes root of the new window
+            }
+            return tab;
+        });
+
+        const rootTabName = windowData.tabs[tab_index]?.title ?? 'Restored Subtree';
+        const newWindowName = `${windowData.name} - ${rootTabName}`;
+
+        const subtreeExport: BruhExport = {
+            ...snapshot.data,
+            windows: [{
+                name: newWindowName,
+                tabs: subtreeTabs,
+            }],
+        };
+
+        this.load_export_data(subtreeExport);
+    }
     async save_state() {
         const nodes: Record<string, Node> = {};
         const node_storage: Record<string, NodeStorageData> = {};
@@ -1160,6 +1250,7 @@ class App {
             nodes: nodes,
             node_storage_data: node_storage,
             browser_restore_cache: cache,
+            snapshots: this.snapshots,
         };
         await browser.storage.local.set({ [this.storage_state_key]: state_to_save });
         await browser.storage.local.set({
@@ -1188,6 +1279,7 @@ class App {
         }
     }
 
+    // TODO: snapshots
     async load_state(key: string) {
         const result = await browser.storage.local.get(key);
         const state = result[key] as StorageState;
@@ -2210,6 +2302,32 @@ class App {
                     case 'convert_sideberry_export': {
                         const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
                         this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
+                    } break;
+                    case 'get_user_config': {
+                        this._post(event.payload.port, { type: 'user_config_update', payload: { config: this.user_config } });
+                    } break;
+                    case 'update_user_config': {
+                        this.user_config = { ...this.user_config, ...msg.payload.config };
+                        this._broadcast({ type: 'user_config_update', payload: { config: this.user_config } });
+                    } break;
+                    case 'get_snapshots': {
+                        this._post(event.payload.port, { type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+                    } break;
+                    case 'create_snapshot': {
+                        this.create_snapshot(msg.payload.name);
+                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+                    } break;
+                    case 'delete_snapshot': {
+                        this.delete_snapshot(msg.payload.id);
+                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+                    } break;
+                    case 'restore_snapshot_window': {
+                        this.restore_snapshot_window(msg.payload.id, msg.payload.window_index);
+                        this._broadcast({ type: 'render_all', payload: {} });
+                    } break;
+                    case 'restore_snapshot_subtree': {
+                        this.restore_snapshot_subtree(msg.payload.id, msg.payload.window_index, msg.payload.tab_index);
+                        this._broadcast({ type: 'render_all', payload: {} });
                     } break;
                     default:
                         throw utils.exhausted(msg);

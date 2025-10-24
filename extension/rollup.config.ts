@@ -45,6 +45,7 @@ const config: RollupOptions = {
         background: 'src/background.ts',
         sidebar: 'src/sidebar.ts',
         overview: 'src/overview.ts',
+        settings: 'src/settings.ts',
     },
     output: {
         dir: distDir,
@@ -84,6 +85,7 @@ const config: RollupOptions = {
             targets: [
                 { src: 'src/sidebar.html', dest: distDir },
                 { src: 'src/overview.html', dest: distDir },
+                { src: 'src/settings.html', dest: distDir },
             ],
             hook: 'buildEnd',
         }),

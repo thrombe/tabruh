@@ -8,6 +8,13 @@ export type BrowserId = TabId | WindowId;
 export type BruhId = utils.Branded<number, "BruhId">;
 export type HierarchyGenerationId = utils.Branded<number, "HgId">;
 
+export type Snapshot = {
+    id: string,
+    name: string,
+    timestamp: string, // ISO string
+    data: BruhExport,
+};
+
 export type StorageState = {
     state_version: string,
     bruh_session_key: string,
@@ -16,6 +23,7 @@ export type StorageState = {
     nodes: Record<string, Node>,
     node_storage_data: Record<string, NodeStorageData>,
     browser_restore_cache: Record<string, NodeStorageData>,
+    snapshots: Snapshot[],
 };
 
 export type NodeStorageData = {
@@ -111,6 +119,11 @@ export type UiStateForRender = {
     generation: number,
     tree: Map<BruhId, UiNode>,
     root_bids: BruhId[],
+
+    // for snapshots
+    is_read_only?: boolean,
+    snapshot_id?: string,
+    window_index?: number,
 };
 
 export type UiNode = {
@@ -125,6 +138,25 @@ export type UiNode = {
     isActive: boolean,
     isCollapsed: boolean,
     children: BruhId[],
+};
+
+export type Config = {
+    available_apis: {
+        session_values: boolean,
+    },
+    features: {
+        restore_strategy: "SessionsValues" | "SessionHistory",
+    },
+};
+export type UserConfig = {
+    dbg_reset_state_on_load: boolean,
+    dbg_log_events: boolean,
+    dbg_log_effects: boolean,
+    open_sidebar_on_new_windows: boolean,
+};
+export type ConfigStorage = {
+    config_version: string,
+    user_config: UserConfig,
 };
 
 export type BackgroundPortRequest =
@@ -149,6 +181,13 @@ export type BackgroundPortRequest =
     | { type: 'rename_node', payload: { bid: BruhId, new_name: string } }
     | { type: 'load_bruh_export', payload: { data: BruhExport } }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
+    | { type: 'get_user_config', payload: {} }
+    | { type: 'update_user_config', payload: { config: Partial<UserConfig> } }
+    | { type: 'get_snapshots', payload: {} }
+    | { type: 'create_snapshot', payload: { name: string } }
+    | { type: 'delete_snapshot', payload: { id: string } }
+    | { type: 'restore_snapshot_window', payload: { id: string, window_index: number } }
+    | { type: 'restore_snapshot_subtree', payload: { id: string, window_index: number, tab_index: number } }
     ;
 
 export type BackgroundResponse =
@@ -156,6 +195,8 @@ export type BackgroundResponse =
     | { type: 'all_states_update', payload: { states: UiStateForRender[] } }
     | { type: 'render_all', payload: {} }
     | { type: 'converted_sideberry_export_ready', payload: { data: BruhExport } }
+    | { type: 'user_config_update', payload: { config: UserConfig } }
+    | { type: 'snapshots_list_update', payload: { snapshots: Snapshot[] } }
     ;
 
 export type BrowserEvent =

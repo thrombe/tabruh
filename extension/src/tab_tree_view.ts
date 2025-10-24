@@ -27,12 +27,20 @@ export class TabTreeView {
     private currentDragData: DragData | null = null;
     private isSidebar: boolean;
     private viewType: 'window' | 'group';
+    private isReadOnly: boolean = false;
 
-    constructor(container: HTMLElement, port: browser.Runtime.Port, isSidebar: boolean = false, viewType: 'window' | 'group' = 'window') {
+    constructor(
+        container: HTMLElement,
+        port: browser.Runtime.Port,
+        isSidebar: boolean = false,
+        viewType: 'window' | 'group' = 'window',
+        isReadOnly: boolean = false,
+    ) {
         this.container = container;
         this.port = port;
         this.isSidebar = isSidebar;
         this.viewType = viewType;
+        this.isReadOnly = isReadOnly; // Add this
         this.container.classList.add('tab-tree-view-container');
     }
 
@@ -121,107 +129,110 @@ export class TabTreeView {
         if (node.isGroup) {
             nodeElement.classList.add('group-node');
         }
-        nodeElement.draggable = true;
+        nodeElement.draggable = !this.isReadOnly;
 
         if (node.isDiscarded || is_closed) nodeElement.classList.add('discarded-tab');
         if (node.isActive) nodeElement.classList.add('focused-tab');
 
-        if (!is_closed) {
-            nodeElement.addEventListener('click', () => this.sendMessage({ type: 'focus_tab', payload: { bid: node.id } }));
-        }
-        nodeElement.addEventListener('mousedown', (event) => {
-            if (event.button === 1) {
-                event.preventDefault();
-                this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
+        if (!this.isReadOnly) {
+            if (!is_closed) {
+                nodeElement.addEventListener('click', () => this.sendMessage({ type: 'focus_tab', payload: { bid: node.id } }));
             }
-        });
+            nodeElement.addEventListener('mousedown', (event) => {
+                if (event.button === 1) {
+                    event.preventDefault();
+                    this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
+                }
+            });
+        }
         nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
 
+        if (!this.isReadOnly) {
+            nodeElement.addEventListener('dragstart', (event) => {
+                const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
 
-        nodeElement.addEventListener('dragstart', (event) => {
-            const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
+                const dragData: DragData = {
+                    type: 'tabs',
+                    draggedNodeId: node.id,
+                    sourceWindowId: state.wbid,
+                    movedNodeIds,
+                };
+                this.currentDragData = dragData;
+                event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+                event.dataTransfer!.effectAllowed = 'move';
+                setTimeout(() => nodeElement.classList.add('dragging'), 0);
+            });
 
-            const dragData: DragData = {
-                type: 'tabs',
-                draggedNodeId: node.id,
-                sourceWindowId: state.wbid,
-                movedNodeIds,
-            };
-            this.currentDragData = dragData;
-            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
-            event.dataTransfer!.effectAllowed = 'move';
-            setTimeout(() => nodeElement.classList.add('dragging'), 0);
-        });
-
-        nodeElement.addEventListener('dragend', (event) => {
-            nodeElement.classList.remove('dragging');
-            if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedNodeId) {
-                this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: this.currentDragData.draggedNodeId } });
-            }
-            this.currentDragData = null;
-        });
-
-        nodeElement.addEventListener('dragover', (event) => {
-            event.preventDefault();
-            const types = event.dataTransfer?.types;
-            if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
-                return;
-            }
-
-            if (types.includes('application/json')) {
-                const dragDataStr = event.dataTransfer?.getData('application/json');
-                if (dragDataStr) {
-                    const dragData: DragData = JSON.parse(dragDataStr);
-                    if (dragData.movedNodeIds.includes(node.id)) return;
+            nodeElement.addEventListener('dragend', (event) => {
+                nodeElement.classList.remove('dragging');
+                if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedNodeId) {
+                    this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: this.currentDragData.draggedNodeId } });
                 }
-            }
-
-            const rect = nodeElement.getBoundingClientRect();
-            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-            const y = event.clientY - rect.top;
-            if (y < rect.height * 0.25) {
-                nodeElement.classList.add('drag-over-above');
-                nodeElement.dataset.dropAction = 'above';
-            } else if (y > rect.height * 0.75) {
-                nodeElement.classList.add('drag-over-below');
-                nodeElement.dataset.dropAction = 'below';
-            } else {
-                nodeElement.classList.add('drag-over-inside');
-                nodeElement.dataset.dropAction = 'inside';
-            }
-            event.dataTransfer!.dropEffect = 'move';
-        });
-
-        nodeElement.addEventListener('dragleave', () => {
-            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-            delete nodeElement.dataset.dropAction;
-        });
-
-        nodeElement.addEventListener('drop', async (event) => {
-            event.preventDefault(); event.stopPropagation();
-            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-            const action = nodeElement.dataset.dropAction as DropAction;
-            delete nodeElement.dataset.dropAction;
-
-            const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !state.wbid) return;
-
-            const types = dataTransfer.types;
-            if (types.includes('application/json')) {
-                const dragDataStr = dataTransfer.getData('application/json');
-                if (!dragDataStr) return;
-                const dragData: DragData = JSON.parse(dragDataStr);
-
                 this.currentDragData = null;
-                if (dragData.movedNodeIds.includes(node.id)) return;
+            });
 
-                this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
-            } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
-                const url = this.getUrlFromDataTransfer(dataTransfer);
-                if (!url) return;
-                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
-            }
-        });
+            nodeElement.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                const types = event.dataTransfer?.types;
+                if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
+                    return;
+                }
+
+                if (types.includes('application/json')) {
+                    const dragDataStr = event.dataTransfer?.getData('application/json');
+                    if (dragDataStr) {
+                        const dragData: DragData = JSON.parse(dragDataStr);
+                        if (dragData.movedNodeIds.includes(node.id)) return;
+                    }
+                }
+
+                const rect = nodeElement.getBoundingClientRect();
+                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+                const y = event.clientY - rect.top;
+                if (y < rect.height * 0.25) {
+                    nodeElement.classList.add('drag-over-above');
+                    nodeElement.dataset.dropAction = 'above';
+                } else if (y > rect.height * 0.75) {
+                    nodeElement.classList.add('drag-over-below');
+                    nodeElement.dataset.dropAction = 'below';
+                } else {
+                    nodeElement.classList.add('drag-over-inside');
+                    nodeElement.dataset.dropAction = 'inside';
+                }
+                event.dataTransfer!.dropEffect = 'move';
+            });
+
+            nodeElement.addEventListener('dragleave', () => {
+                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+                delete nodeElement.dataset.dropAction;
+            });
+
+            nodeElement.addEventListener('drop', async (event) => {
+                event.preventDefault(); event.stopPropagation();
+                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+                const action = nodeElement.dataset.dropAction as DropAction;
+                delete nodeElement.dataset.dropAction;
+
+                const dataTransfer = event.dataTransfer;
+                if (!dataTransfer || !state.wbid) return;
+
+                const types = dataTransfer.types;
+                if (types.includes('application/json')) {
+                    const dragDataStr = dataTransfer.getData('application/json');
+                    if (!dragDataStr) return;
+                    const dragData: DragData = JSON.parse(dragDataStr);
+
+                    this.currentDragData = null;
+                    if (dragData.movedNodeIds.includes(node.id)) return;
+
+                    this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
+                    const url = this.getUrlFromDataTransfer(dataTransfer);
+                    if (!url) return;
+                    this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
+                }
+            });
+        }
 
         const collapseContainer = document.createElement('div');
         collapseContainer.className = 'collapse-container';
@@ -264,11 +275,22 @@ export class TabTreeView {
         title.textContent = node.title;
         contentWrapper.append(icon, title);
 
-        const closeButton = document.createElement('button');
-        closeButton.className = 'close-tab-button';
-        closeButton.innerHTML = ICON_CLOSE;
-        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
-        nodeElement.append(collapseContainer, contentWrapper, closeButton);
+        if (this.isReadOnly) {
+            const menuButton = document.createElement('button');
+            menuButton.className = 'close-tab-button'; // Re-use style for positioning
+            menuButton.innerHTML = '&#x22EE;';
+            menuButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showContextMenu(e.clientX, e.clientY, node.id);
+            });
+            nodeElement.append(collapseContainer, contentWrapper, menuButton);
+        } else {
+            const closeButton = document.createElement('button');
+            closeButton.className = 'close-tab-button';
+            closeButton.innerHTML = ICON_CLOSE;
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
+            nodeElement.append(collapseContainer, contentWrapper, closeButton);
+        }
 
         nodeWrapper.appendChild(nodeElement);
 
@@ -288,27 +310,29 @@ export class TabTreeView {
         const header = document.createElement('div');
         header.className = 'tab-tree-header';
         header.draggable = true;
+        header.draggable = !this.isReadOnly;
 
-        header.addEventListener('dragstart', (event) => {
-            event.stopPropagation();
-            const movedNodeIds = Array.from(state.tree.keys());
-            const dragData: DragData = {
-                type: 'window',
-                draggedNodeId: state.id,
-                sourceWindowId: state.wbid,
-                movedNodeIds,
-            };
-            this.currentDragData = dragData;
-            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
-            event.dataTransfer!.effectAllowed = 'move';
-            setTimeout(() => this.container.classList.add('dragging'), 0);
-        });
+        if (!this.isReadOnly) {
+            header.addEventListener('dragstart', (event) => {
+                event.stopPropagation();
+                const movedNodeIds = Array.from(state.tree.keys());
+                const dragData: DragData = {
+                    type: 'window',
+                    draggedNodeId: state.id,
+                    sourceWindowId: state.wbid,
+                    movedNodeIds,
+                };
+                this.currentDragData = dragData;
+                event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+                event.dataTransfer!.effectAllowed = 'move';
+                setTimeout(() => this.container.classList.add('dragging'), 0);
+            });
 
-        header.addEventListener('dragend', () => {
-            this.container.classList.remove('dragging');
-            this.currentDragData = null;
-        });
-
+            header.addEventListener('dragend', () => {
+                this.container.classList.remove('dragging');
+                this.currentDragData = null;
+            });
+        }
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
@@ -316,26 +340,31 @@ export class TabTreeView {
         if (state.is_closed) {
             nameSpan.textContent = `[Closed] ${state.name}`;
         }
-        nameSpan.addEventListener('click', () => {
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'group-name-input';
-            input.value = state.name;
-            header.replaceChild(input, nameSpan);
-            input.focus();
-            input.select();
-            const save = () => {
-                if (input.value.trim()) {
-                    this.sendMessage({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
-                }
-                header.replaceChild(nameSpan, input);
-            };
-            input.addEventListener('blur', save);
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') save();
-                if (e.key === 'Escape') header.replaceChild(nameSpan, input);
+
+        if (!this.isReadOnly) {
+            nameSpan.addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'group-name-input';
+                input.value = state.name;
+                header.replaceChild(input, nameSpan);
+                input.focus();
+                input.select();
+                const save = () => {
+                    if (input.value.trim()) {
+                        this.sendMessage({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
+                    }
+                    header.replaceChild(nameSpan, input);
+                };
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') save();
+                    if (e.key === 'Escape') header.replaceChild(nameSpan, input);
+                });
             });
-        });
+        } else {
+            nameSpan.classList.remove('cursor-pointer');
+        }
 
         const menuButton = document.createElement('button');
         menuButton.className = 'group-menu-button';
@@ -350,6 +379,9 @@ export class TabTreeView {
     }
 
     private renderAddButton(state: UiStateForRender): HTMLDivElement {
+        if (this.isReadOnly) {
+            return document.createElement('div');
+        }
         const button = document.createElement('div');
         button.className = 'add-tab-button';
         button.textContent = '+';
@@ -477,7 +509,13 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        if (state.is_closed) {
+        if (this.isReadOnly) {
+            createItem('Restore as New Window', ICON_RESTORE, () => {
+                if (state.snapshot_id !== undefined && state.window_index !== undefined) {
+                    this.sendMessage({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
+                }
+            });
+        } else if (state.is_closed) {
             createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'restore_window', payload: { wbid: state.wbid } }));
             createSeparator();
             createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
@@ -553,6 +591,18 @@ export class TabTreeView {
 
         const node = this.currentRenderState.tree.get(nodeId);
         if (!node) return;
+
+        if (this.isReadOnly) {
+            createItem('Restore as New Window', ICON_RESTORE, () => {
+                const { snapshot_id, window_index } = this.currentRenderState!;
+                if (snapshot_id !== undefined && window_index !== undefined) {
+                    this.sendMessage({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
+                }
+            });
+            createSeparator();
+            createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
+            return;
+        }
 
         const isNodeClosed = node.isDiscarded || this.currentRenderState.is_closed;
 
