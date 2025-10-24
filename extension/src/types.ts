@@ -147,7 +147,7 @@ export type BackgroundRequest =
     | { type: 'flatten_tree', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'create_group', payload: { parent_bid: BruhId } }
     | { type: 'rename_node', payload: { bid: BruhId, new_name: string } }
-    | { type: 'get_export_data', payload: {} }
+    | { type: 'export_data', payload: {} }
     | { type: 'load_bruh_export', payload: { data: BruhExport } }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
     ;
@@ -156,7 +156,6 @@ export type BackgroundResponse =
     | { type: 'state_update', payload: { state: UiStateForRender, } }
     | { type: 'all_states_update', payload: { states: UiStateForRender[] } }
     | { type: 'render_all', payload: {} }
-    | { type: 'export_data_ready', payload: { data: BruhExport } }
     | { type: 'converted_sideberry_export_ready', payload: { data: BruhExport } }
     ;
 

@@ -1,6 +1,6 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
-import { TabTreeView, download_json } from './tab_tree_view';
+import { TabTreeView } from './tab_tree_view';
 import type { BruhId, BackgroundRequest, BackgroundResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
 
 class OverviewPage {
@@ -62,9 +62,7 @@ class OverviewPage {
         this.port.onMessage.addListener(message => this.handleMessage(message as BackgroundResponse));
         this.port.onDisconnect.addListener(() => console.error("Overview page disconnected from background script."));
 
-        if (this.action === 'export') {
-            this.handleExport();
-        } else if (this.action === 'import') {
+        if (this.action === 'import') {
             this.handleImport();
         } else {
             this.requestInitialState();
@@ -132,10 +130,6 @@ class OverviewPage {
             this.views.set(state.id, view);
         }
         view.render(state);
-    }
-
-    private handleExport() {
-        this.sendMessage({ type: 'get_export_data', payload: {} });
     }
 
     private handleImport() {
@@ -228,13 +222,6 @@ class OverviewPage {
                 }
                 break;
             }
-            case 'export_data_ready': {
-                const now = new Date();
-                const timestamp = now.toISOString().replace(/[:.]/g, '-');
-                const filename = `tabruh-export-${timestamp}.json`;
-                download_json(filename, message.payload.data);
-                window.close();
-            } break;
             case 'converted_sideberry_export_ready': {
                 this.sendMessage({ type: 'load_bruh_export', payload: { data: message.payload.data } });
                 alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');

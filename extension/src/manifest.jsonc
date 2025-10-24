@@ -23,6 +23,7 @@
     "sessions",
     "storage",
     "contextMenus",
+    "downloads",
   ],
   "background": {
     "scripts": [ "background.js" ],

@@ -159,8 +159,11 @@ class App {
                     });
                 } break;
                 case "export-state": {
-                    await browser.tabs.create({
-                        url: browser.runtime.getURL("overview.html?action=export"),
+                    await this.eventChannel.send({
+                        type: "port_message", payload: {
+                            port: undefined as unknown as browser.Runtime.Port,
+                            message: { type: "export_data", payload: {} },
+                        },
                     });
                 } break;
                 case "import-state": {
@@ -375,7 +378,7 @@ class App {
                     case 'create_group':
                     case 'rename_node':
                     case 'focus_tab':
-                    case 'get_export_data':
+                    case 'export_data':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
@@ -433,7 +436,7 @@ class App {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
                     case 'get_all_window_states':
-                    case 'get_export_data':
+                    case 'export_data':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
                         break;
@@ -2182,9 +2185,18 @@ class App {
                         node.name.name = msg.payload.new_name;
                         node.name.is_custom = true;
                     } break;
-                    case 'get_export_data': {
+                    case 'export_data': {
                         const data = this.get_export_data();
-                        this._post(event.payload.port, { type: 'export_data_ready', payload: { data } });
+                        const jsonData = JSON.stringify(data, null, 2);
+                        const blob = new Blob([jsonData], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+
+                        const now = new Date();
+                        const timestamp = now.toISOString().replace(/[:.]/g, '-');
+                        const filename = `tabruh-export-${timestamp}.json`;
+                        let _ = await browser.downloads.download({ url, filename, saveAs: true });
+
+                        setTimeout(() => URL.revokeObjectURL(url), 5000);
                     } break;
                     case 'load_bruh_export': {
                         this.load_export_data(msg.payload.data);
