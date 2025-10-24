@@ -1070,7 +1070,7 @@ class App {
         }
     }
 
-    static convert_sideberry_export_to_bruh(data: SideberryExport, get_group_url: (id: BruhId) => string): BruhExport {
+    static convert_sideberry_export_to_bruh(data: SideberryExport): BruhExport {
         const bruhExport: BruhExport = {
             timestamp: new Date().toISOString(),
             windows: [],
@@ -1103,14 +1103,8 @@ class App {
                     ? parentIndexStack[parentIndexStack.length - 1]!
                     : null;
 
-                let finalUrl = tab.url;
-                const isGroup = tab.url.startsWith('about:blank');
-                if (isGroup) {
-                    finalUrl = get_group_url(0 as BruhId);
-                }
-
                 bruhWindow.tabs.push({
-                    url: finalUrl,
+                    url: tab.url,
                     title: tab.title,
                     parent_index: parent_index,
                 });
@@ -2196,7 +2190,7 @@ class App {
                         this.load_export_data(msg.payload.data);
                     } break;
                     case 'convert_sideberry_export': {
-                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data, this.get_group_url.bind(this));
+                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
                         this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
                     } break;
                     default:
