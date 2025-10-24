@@ -595,3 +595,17 @@ export class TabTreeView {
         createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
     }
 }
+
+export function download_json(name: string, json: object) {
+    const jsonString = JSON.stringify(json, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
