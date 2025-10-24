@@ -188,3 +188,91 @@ export type PortMessageEvent = {
 };
 
 export type StateManagerEvent = BrowserEvent | PortMessageEvent;
+
+export type BruhExport = {
+    name?: string,
+    timestamp: string, // Date converted to string
+    windows: {
+        name?: string,
+        tabs: {
+            url: string,
+            title: string,
+            parent_index: number | null,
+        }[],
+    }[],
+};
+
+export type SideberryExport = {
+    id: string,
+    time: number,
+    dateStr: string,
+    timeStr: string,
+    sizeStr: string,
+    winCount: number,
+    tabsCount: number,
+    containers: Record<string, {
+        id: string,
+        cookieStoreId: string,
+        name: string,
+        icon: string,
+        color: string,
+        colorCode: string,
+        proxified: boolean,
+        proxy: unknown | null, // ?
+        reopenRulesActive: boolean,
+        reopenRules: unknown[],
+        userAgentActive: boolean,
+        userAgent: string,
+    }>,
+    sidebar: {
+        nav: string[],
+        panels: Record<string, {
+            type: number,
+            id: string,
+            name: string,
+            color: string,
+            iconSVG: string,
+            iconIMGSrc: string,
+            iconIMG: string,
+            lockedPanel: boolean,
+            skipOnSwitching: boolean,
+            noEmpty: boolean,
+            newTabCtx: unknown,
+            dropTabCtx: unknown,
+            moveRules: unknown[],
+            moveExcludedTo: number,
+            bookmarksFolderId: number,
+            newTabBtns: unknown[],
+            srcPanelConfig: null | unknown,
+        }>,
+    },
+    tabs: {
+        url: string,
+        title: string,
+        panelId: string,
+        lvl?: number,
+        folded?: boolean
+    }[][][],
+    windows: {
+        id: number,
+        tabsLen: number,
+        panels: {
+            id: string,
+            tabsLen: number,
+            name?: string,
+            iconSVG?: string,
+            iconIMG?: string,
+            color?: string,
+            tabs: {
+                url: string,
+                title: string,
+                panelId: string,
+                id: number,
+                domain: string,
+                iconSVG: string,
+                sel: boolean,
+                lvl?: number,
+            }[]
+        }[],
+    }[],
+};
