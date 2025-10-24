@@ -1070,56 +1070,52 @@ class App {
         }
     }
 
-    convert_sideberry_export_to_bruh(data: SideberryExport): BruhExport {
+    static convert_sideberry_export_to_bruh(data: SideberryExport, get_group_url: (id: BruhId) => string): BruhExport {
         const bruhExport: BruhExport = {
             timestamp: new Date().toISOString(),
             windows: [],
         };
 
-        if (!data.tabs || data.tabs.length === 0) return bruhExport;
+        if (!data.windows) return bruhExport;
 
-        const panelNames = new Map<string, string>();
-        for (const panel of Object.values(data.sidebar.panels)) {
-            panelNames.set(panel.id, panel.name);
-        }
+        for (const win of data.windows) {
+            const panelTabs = win.panels.flatMap(p => p.tabs);
+            if (panelTabs.length === 0) continue;
 
-        for (let i = 0; i < data.tabs.length; i++) {
-            const windowPanels = data.tabs[i]!;
-
-            const firstPanelId = windowPanels[0]?.[0]?.panelId;
-            const windowName = (firstPanelId ? panelNames.get(firstPanelId) : undefined) ?? `Imported Window ${i + 1}`;
+            const windowName = win.panels[0]?.name ?? `Imported Window ${win.id}`;
 
             const bruhWindow: BruhExport['windows'][0] = {
                 name: windowName,
                 tabs: [],
             };
 
-            const parentIndexStack: (number)[] = [];
-            let tabCounter = 0;
+            const parentIndexStack: number[] = [];
 
-            for (const panelTabs of windowPanels) {
-                for (const tab of panelTabs) {
-                    const currentLevel = tab.lvl ?? 0;
+            for (let i = 0; i < panelTabs.length; i++) {
+                const tab = panelTabs[i]!;
+                const currentLevel = tab.lvl ?? 0;
 
-                    while (parentIndexStack.length > currentLevel) {
-                        parentIndexStack.pop();
-                    }
-
-                    const parent_index = currentLevel > 0 && parentIndexStack.length > 0
-                        ? parentIndexStack[parentIndexStack.length - 1]!
-                        : null;
-
-                    let url = tab.url;
-
-                    bruhWindow.tabs.push({
-                        url: url,
-                        title: tab.title,
-                        parent_index: parent_index,
-                    });
-
-                    parentIndexStack[currentLevel] = tabCounter;
-                    tabCounter++;
+                while (parentIndexStack.length > currentLevel) {
+                    parentIndexStack.pop();
                 }
+
+                const parent_index = currentLevel > 0 && parentIndexStack.length > 0
+                    ? parentIndexStack[parentIndexStack.length - 1]!
+                    : null;
+
+                let finalUrl = tab.url;
+                const isGroup = tab.url.startsWith('about:blank');
+                if (isGroup) {
+                    finalUrl = get_group_url(0 as BruhId);
+                }
+
+                bruhWindow.tabs.push({
+                    url: finalUrl,
+                    title: tab.title,
+                    parent_index: parent_index,
+                });
+
+                parentIndexStack[currentLevel] = i;
             }
             bruhExport.windows.push(bruhWindow);
         }
@@ -2198,10 +2194,9 @@ class App {
                     } break;
                     case 'load_bruh_export': {
                         this.load_export_data(msg.payload.data);
-                        this._broadcast({ type: 'render_all', payload: {} });
                     } break;
                     case 'convert_sideberry_export': {
-                        const data = this.convert_sideberry_export_to_bruh(msg.payload.data);
+                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data, this.get_group_url.bind(this));
                         this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
                     } break;
                     default:
