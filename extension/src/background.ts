@@ -20,6 +20,8 @@ import type {
     DropAction,
     BrowserEffect,
     StorageState,
+    BruhExport,
+    SideberryExport,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -120,6 +122,16 @@ class App {
                 contexts: ["browser_action"],
             });
             browser.menus.create({
+                id: "export-state",
+                title: "Export State",
+                contexts: ["browser_action"],
+            });
+            browser.menus.create({
+                id: "import-state",
+                title: "Import State",
+                contexts: ["browser_action"],
+            });
+            browser.menus.create({
                 id: "clear-state",
                 title: "Clear state",
                 contexts: ["all"],
@@ -144,6 +156,16 @@ class App {
                 case "open-overview": {
                     await browser.tabs.create({
                         url: browser.runtime.getURL("overview.html"),
+                    });
+                } break;
+                case "export-state": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("overview.html?action=export"),
+                    });
+                } break;
+                case "import-state": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("overview.html?action=import"),
                     });
                 } break;
                 case "clear-state": {
@@ -353,6 +375,9 @@ class App {
                     case 'create_group':
                     case 'rename_node':
                     case 'focus_tab':
+                    case 'get_export_data':
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -408,6 +433,9 @@ class App {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
                     case 'get_all_window_states':
+                    case 'get_export_data':
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
                         break;
 
                     case 'toggle_collapse':
@@ -972,6 +1000,130 @@ class App {
         } else {
             return { type: 'effects', payload: { effects: new_tab_effects } } as Extract<BrowserEffect, { type: "effects" }>;
         }
+    }
+
+    get_export_data(): BruhExport {
+        const bruhExport: BruhExport = {
+            name: "Tabruh Export",
+            timestamp: new Date().toISOString(),
+            windows: [],
+        };
+
+        const windowNodes = Array.from(this.nodes.values()).filter(n => n.type === 'window') as WindowData[];
+
+        for (const win of windowNodes) {
+            const bid_to_index = new Map<BruhId, number>();
+            for (let i = 0; i < win.tab_bids.length; i++) {
+                bid_to_index.set(win.tab_bids[i]!, i);
+            }
+
+            const exportWindow: BruhExport['windows'][0] = {
+                name: win.name.name,
+                tabs: [],
+            };
+
+            for (const tbid of win.tab_bids) {
+                const node = this.get_tab(tbid);
+                const parent_index = node.parent_bid === win.bid ? null : bid_to_index.get(node.parent_bid) ?? null;
+
+                let url = this.get_node_url(node.bid);
+                let title = this.get_node_name(node.bid);
+
+                exportWindow.tabs.push({
+                    url,
+                    title,
+                    parent_index,
+                });
+            }
+            bruhExport.windows.push(exportWindow);
+        }
+        return bruhExport;
+    }
+
+    load_export_data(data: BruhExport) {
+        for (const winData of data.windows) {
+            const effect = this.create_new_window({
+                name: {
+                    name: winData.name ?? this.generate_unique_group_name(),
+                    generation: 0 as any, // generation will be set to bid inside create_new_window
+                    is_custom: !!winData.name
+                },
+                closed: true
+            });
+            const wbid = effect.payload.wbid;
+
+            const new_bids: BruhId[] = [];
+
+            for (let i = 0; i < winData.tabs.length; i++) {
+                const tabData = winData.tabs[i]!;
+
+                const parent_bid = tabData.parent_index === null ? wbid : new_bids[tabData.parent_index]!;
+
+                let new_tab_effect;
+                if (this.parse_group_url_id(tabData.url)) {
+                    new_tab_effect = this.create_new_group(parent_bid, { index: i, name: { name: tabData.title, generation: 0 as any, is_custom: true } });
+                } else {
+                    new_tab_effect = this.create_new_tab(parent_bid, { url: tabData.url, title: tabData.title, index: i });
+                }
+                new_bids.push(new_tab_effect.payload.bid);
+            }
+        }
+    }
+
+    convert_sideberry_export_to_bruh(data: SideberryExport): BruhExport {
+        const bruhExport: BruhExport = {
+            timestamp: new Date().toISOString(),
+            windows: [],
+        };
+
+        if (!data.tabs || data.tabs.length === 0) return bruhExport;
+
+        const panelNames = new Map<string, string>();
+        for (const panel of Object.values(data.sidebar.panels)) {
+            panelNames.set(panel.id, panel.name);
+        }
+
+        for (let i = 0; i < data.tabs.length; i++) {
+            const windowPanels = data.tabs[i]!;
+
+            const firstPanelId = windowPanels[0]?.[0]?.panelId;
+            const windowName = (firstPanelId ? panelNames.get(firstPanelId) : undefined) ?? `Imported Window ${i + 1}`;
+
+            const bruhWindow: BruhExport['windows'][0] = {
+                name: windowName,
+                tabs: [],
+            };
+
+            const parentIndexStack: (number)[] = [];
+            let tabCounter = 0;
+
+            for (const panelTabs of windowPanels) {
+                for (const tab of panelTabs) {
+                    const currentLevel = tab.lvl ?? 0;
+
+                    while (parentIndexStack.length > currentLevel) {
+                        parentIndexStack.pop();
+                    }
+
+                    const parent_index = currentLevel > 0 && parentIndexStack.length > 0
+                        ? parentIndexStack[parentIndexStack.length - 1]!
+                        : null;
+
+                    let url = tab.url;
+
+                    bruhWindow.tabs.push({
+                        url: url,
+                        title: tab.title,
+                        parent_index: parent_index,
+                    });
+
+                    parentIndexStack[currentLevel] = tabCounter;
+                    tabCounter++;
+                }
+            }
+            bruhExport.windows.push(bruhWindow);
+        }
+        return bruhExport;
     }
 
     async save_state() {
@@ -2039,6 +2191,18 @@ class App {
 
                         node.name.name = msg.payload.new_name;
                         node.name.is_custom = true;
+                    } break;
+                    case 'get_export_data': {
+                        const data = this.get_export_data();
+                        this._post(event.payload.port, { type: 'export_data_ready', payload: { data } });
+                    } break;
+                    case 'load_bruh_export': {
+                        this.load_export_data(msg.payload.data);
+                        this._broadcast({ type: 'render_all', payload: {} });
+                    } break;
+                    case 'convert_sideberry_export': {
+                        const data = this.convert_sideberry_export_to_bruh(msg.payload.data);
+                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
                     } break;
                     default:
                         throw utils.exhausted(msg);
