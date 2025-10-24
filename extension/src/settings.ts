@@ -1,7 +1,10 @@
 import './settings.css';
 import browser from 'webextension-polyfill';
-import { TabTreeView } from './tab_tree_view.ts';
+import { TabTreeView } from './tab_tree_view';
 import type { BackgroundPortRequest, BackgroundResponse, BruhExport, Snapshot, UiNode, UiStateForRender, UserConfig } from './types';
+
+const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
+const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
 
 class SettingsPage {
     private port: browser.Runtime.Port;
@@ -146,15 +149,9 @@ class SettingsPage {
                 this.render();
             });
 
-            // Context menu logic
             item.querySelector('.snapshot-menu-btn')!.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // TODO: Implement a proper context menu component if desired
-                const action = confirm(`Delete snapshot "${snapshot.name}"? This cannot be undone.`);
-                if (action) {
-                    if (this.selectedSnapshotId === snapshot.id) this.selectedSnapshotId = null;
-                    this.sendMessage({ type: 'delete_snapshot', payload: { id: snapshot.id } });
-                }
+                this.showSnapshotContextMenu(e.clientX, e.clientY, snapshot);
             });
 
             listPane.appendChild(item);
@@ -177,7 +174,7 @@ class SettingsPage {
             const state = this.convertBruhExportWindowToUiState(snapshot.id, windowIndex, win, snapshot.data);
 
             const viewContainer = document.createElement('div');
-            viewContainer.style.marginBottom = '1rem';
+            viewContainer.className = 'snapshot-window-view';
 
             const treeView = new TabTreeView(viewContainer, this.port, false, 'window', true);
             treeView.render(state);
@@ -189,10 +186,8 @@ class SettingsPage {
         const tree = new Map<number, UiNode>();
         const rootBids: number[] = [];
 
-        // Use array indices as temporary BruhIds
         windowData.tabs.forEach((tab, index) => {
             const children: number[] = [];
-            // Find children for this tab
             for (let i = 0; i < windowData.tabs.length; i++) {
                 if (windowData.tabs[i]!.parent_index === index) {
                     children.push(i);
@@ -206,11 +201,10 @@ class SettingsPage {
                 tab_index: index,
                 title: tab.title,
                 url: tab.url,
-                // favIconUrl can't be known from export
                 isGroup,
                 isDiscarded: true,
                 isActive: false,
-                isCollapsed: false, // Snapshots don't store this, default to open
+                isCollapsed: false,
                 children: children as any,
             });
 
@@ -224,7 +218,7 @@ class SettingsPage {
             wbid: windowIndex as any,
             name: windowData.name || 'Unnamed Window',
             is_custom_named: !!windowData.name,
-            is_closed: true, // All snapshot windows are treated as closed/archived
+            is_closed: true,
             generation: 0,
             tree: tree as any,
             root_bids: rootBids as any,
@@ -232,6 +226,76 @@ class SettingsPage {
             snapshot_id: snapshotId,
             window_index: windowIndex
         };
+    }
+
+    // Context Menu Logic
+    private removeContextMenu = () => {
+        document.getElementById('context-menu')?.remove();
+        document.removeEventListener('click', this.removeContextMenu);
+        document.removeEventListener('contextmenu', this.removeContextMenu);
+        window.removeEventListener('blur', this.removeContextMenu);
+    }
+
+    private showSnapshotContextMenu(x: number, y: number, snapshot: Snapshot) {
+        this.removeContextMenu();
+        const menu = document.createElement('div');
+        menu.id = 'context-menu';
+        menu.className = 'context-menu'; // Use same class as tree_tab_view
+        menu.style.position = 'fixed';
+        menu.style.zIndex = '1000';
+        menu.style.visibility = 'hidden';
+
+        const createItem = (label: string, icon: string, action: () => void) => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            item.innerHTML = `<span class="context-menu-icon">${icon}</span><span>${label}</span>`;
+            item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            menu.appendChild(item);
+        };
+
+        const createSeparator = () => {
+            const separator = document.createElement('hr');
+            separator.className = 'context-menu-separator';
+            menu.appendChild(separator);
+        };
+
+        createItem('Restore All Windows', ICON_RESTORE, () => {
+            this.sendMessage({ type: 'load_bruh_export', payload: { data: snapshot.data } });
+            alert(`Restored ${snapshot.data.windows.length} window(s) from snapshot "${snapshot.name}". They are available in your closed windows list.`);
+        });
+
+        createSeparator();
+
+        createItem('Delete Snapshot', ICON_TRASH, () => {
+            if (confirm(`Delete snapshot "${snapshot.name}"? This cannot be undone.`)) {
+                if (this.selectedSnapshotId === snapshot.id) this.selectedSnapshotId = null;
+                this.sendMessage({ type: 'delete_snapshot', payload: { id: snapshot.id } });
+            }
+        });
+
+        document.body.appendChild(menu);
+
+        // Position menu after rendering to get its dimensions
+        setTimeout(() => {
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            let finalX = x;
+            if (x + menuWidth > window.innerWidth) {
+                finalX = x - menuWidth;
+            }
+            let finalY = y;
+            if (y + menuHeight > window.innerHeight) {
+                finalY = y - menuHeight;
+            }
+            menu.style.left = `${finalX}px`;
+            menu.style.top = `${finalY}px`;
+            menu.style.visibility = 'visible';
+        }, 0);
+
+        // Add listeners to close the menu
+        document.addEventListener('click', this.removeContextMenu, { once: true });
+        document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+        window.addEventListener('blur', this.removeContextMenu, { once: true });
     }
 }
 
