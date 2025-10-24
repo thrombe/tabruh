@@ -127,7 +127,7 @@ export type UiNode = {
     children: BruhId[],
 };
 
-export type BackgroundRequest =
+export type BackgroundPortRequest =
     | { type: 'get_state_for_window', payload: { wid: WindowId } }
     | { type: 'get_all_window_states', payload: {} }
 
@@ -147,7 +147,6 @@ export type BackgroundRequest =
     | { type: 'flatten_tree', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'create_group', payload: { parent_bid: BruhId } }
     | { type: 'rename_node', payload: { bid: BruhId, new_name: string } }
-    | { type: 'export_data', payload: {} }
     | { type: 'load_bruh_export', payload: { data: BruhExport } }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
     ;
@@ -186,12 +185,21 @@ export type BrowserEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
+export type BackgroundRequest =
+    | { type: 'export_data', payload: {} }
+    ;
+
 export type PortMessageEvent = {
     type: 'port_message',
-    payload: { message: BackgroundRequest, port: browser.Runtime.Port }
+    payload: { message: BackgroundPortRequest, port: browser.Runtime.Port }
 };
 
-export type StateManagerEvent = BrowserEvent | PortMessageEvent;
+export type BackgroundRequestEvent = {
+    type: 'background_request',
+    payload: BackgroundRequest,
+};
+
+export type StateManagerEvent = BrowserEvent | PortMessageEvent | BackgroundRequestEvent;
 
 export type BruhExport = {
     name?: string,

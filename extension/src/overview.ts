@@ -1,7 +1,7 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BruhId, BackgroundRequest, BackgroundResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
+import type { BruhId, BackgroundPortRequest, BackgroundResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
 
 class OverviewPage {
     private port: browser.Runtime.Port | null = null;
@@ -69,7 +69,7 @@ class OverviewPage {
         }
     }
 
-    private sendMessage(message: BackgroundRequest) {
+    private sendMessage(message: BackgroundPortRequest) {
         if (!this.port) {
             console.warn("Attempted to send message before port was connected.", message);
             return;

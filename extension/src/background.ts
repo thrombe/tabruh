@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 import type {
     BackgroundRequest,
+    BackgroundPortRequest,
     BackgroundResponse,
     DragData,
     Node,
@@ -160,9 +161,10 @@ class App {
                 } break;
                 case "export-state": {
                     await this.eventChannel.send({
-                        type: "port_message", payload: {
-                            port: undefined as unknown as browser.Runtime.Port,
-                            message: { type: "export_data", payload: {} },
+                        type: "background_request",
+                        payload: {
+                            type: "export_data",
+                            payload: {},
                         },
                     });
                 } break;
@@ -210,7 +212,7 @@ class App {
             port.onMessage.addListener(async (message) => {
                 await this.eventChannel.send({
                     type: 'port_message',
-                    payload: { message: message as BackgroundRequest, port }
+                    payload: { message: message as BackgroundPortRequest, port }
                 });
             });
             port.onDisconnect.addListener(() => {
@@ -355,7 +357,16 @@ class App {
             case 'tab_activated':
             case 'window_focus_changed':
                 break;
-            case 'port_message':
+            case 'background_request': {
+                const message = event.payload;
+                switch (message.type) {
+                    case 'export_data':
+                        break;
+                    default:
+                        throw utils.exhausted(message.type);
+                }
+            } break;
+            case 'port_message': {
                 const message = event.payload.message;
                 switch (message.type) {
                     case 'get_state_for_window':
@@ -378,7 +389,6 @@ class App {
                     case 'create_group':
                     case 'rename_node':
                     case 'focus_tab':
-                    case 'export_data':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
@@ -387,7 +397,7 @@ class App {
                     default:
                         throw utils.exhausted(message);
                 }
-                break;
+            } break;
             default:
                 throw utils.exhausted(event);
         }
@@ -430,13 +440,22 @@ class App {
             case 'window_focus_changed':
                 break;
 
-            case 'port_message':
+            case 'background_request': {
+                const message = event.payload;
+                switch (message.type) {
+                    case "export_data":
+                        break;
+                    default:
+                        throw utils.exhausted(message.type);
+                }
+            } break;
+
+            case 'port_message': {
                 const message = event.payload.message;
                 switch (message.type) {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
                     case 'get_all_window_states':
-                    case 'export_data':
                     case 'load_bruh_export':
                     case 'convert_sideberry_export':
                         break;
@@ -462,7 +481,7 @@ class App {
                     default:
                         throw utils.exhausted(message);
                 }
-                break;
+            } break;
             default:
                 throw utils.exhausted(event);
         }
@@ -2185,6 +2204,20 @@ class App {
                         node.name.name = msg.payload.new_name;
                         node.name.is_custom = true;
                     } break;
+                    case 'load_bruh_export': {
+                        this.load_export_data(msg.payload.data);
+                    } break;
+                    case 'convert_sideberry_export': {
+                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
+                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
+                    } break;
+                    default:
+                        throw utils.exhausted(msg);
+                }
+            } break;
+            case 'background_request': {
+                const message = event.payload;
+                switch (message.type) {
                     case 'export_data': {
                         const data = this.get_export_data();
                         const jsonData = JSON.stringify(data, null, 2);
@@ -2198,15 +2231,8 @@ class App {
 
                         setTimeout(() => URL.revokeObjectURL(url), 5000);
                     } break;
-                    case 'load_bruh_export': {
-                        this.load_export_data(msg.payload.data);
-                    } break;
-                    case 'convert_sideberry_export': {
-                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
-                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
-                    } break;
                     default:
-                        throw utils.exhausted(msg);
+                        throw utils.exhausted(message.type);
                 }
             } break;
             default:
