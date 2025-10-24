@@ -1922,8 +1922,9 @@ class App {
                     case 'delete_window_state': {
                         const win = this.get_window(msg.payload.wbid);
                         if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
+                        const tbids = [...win.tab_bids];
                         let _;
-                        for (let bid of win.tab_bids) {
+                        for (let bid of tbids) {
                             _ = this.remove_node(bid);
                         }
                         _ = this.remove_node(win.bid);
