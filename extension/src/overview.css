@@ -40,3 +40,29 @@
     flex-grow: 1;
     overflow-y: hidden;
 }
+
+.action-page-container {
+    @apply w-full h-full flex flex-col items-center justify-center p-8 text-center;
+    color: var(--gruvbox-fg);
+}
+
+.action-page-title {
+    @apply text-2xl font-bold mb-4;
+}
+
+.action-page-description {
+    @apply text-lg mb-8;
+}
+
+.action-page-button {
+    @apply px-6 py-3 rounded-md text-lg font-semibold;
+    background-color: var(--gruvbox-blue);
+    color: var(--gruvbox-bg);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.action-page-button:hover {
+    background-color: #a9b665;
+}

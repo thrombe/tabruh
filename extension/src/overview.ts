@@ -139,54 +139,68 @@ class OverviewPage {
     }
 
     private handleImport() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.style.display = 'none';
+        this.container.innerHTML = `
+            <div class="action-page-container">
+                <h1 class="action-page-title">Import State</h1>
+                <p class="action-page-description">Select a Tabruh or Sideberry export file (.json) to import.</p>
+                <button id="select-file-button" class="action-page-button">Select File</button>
+            </div>
+        `;
 
-        input.addEventListener('change', () => {
-            const file = input.files?.[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const content = e.target?.result as string;
-                        const data = JSON.parse(content);
+        const button = document.getElementById('select-file-button');
+        if (!button) return;
 
-                        if (data.id) { // Sideberry format
-                            this.sendMessage({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
-                        } else if (data.timestamp) { // Bruh format
-                            this.sendMessage({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
-                            alert('Import successful! Your imported windows have been added as closed windows.');
-                            window.close();
-                        } else {
-                            alert('Unrecognized export format.');
+        button.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.style.display = 'none';
+
+            input.addEventListener('change', () => {
+                const file = input.files?.[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const content = e.target?.result as string;
+                            const data = JSON.parse(content);
+
+                            if (data.id) { // Sideberry format
+                                this.sendMessage({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
+                            } else if (data.timestamp) { // Bruh format
+                                this.sendMessage({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
+                                alert('Import successful! Your imported windows have been added as closed windows.');
+                                window.close();
+                            } else {
+                                alert('Unrecognized export format.');
+                                window.close();
+                            }
+                        } catch (err) {
+                            console.error('Error importing file:', err);
+                            alert('Failed to read or parse the import file.');
                             window.close();
                         }
-                    } catch (err) {
-                        console.error('Error importing file:', err);
-                        alert('Failed to read or parse the import file.');
-                        window.close();
-                    }
-                };
-                reader.readAsText(file);
-            } else {
-                window.close();
-            }
-        });
-
-        const onFocus = () => {
-            window.removeEventListener('focus', onFocus);
-            setTimeout(() => {
-                if (!input.files || input.files.length === 0) {
+                    };
+                    reader.readAsText(file);
+                } else {
                     window.close();
                 }
-            }, 500);
-        };
-        window.addEventListener('focus', onFocus);
+            });
 
-        document.body.appendChild(input);
-        input.click();
+            const onFocus = () => {
+                window.removeEventListener('focus', onFocus);
+                setTimeout(() => {
+                    if (!input.files || input.files.length === 0) {
+                        window.close();
+                    }
+                }, 500);
+            };
+            window.addEventListener('focus', onFocus, { once: true });
+
+            document.body.appendChild(input);
+            input.click();
+            document.body.removeChild(input);
+        });
     }
 
     private handleMessage(message: BackgroundResponse) {
