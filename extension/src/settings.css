@@ -23,6 +23,7 @@ body {
   border: none;
   color: var(--gruvbox-border);
   cursor: pointer;
+  font-weight: bold;
 }
 
 .sidebar-button:hover {
@@ -68,7 +69,7 @@ body {
 .snapshots-header .button-group { @apply flex gap-2; }
 .snapshot-item { @apply p-2 rounded-md cursor-pointer mb-2 flex justify-between items-center; }
 .snapshot-item:hover { background-color: var(--gruvbox-hover); }
-.snapshot-item.selected { background-color: var(--gruvbox-hover-accent); }
+.snapshot-item.selected { background-color: var(--gruvbox-hover); }
 .snapshot-name { @apply font-semibold truncate; }
 .snapshot-date { @apply text-xs; color: var(--gruvbox-border); }
 .snapshot-menu-btn {

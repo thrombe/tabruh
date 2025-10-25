@@ -23,5 +23,6 @@ html, body {
 
 body {
   @apply font-sans text-sm;
+  background-color: var(--gruvbox-bg);
 }
 

@@ -4,7 +4,6 @@
   @apply p-0 flex flex-col;
   background-color: var(--gruvbox-bg);
   color: var(--gruvbox-fg);
-  height: 100%;
   width: 100%;
 }
 
