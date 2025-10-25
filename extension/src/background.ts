@@ -848,8 +848,11 @@ class App {
         const bid = options.bid ?? this.bruhid++ as BruhId;
         const parent = this.get_node(parent_bid);
         const win = this.get_window(parent.wbid);
-        const url = options.url ?? this.get_new_url();
+        let url = options.url ?? this.get_new_url();
         if (this.parse_group_url_id(url)) throw new Error(`App.create_new_tab cannot create 'group'`);
+        if (this.is_url_funny(url)) {
+            url = this.get_new_url();
+        }
         const node: Node = {
             bid,
             url,
@@ -1172,8 +1175,8 @@ class App {
             win.is_archived_pristine = false;
         }
 
+        const effects = [];
         const new_bids: BruhId[] = [];
-
         for (let i = 0; i < tabs.length; i++) {
             const tabData = tabs[i]!;
             const new_parent_bid = tabData.parent_index === null ? parent_bid : new_bids[tabData.parent_index]!;
@@ -1188,14 +1191,13 @@ class App {
             } else {
                 new_tab_effect = this.create_new_tab(new_parent_bid, { url: tabData.url, title: tabData.title });
             }
+            effects.push(new_tab_effect);
             new_bids.push(new_tab_effect.payload.bid);
         }
 
         if (!win.closed) {
             // If the target window is open, we need to create the browser tabs for the newly added nodes
-            const tbids_to_create = new_bids.map(bid => this.get_node(bid).bid);
-            const index = this.get_index(parent_bid) + 1;
-            const effect = { type: 'tabs_moved', payload: { tbids: tbids_to_create, wbid: win.bid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
+            const effect = { type: 'effects', payload: { effects } } as Extract<BrowserEffect, { type: 'effects' }>;
             return effect;
         }
         return null;
