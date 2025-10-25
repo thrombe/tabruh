@@ -115,34 +115,10 @@ class App {
                 contexts: ["browser_action"],
             });
             browser.menus.create({
-                id: "export-state",
-                title: "Export State",
-                contexts: ["browser_action"],
-            });
-            browser.menus.create({
-                id: "import-state",
-                title: "Import State",
-                contexts: ["browser_action"],
-            });
-            browser.menus.create({
                 id: "clear-state",
                 title: "Clear state",
                 contexts: ["all"],
             });
-
-            for (const key in this.user_config) {
-                // @ts-ignore
-                const val = this.user_config[key];
-                if (typeof val === "boolean") {
-                    browser.menus.create({
-                        id: key,
-                        type: "checkbox",
-                        title: {}[key] ?? key,
-                        contexts: ["all"],
-                        checked: val,
-                    });
-                }
-            }
         });
         browser.menus.onClicked.addListener(async (info, tab) => {
             switch (info.menuItemId) {
@@ -156,40 +132,12 @@ class App {
                         url: browser.runtime.getURL("settings.html"),
                     });
                 } break;
-                case "export-state": {
-                    await this.eventChannel.send({
-                        type: "background_request",
-                        payload: {
-                            type: "export_data",
-                            payload: {},
-                        },
-                    });
-                } break;
-                case "import-state": {
-                    await browser.tabs.create({
-                        url: browser.runtime.getURL("overview.html?action=import"),
-                    });
-                } break;
                 case "clear-state": {
                     await browser.storage.local.remove(this.storage_config_key);
                     await browser.storage.local.remove(this.storage_state_key);
                 } break;
                 default:
                     console.warn("unknown menu item id " + info.menuItemId);
-            }
-
-            for (const key in this.user_config) {
-                if (key != info.menuItemId) continue;
-                // @ts-ignore
-                this.user_config[key] = !this.user_config[key];
-            }
-
-            for (const key in this.user_config) {
-                if (key != info.menuItemId) continue;
-                await browser.menus.update(key, {
-                    // @ts-ignore
-                    checked: this.user_config[key],
-                });
             }
         });
 
@@ -395,6 +343,7 @@ class App {
                     case 'delete_snapshot':
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -486,6 +435,7 @@ class App {
                     case 'delete_snapshot':
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -2328,6 +2278,24 @@ class App {
                     case 'restore_snapshot_subtree': {
                         this.restore_snapshot_subtree(msg.payload.id, msg.payload.window_index, msg.payload.tab_index);
                         this._broadcast({ type: 'render_all', payload: {} });
+                    } break;
+                    case 'import_file_as_snapshot': {
+                        let bruhData: BruhExport;
+                        const data = msg.payload.data;
+                        if ('id' in data && 'sidebar' in data) {
+                            bruhData = App.convert_sideberry_export_to_bruh(data as SideberryExport);
+                        } else {
+                            bruhData = data as BruhExport;
+                        }
+
+                        const newSnapshot: Snapshot = {
+                            id: crypto.randomUUID(),
+                            name: msg.payload.name,
+                            timestamp: new Date().toISOString(),
+                            data: bruhData
+                        };
+                        this.snapshots.push(newSnapshot);
+                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
                     } break;
                     default:
                         throw utils.exhausted(msg);

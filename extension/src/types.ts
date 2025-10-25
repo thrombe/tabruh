@@ -188,6 +188,7 @@ export type BackgroundPortRequest =
     | { type: 'delete_snapshot', payload: { id: string } }
     | { type: 'restore_snapshot_window', payload: { id: string, window_index: number } }
     | { type: 'restore_snapshot_subtree', payload: { id: string, window_index: number, tab_index: number } }
+    | { type: 'import_file_as_snapshot', payload: { data: BruhExport | SideberryExport, name: string } }
     ;
 
 export type BackgroundResponse =

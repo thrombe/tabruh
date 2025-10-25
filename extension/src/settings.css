@@ -99,3 +99,12 @@ body {
     max-height: 60vh;
     overflow-y: auto;
 }
+
+.import-export-view { @apply w-full; }
+.io-section {
+    @apply p-6 rounded-md mb-8;
+    background-color: var(--gruvbox-hover-accent);
+    border: 1px solid var(--gruvbox-border-2);
+}
+.io-title { @apply text-xl font-bold mb-2; }
+.io-description { @apply mb-4; color: var(--gruvbox-border); }
