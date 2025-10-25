@@ -1,7 +1,7 @@
 import './settings.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundPortRequest, BackgroundResponse, BruhExport, Snapshot, UiNode, UiStateForRender, UserConfig } from './types';
+import type { BackgroundPortRequest, BackgroundResponse, BruhExport, SideberryExport, Snapshot, UiNode, UiStateForRender, UserConfig } from './types';
 
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -9,7 +9,7 @@ const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="1
 class SettingsPage {
     private port: browser.Runtime.Port;
     private contentContainer: HTMLElement;
-    private currentView: 'settings' | 'snapshots' = 'settings';
+    private currentView: 'settings' | 'snapshots' | 'import_export' = 'settings';
     private snapshots: Snapshot[] = [];
     private selectedSnapshotId: string | null = null;
     private userConfig: UserConfig | null = null;
@@ -25,7 +25,7 @@ class SettingsPage {
             btn.addEventListener('click', () => {
                 document.querySelector('.sidebar-button.active')?.classList.remove('active');
                 btn.classList.add('active');
-                this.currentView = btn.getAttribute('data-view') as 'settings' | 'snapshots';
+                this.currentView = btn.getAttribute('data-view') as 'settings' | 'snapshots' | 'import_export';
                 this.render();
             });
         });
@@ -54,6 +54,10 @@ class SettingsPage {
                     this.render();
                 }
                 break;
+            case 'converted_sideberry_export_ready': {
+                this.sendMessage({ type: 'load_bruh_export', payload: { data: message.payload.data } });
+                alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+            } break;
         }
     }
 
@@ -63,6 +67,8 @@ class SettingsPage {
             this.renderSettingsView();
         } else if (this.currentView === 'snapshots') {
             this.renderSnapshotsView();
+        } else if (this.currentView === 'import_export') {
+            this.renderImportExportView();
         }
     }
 
@@ -114,23 +120,18 @@ class SettingsPage {
         const detailPane = document.createElement('div');
         detailPane.className = 'snapshots-detail-pane';
 
-        // Header and "Create" button
         const header = document.createElement('div');
         header.className = 'snapshots-header';
         header.innerHTML = `<h2 class="settings-title" style="margin-bottom: 0;">Snapshots</h2>`;
         const createBtn = document.createElement('button');
         createBtn.textContent = 'Create New';
         createBtn.className = 'button';
-        createBtn.onclick = () => {
-            const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
-            if (name) {
-                this.sendMessage({ type: 'create_snapshot', payload: { name } });
-            }
+        createBtn.onclick = (e) => {
+            this.showCreateSnapshotMenu(e.clientX, e.clientY);
         };
         header.appendChild(createBtn);
         listPane.appendChild(header);
 
-        // Snapshots list
         this.snapshots.forEach(snapshot => {
             const item = document.createElement('div');
             item.className = 'snapshot-item';
@@ -157,7 +158,6 @@ class SettingsPage {
             listPane.appendChild(item);
         });
 
-        // Detail pane content
         const selectedSnapshot = this.snapshots.find(s => s.id === this.selectedSnapshotId);
         if (selectedSnapshot) {
             this.renderSnapshotDetail(detailPane, selectedSnapshot);
@@ -166,6 +166,101 @@ class SettingsPage {
         }
 
         this.contentContainer.append(listPane, detailPane);
+    }
+
+    private renderImportExportView() {
+        const container = document.createElement('div');
+        container.className = 'import-export-view';
+
+        container.innerHTML = `
+            <div class="io-section">
+                <h3 class="io-title">Export</h3>
+                <p class="io-description">Save a snapshot of all your current open and closed windows to a JSON file. This file can be used for backup or imported back into Tabruh.</p>
+                <button id="export-btn" class="button">Export Current State</button>
+            </div>
+            <div class="io-section">
+                <h3 class="io-title">Import</h3>
+                <p class="io-description">Import windows from a Tabruh or Sideberry export file. The imported windows will be added to your session as new, closed windows.</p>
+                <button id="import-btn" class="button">Import to Current State</button>
+            </div>
+        `;
+
+        container.querySelector('#import-btn')!.addEventListener('click', () => {
+            this.openFilePicker(false); // false = not a snapshot, import to current state
+        });
+
+        this.contentContainer.appendChild(container);
+    }
+
+    private openFilePicker(isForSnapshot: boolean) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+
+        input.onchange = () => {
+            const file = input.files?.[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const content = e.target?.result as string;
+                    const data = JSON.parse(content);
+
+                    if (!('id' in data || 'timestamp' in data)) {
+                        alert('Unrecognized export format.');
+                        return;
+                    }
+
+                    if (isForSnapshot) {
+                        const name = prompt(`Enter a name for the imported snapshot:`, file.name.replace('.json', ''));
+                        if (name) {
+                            this.sendMessage({ type: 'import_file_as_snapshot', payload: { data, name } });
+                        }
+                    } else {
+                        if ('id' in data) { // Sideberry
+                            this.sendMessage({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
+                        } else { // Tabruh
+                            this.sendMessage({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
+                            alert('Import successful! Your imported windows have been added as closed windows.');
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error importing file:', err);
+                    alert('Failed to read or parse the import file.');
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        input.click();
+    }
+
+    private showCreateSnapshotMenu(x: number, y: number) {
+        this.removeContextMenu();
+        const menu = this.createContextMenuElement(x, y);
+
+        const createItem = (label: string, action: () => void) => {
+            const item = document.createElement('div');
+            item.className = 'context-menu-item';
+            item.textContent = label;
+            item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            menu.appendChild(item);
+        };
+
+        createItem("From Current State", () => {
+            const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
+            if (name) {
+                this.sendMessage({ type: 'create_snapshot', payload: { name } });
+            }
+        });
+
+        createItem("From File...", () => {
+            this.openFilePicker(true);
+        });
+
+        document.body.appendChild(menu);
+        this.positionContextMenu(menu, x, y);
     }
 
     private renderSnapshotDetail(container: HTMLElement, snapshot: Snapshot) {
@@ -236,20 +331,42 @@ class SettingsPage {
         window.removeEventListener('blur', this.removeContextMenu);
     }
 
-    private showSnapshotContextMenu(x: number, y: number, snapshot: Snapshot) {
+    private createContextMenuElement(x: number, y: number): HTMLDivElement {
         this.removeContextMenu();
         const menu = document.createElement('div');
         menu.id = 'context-menu';
-        menu.className = 'context-menu'; // Use same class as tree_tab_view
-        menu.style.position = 'fixed';
-        menu.style.zIndex = '1000';
+        menu.className = 'context-menu';
         menu.style.visibility = 'hidden';
+        document.body.appendChild(menu);
+        return menu;
+    }
+
+    private positionContextMenu(menu: HTMLElement, x: number, y: number) {
+        setTimeout(() => {
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            let finalX = x;
+            if (x + menuWidth > window.innerWidth) finalX = x - menuWidth;
+            let finalY = y;
+            if (y + menuHeight > window.innerHeight) finalY = y - menuHeight;
+            menu.style.left = `${finalX < 0 ? 5 : finalX}px`;
+            menu.style.top = `${finalY < 0 ? 5 : finalY}px`;
+            menu.style.visibility = 'visible';
+
+            document.addEventListener('click', this.removeContextMenu, { once: true });
+            document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
+            window.addEventListener('blur', this.removeContextMenu, { once: true });
+        }, 0);
+    }
+
+    private showSnapshotContextMenu(x: number, y: number, snapshot: Snapshot) {
+        const menu = this.createContextMenuElement(x, y);
 
         const createItem = (label: string, icon: string, action: () => void) => {
             const item = document.createElement('div');
             item.className = 'context-menu-item';
             item.innerHTML = `<span class="context-menu-icon">${icon}</span><span>${label}</span>`;
-            item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            item.addEventListener('click', (e) => { e.stopPropagation(); action(); this.removeContextMenu(); });
             menu.appendChild(item);
         };
 
@@ -273,29 +390,7 @@ class SettingsPage {
             }
         });
 
-        document.body.appendChild(menu);
-
-        // Position menu after rendering to get its dimensions
-        setTimeout(() => {
-            const menuWidth = menu.offsetWidth;
-            const menuHeight = menu.offsetHeight;
-            let finalX = x;
-            if (x + menuWidth > window.innerWidth) {
-                finalX = x - menuWidth;
-            }
-            let finalY = y;
-            if (y + menuHeight > window.innerHeight) {
-                finalY = y - menuHeight;
-            }
-            menu.style.left = `${finalX}px`;
-            menu.style.top = `${finalY}px`;
-            menu.style.visibility = 'visible';
-        }, 0);
-
-        // Add listeners to close the menu
-        document.addEventListener('click', this.removeContextMenu, { once: true });
-        document.addEventListener('contextmenu', this.removeContextMenu, { once: true });
-        window.addEventListener('blur', this.removeContextMenu, { once: true });
+        this.positionContextMenu(menu, x, y);
     }
 }
 
