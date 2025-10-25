@@ -71,7 +71,14 @@ body {
 .snapshot-item.selected { background-color: var(--gruvbox-hover-accent); }
 .snapshot-name { @apply font-semibold truncate; }
 .snapshot-date { @apply text-xs; color: var(--gruvbox-border); }
-.snapshot-menu-btn { @apply w-6 h-6 rounded flex items-center justify-center; }
+.snapshot-menu-btn {
+    @apply w-6 h-6 rounded flex items-center justify-center;
+    opacity: 0;
+    transition: opacity 0.15s ease-in-out;
+}
+.snapshot-item:hover .snapshot-menu-btn {
+    opacity: 1;
+}
 .snapshot-menu-btn:hover { background-color: var(--gruvbox-hover-accent); }
 .no-snapshot-selected { @apply flex items-center justify-center h-full text-xl; color: var(--gruvbox-border); }
 
@@ -97,8 +104,11 @@ body {
 }
 
 .snapshot-window-view .tab-tree-scroll-container {
-    flex-grow: 0;
-    overflow-y: visible;
+    flex: none;
     max-height: 60vh;
     overflow-y: auto;
+}
+
+.snapshot-window-view .discarded-tab {
+    opacity: 1;
 }
