@@ -49,6 +49,8 @@ body {
 .setting-item { @apply flex items-center mb-4; }
 .setting-item label { @apply flex-grow text-base; }
 .setting-item input[type="checkbox"] { @apply w-5 h-5; }
+.setting-item .description { @apply text-sm mt-1; color: var(--gruvbox-border); }
+.setting-item .button { @apply ml-4; }
 
 /* Snapshots View */
 .snapshots-list-pane {
@@ -63,6 +65,7 @@ body {
   height: 100%;
 }
 .snapshots-header { @apply flex items-center justify-between mb-4; }
+.snapshots-header .button-group { @apply flex gap-2; }
 .snapshot-item { @apply p-2 rounded-md cursor-pointer mb-2 flex justify-between items-center; }
 .snapshot-item:hover { background-color: var(--gruvbox-hover); }
 .snapshot-item.selected { background-color: var(--gruvbox-hover-accent); }
@@ -73,7 +76,7 @@ body {
 .no-snapshot-selected { @apply flex items-center justify-center h-full text-xl; color: var(--gruvbox-border); }
 
 .button {
-    @apply px-4 py-2 rounded-md font-semibold;
+    @apply px-4 py-2 rounded-md font-semibold text-sm;
     background-color: var(--gruvbox-blue);
     color: var(--gruvbox-bg);
     border: none;
@@ -95,16 +98,7 @@ body {
 
 .snapshot-window-view .tab-tree-scroll-container {
     flex-grow: 0;
-    overflow-y: visible; 
+    overflow-y: visible;
     max-height: 60vh;
     overflow-y: auto;
 }
-
-.import-export-view { @apply w-full; }
-.io-section {
-    @apply p-6 rounded-md mb-8;
-    background-color: var(--gruvbox-hover-accent);
-    border: 1px solid var(--gruvbox-border-2);
-}
-.io-title { @apply text-xl font-bold mb-2; }
-.io-description { @apply mb-4; color: var(--gruvbox-border); }

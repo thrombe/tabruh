@@ -9,7 +9,7 @@ const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="1
 class SettingsPage {
     private port: browser.Runtime.Port;
     private contentContainer: HTMLElement;
-    private currentView: 'settings' | 'snapshots' | 'import_export' = 'settings';
+    private currentView: 'settings' | 'snapshots' = 'settings';
     private snapshots: Snapshot[] = [];
     private selectedSnapshotId: string | null = null;
     private userConfig: UserConfig | null = null;
@@ -25,7 +25,7 @@ class SettingsPage {
             btn.addEventListener('click', () => {
                 document.querySelector('.sidebar-button.active')?.classList.remove('active');
                 btn.classList.add('active');
-                this.currentView = btn.getAttribute('data-view') as 'settings' | 'snapshots' | 'import_export';
+                this.currentView = btn.getAttribute('data-view') as 'settings' | 'snapshots';
                 this.render();
             });
         });
@@ -67,8 +67,6 @@ class SettingsPage {
             this.renderSettingsView();
         } else if (this.currentView === 'snapshots') {
             this.renderSnapshotsView();
-        } else if (this.currentView === 'import_export') {
-            this.renderImportExportView();
         }
     }
 
@@ -84,6 +82,23 @@ class SettingsPage {
                 <div class="setting-item">
                     <label for="open_sidebar_on_new_windows">Open sidebar automatically on new windows</label>
                     <input type="checkbox" id="open_sidebar_on_new_windows" ${this.userConfig.open_sidebar_on_new_windows ? 'checked' : ''}>
+                </div>
+            </div>
+            <div class="settings-section">
+                <h2 class="settings-title">Import / Export</h2>
+                <div class="setting-item">
+                    <div>
+                        <label>Export Current State</label>
+                        <p class="description">Save a snapshot of all your current open and closed windows to a JSON file.</p>
+                    </div>
+                    <button id="export-btn" class="button">Export</button>
+                </div>
+                <div class="setting-item">
+                    <div>
+                        <label>Import to Current State</label>
+                        <p class="description">Import windows from a Tabruh or Sideberry export file as new, closed windows.</p>
+                    </div>
+                    <button id="import-btn" class="button">Import</button>
                 </div>
             </div>
             <div class="settings-section">
@@ -110,6 +125,10 @@ class SettingsPage {
             });
         });
 
+        container.querySelector('#import-btn')!.addEventListener('click', () => {
+            this.openFilePicker(false); // false = not a snapshot, import to current state
+        });
+
         this.contentContainer.appendChild(container);
     }
 
@@ -123,13 +142,29 @@ class SettingsPage {
         const header = document.createElement('div');
         header.className = 'snapshots-header';
         header.innerHTML = `<h2 class="settings-title" style="margin-bottom: 0;">Snapshots</h2>`;
+
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'button-group';
+
         const createBtn = document.createElement('button');
-        createBtn.textContent = 'Create New';
+        createBtn.textContent = 'Create';
         createBtn.className = 'button';
-        createBtn.onclick = (e) => {
-            this.showCreateSnapshotMenu(e.clientX, e.clientY);
+        createBtn.onclick = () => {
+            const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
+            if (name) {
+                this.sendMessage({ type: 'create_snapshot', payload: { name } });
+            }
         };
-        header.appendChild(createBtn);
+
+        const importBtn = document.createElement('button');
+        importBtn.textContent = 'Import';
+        importBtn.className = 'button';
+        importBtn.onclick = () => {
+            this.openFilePicker(true);
+        };
+
+        buttonGroup.append(createBtn, importBtn);
+        header.appendChild(buttonGroup);
         listPane.appendChild(header);
 
         this.snapshots.forEach(snapshot => {
@@ -166,30 +201,6 @@ class SettingsPage {
         }
 
         this.contentContainer.append(listPane, detailPane);
-    }
-
-    private renderImportExportView() {
-        const container = document.createElement('div');
-        container.className = 'import-export-view';
-
-        container.innerHTML = `
-            <div class="io-section">
-                <h3 class="io-title">Export</h3>
-                <p class="io-description">Save a snapshot of all your current open and closed windows to a JSON file. This file can be used for backup or imported back into Tabruh.</p>
-                <button id="export-btn" class="button">Export Current State</button>
-            </div>
-            <div class="io-section">
-                <h3 class="io-title">Import</h3>
-                <p class="io-description">Import windows from a Tabruh or Sideberry export file. The imported windows will be added to your session as new, closed windows.</p>
-                <button id="import-btn" class="button">Import to Current State</button>
-            </div>
-        `;
-
-        container.querySelector('#import-btn')!.addEventListener('click', () => {
-            this.openFilePicker(false); // false = not a snapshot, import to current state
-        });
-
-        this.contentContainer.appendChild(container);
     }
 
     private openFilePicker(isForSnapshot: boolean) {
@@ -234,33 +245,6 @@ class SettingsPage {
         };
 
         input.click();
-    }
-
-    private showCreateSnapshotMenu(x: number, y: number) {
-        this.removeContextMenu();
-        const menu = this.createContextMenuElement(x, y);
-
-        const createItem = (label: string, action: () => void) => {
-            const item = document.createElement('div');
-            item.className = 'context-menu-item';
-            item.textContent = label;
-            item.addEventListener('click', () => { action(); this.removeContextMenu(); });
-            menu.appendChild(item);
-        };
-
-        createItem("From Current State", () => {
-            const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
-            if (name) {
-                this.sendMessage({ type: 'create_snapshot', payload: { name } });
-            }
-        });
-
-        createItem("From File...", () => {
-            this.openFilePicker(true);
-        });
-
-        document.body.appendChild(menu);
-        this.positionContextMenu(menu, x, y);
     }
 
     private renderSnapshotDetail(container: HTMLElement, snapshot: Snapshot) {
