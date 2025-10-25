@@ -126,7 +126,7 @@ class OverviewPage {
             this.container.appendChild(windowViewWrapper);
             if (!this.port) return;
             const viewType = this.viewMode === 'group' ? 'group' : 'window';
-            view = new TabTreeView(windowViewWrapper, this.port, false, viewType);
+            view = new TabTreeView(windowViewWrapper, this.port, "overview", viewType);
             this.views.set(state.id, view);
         }
         view.render(state);

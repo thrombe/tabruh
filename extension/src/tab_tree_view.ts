@@ -25,24 +25,21 @@ export class TabTreeView {
     private port: browser.Runtime.Port;
     private currentRenderState: UiStateForRender | null = null;
     private currentDragData: DragData | null = null;
-    private isSidebar: boolean;
+    private treeType: "sidebar" | "overview" | "snapshot";
     private viewType: 'window' | 'group';
-    private isReadOnly: boolean = false;
     private currentWindowId?: WindowId;
 
     constructor(
         container: HTMLElement,
         port: browser.Runtime.Port,
-        isSidebar: boolean = false,
+        treeType: "sidebar" | "overview" | "snapshot",
         viewType: 'window' | 'group' = 'window',
-        isReadOnly: boolean = false,
         currentWindowId?: WindowId,
     ) {
         this.container = container;
         this.port = port;
-        this.isSidebar = isSidebar;
+        this.treeType = treeType;
         this.viewType = viewType;
-        this.isReadOnly = isReadOnly;
         this.currentWindowId = currentWindowId;
         this.container.classList.add('tab-tree-view-container');
     }
@@ -58,7 +55,7 @@ export class TabTreeView {
     public render(state: UiStateForRender) {
         this.currentRenderState = state;
         this.container.innerHTML = '';
-        if (state.is_closed) {
+        if (state.is_closed && this.treeType !== "snapshot") {
             this.container.classList.add('closed-group');
         } else {
             this.container.classList.remove('closed-group');
@@ -134,10 +131,10 @@ export class TabTreeView {
         }
         nodeElement.draggable = true; // Make draggable even if read-only
 
-        if (node.isDiscarded || is_closed) nodeElement.classList.add('discarded-tab');
-        if (node.isActive && !this.isReadOnly) nodeElement.classList.add('focused-tab');
+        if ((node.isDiscarded || is_closed) && this.treeType !== "snapshot") nodeElement.classList.add('discarded-tab');
+        if (node.isActive && this.treeType !== "snapshot") nodeElement.classList.add('focused-tab');
 
-        if (!this.isReadOnly) {
+        if (this.treeType !== "snapshot") {
             if (!is_closed) {
                 nodeElement.addEventListener('click', () => this.sendMessage({ type: 'focus_tab', payload: { bid: node.id } }));
             }
@@ -175,7 +172,7 @@ export class TabTreeView {
             setTimeout(() => nodeElement.classList.add('dragging'), 0);
         });
 
-        if (!this.isReadOnly) {
+        if (this.treeType !== "snapshot") {
             nodeElement.addEventListener('dragend', (event) => {
                 nodeElement.classList.remove('dragging');
                 const dragData = this.currentDragData;
@@ -198,7 +195,7 @@ export class TabTreeView {
             if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
                 return;
             }
-            if (this.isReadOnly) return; // Don't allow dropping onto snapshot views
+            if (this.treeType === "snapshot") return; // Don't allow dropping onto snapshot views
 
             if (types.includes('application/json')) {
                 const dragDataStr = event.dataTransfer?.getData('application/json');
@@ -233,7 +230,7 @@ export class TabTreeView {
 
         nodeElement.addEventListener('drop', async (event) => {
             event.preventDefault(); event.stopPropagation();
-            if (this.isReadOnly) return; // Safety check
+            if (this.treeType === "snapshot") return; // Safety check
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
             const action = nodeElement.dataset.dropAction as DropAction;
             delete nodeElement.dataset.dropAction;
@@ -269,7 +266,7 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (!this.isReadOnly) {
+                if (this.treeType !== "snapshot") {
                     this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
                 }
             });
@@ -303,7 +300,7 @@ export class TabTreeView {
         title.textContent = node.title;
         contentWrapper.append(icon, title);
 
-        if (this.isReadOnly) {
+        if (this.treeType === "snapshot") {
             const menuButton = document.createElement('button');
             menuButton.className = 'close-tab-button'; // Re-use style for positioning
             menuButton.innerHTML = '&#x22EE;';
@@ -364,7 +361,7 @@ export class TabTreeView {
             setTimeout(() => this.container.classList.add('dragging'), 0);
         });
 
-        if (!this.isReadOnly) {
+        if (this.treeType !== "snapshot") {
             header.addEventListener('dragend', () => {
                 this.container.classList.remove('dragging');
                 this.currentDragData = null;
@@ -378,12 +375,13 @@ export class TabTreeView {
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
-        nameSpan.textContent = state.name;
-        if (state.is_closed) {
+        if (state.is_closed && this.treeType !== "snapshot") {
             nameSpan.textContent = `[Closed] ${state.name}`;
+        } else {
+            nameSpan.textContent = state.name;
         }
 
-        if (!this.isReadOnly) {
+        if (this.treeType !== "snapshot") {
             nameSpan.addEventListener('click', () => {
                 const input = document.createElement('input');
                 input.type = 'text';
@@ -421,7 +419,7 @@ export class TabTreeView {
     }
 
     private renderAddButton(state: UiStateForRender): HTMLDivElement {
-        if (this.isReadOnly) {
+        if (this.treeType === "snapshot") {
             return document.createElement('div');
         }
         const button = document.createElement('div');
@@ -563,7 +561,7 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        if (this.isReadOnly) {
+        if (this.treeType === "snapshot") {
             createItem('Restore as New Window', ICON_RESTORE, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined) {
                     this.sendMessage({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
@@ -664,7 +662,7 @@ export class TabTreeView {
         const node = this.currentRenderState.tree.get(nodeId);
         if (!node) return;
 
-        if (this.isReadOnly) {
+        if (this.treeType === "snapshot") {
             createItem('Restore as New Window', ICON_RESTORE, () => {
                 const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined) {

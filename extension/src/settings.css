@@ -108,7 +108,3 @@ body {
     max-height: 60vh;
     overflow-y: auto;
 }
-
-.snapshot-window-view .discarded-tab {
-    opacity: 1;
-}

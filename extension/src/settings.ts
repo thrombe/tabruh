@@ -265,7 +265,7 @@ class SettingsPage {
             const viewContainer = document.createElement('div');
             viewContainer.className = 'snapshot-window-view';
 
-            const treeView = new TabTreeView(viewContainer, this.port, false, 'window', true, this.currentWindowId);
+            const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
             treeView.render(state);
             container.appendChild(viewContainer);
         });
