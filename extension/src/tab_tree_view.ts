@@ -132,10 +132,10 @@ export class TabTreeView {
         if (node.isGroup) {
             nodeElement.classList.add('group-node');
         }
-        nodeElement.draggable = !this.isReadOnly;
+        nodeElement.draggable = true; // Make draggable even if read-only
 
         if (node.isDiscarded || is_closed) nodeElement.classList.add('discarded-tab');
-        if (node.isActive) nodeElement.classList.add('focused-tab');
+        if (node.isActive && !this.isReadOnly) nodeElement.classList.add('focused-tab');
 
         if (!this.isReadOnly) {
             if (!is_closed) {
@@ -150,92 +150,115 @@ export class TabTreeView {
         }
         nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
 
-        if (!this.isReadOnly) {
-            nodeElement.addEventListener('dragstart', (event) => {
+        nodeElement.addEventListener('dragstart', (event) => {
+            event.stopPropagation();
+            let dragData: DragData;
+            if (state.is_read_only) {
+                dragData = {
+                    type: 'snapshot_item',
+                    snapshotId: state.snapshot_id!,
+                    windowIndex: state.window_index!,
+                    tabIndex: node.tab_index,
+                };
+            } else {
                 const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
-
-                const dragData: DragData = {
+                dragData = {
                     type: 'tabs',
                     draggedNodeId: node.id,
                     sourceWindowId: state.wbid,
                     movedNodeIds,
                 };
-                this.currentDragData = dragData;
-                event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
-                event.dataTransfer!.effectAllowed = 'move';
-                setTimeout(() => nodeElement.classList.add('dragging'), 0);
-            });
+            }
+            this.currentDragData = dragData;
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+            event.dataTransfer!.effectAllowed = 'move';
+            setTimeout(() => nodeElement.classList.add('dragging'), 0);
+        });
 
+        if (!this.isReadOnly) {
             nodeElement.addEventListener('dragend', (event) => {
                 nodeElement.classList.remove('dragging');
-                if (event.dataTransfer?.dropEffect === 'none' && this.currentDragData?.draggedNodeId) {
-                    this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: this.currentDragData.draggedNodeId } });
+                const dragData = this.currentDragData;
+                // Type guard to ensure we are dealing with a live drag
+                if (event.dataTransfer?.dropEffect === 'none' && dragData && dragData.type !== 'snapshot_item') {
+                    this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: dragData.draggedNodeId } });
                 }
                 this.currentDragData = null;
             });
-
-            nodeElement.addEventListener('dragover', (event) => {
-                event.preventDefault();
-                const types = event.dataTransfer?.types;
-                if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
-                    return;
-                }
-
-                if (types.includes('application/json')) {
-                    const dragDataStr = event.dataTransfer?.getData('application/json');
-                    if (dragDataStr) {
-                        const dragData: DragData = JSON.parse(dragDataStr);
-                        if (dragData.movedNodeIds.includes(node.id)) return;
-                    }
-                }
-
-                const rect = nodeElement.getBoundingClientRect();
-                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-                const y = event.clientY - rect.top;
-                if (y < rect.height * 0.25) {
-                    nodeElement.classList.add('drag-over-above');
-                    nodeElement.dataset.dropAction = 'above';
-                } else if (y > rect.height * 0.75) {
-                    nodeElement.classList.add('drag-over-below');
-                    nodeElement.dataset.dropAction = 'below';
-                } else {
-                    nodeElement.classList.add('drag-over-inside');
-                    nodeElement.dataset.dropAction = 'inside';
-                }
-                event.dataTransfer!.dropEffect = 'move';
-            });
-
-            nodeElement.addEventListener('dragleave', () => {
-                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-                delete nodeElement.dataset.dropAction;
-            });
-
-            nodeElement.addEventListener('drop', async (event) => {
-                event.preventDefault(); event.stopPropagation();
-                nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
-                const action = nodeElement.dataset.dropAction as DropAction;
-                delete nodeElement.dataset.dropAction;
-
-                const dataTransfer = event.dataTransfer;
-                if (!dataTransfer || !state.wbid) return;
-
-                const types = dataTransfer.types;
-                if (types.includes('application/json')) {
-                    const dragDataStr = dataTransfer.getData('application/json');
-                    if (!dragDataStr) return;
-                    const dragData: DragData = JSON.parse(dragDataStr);
-
-                    this.currentDragData = null;
-                    if (dragData.movedNodeIds.includes(node.id)) return;
-
-                    this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
-                } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
-                    const url = this.getUrlFromDataTransfer(dataTransfer);
-                    if (!url) return;
-                    this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
-                }
+        } else {
+            nodeElement.addEventListener('dragend', () => {
+                nodeElement.classList.remove('dragging');
+                this.currentDragData = null;
             });
         }
+
+        nodeElement.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            const types = event.dataTransfer?.types;
+            if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
+                return;
+            }
+            if (this.isReadOnly) return; // Don't allow dropping onto snapshot views
+
+            if (types.includes('application/json')) {
+                const dragDataStr = event.dataTransfer?.getData('application/json');
+                if (dragDataStr) {
+                    const dragData: DragData = JSON.parse(dragDataStr);
+                    if (dragData.type === 'tabs' && dragData.movedNodeIds.includes(node.id)) {
+                        return;
+                    }
+                }
+            }
+
+            const rect = nodeElement.getBoundingClientRect();
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+            const y = event.clientY - rect.top;
+            if (y < rect.height * 0.25) {
+                nodeElement.classList.add('drag-over-above');
+                nodeElement.dataset.dropAction = 'above';
+            } else if (y > rect.height * 0.75) {
+                nodeElement.classList.add('drag-over-below');
+                nodeElement.dataset.dropAction = 'below';
+            } else {
+                nodeElement.classList.add('drag-over-inside');
+                nodeElement.dataset.dropAction = 'inside';
+            }
+            event.dataTransfer!.dropEffect = 'move';
+        });
+
+        nodeElement.addEventListener('dragleave', () => {
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+            delete nodeElement.dataset.dropAction;
+        });
+
+        nodeElement.addEventListener('drop', async (event) => {
+            event.preventDefault(); event.stopPropagation();
+            if (this.isReadOnly) return; // Safety check
+            nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
+            const action = nodeElement.dataset.dropAction as DropAction;
+            delete nodeElement.dataset.dropAction;
+
+            const dataTransfer = event.dataTransfer;
+            if (!dataTransfer || !state.wbid) return;
+
+            const types = dataTransfer.types;
+            if (types.includes('application/json')) {
+                const dragDataStr = dataTransfer.getData('application/json');
+                if (!dragDataStr) return;
+                const dragData: DragData = JSON.parse(dragDataStr);
+                this.currentDragData = null;
+
+                if (dragData.type === 'snapshot_item') {
+                    this.sendMessage({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                } else if ((dragData.type === 'tabs' || dragData.type === 'window') && !dragData.movedNodeIds.includes(node.id)) {
+                    this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                }
+            } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
+                const url = this.getUrlFromDataTransfer(dataTransfer);
+                if (!url) return;
+                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
+            }
+        });
 
         const collapseContainer = document.createElement('div');
         collapseContainer.className = 'collapse-container';
@@ -246,7 +269,9 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
+                if (!this.isReadOnly) {
+                    this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
+                }
             });
 
             if (node.isCollapsed) {
@@ -313,24 +338,38 @@ export class TabTreeView {
         const header = document.createElement('div');
         header.className = 'tab-tree-header';
         header.draggable = true;
-        header.draggable = !this.isReadOnly;
 
-        if (!this.isReadOnly) {
-            header.addEventListener('dragstart', (event) => {
-                event.stopPropagation();
+        header.addEventListener('dragstart', (event) => {
+            event.stopPropagation();
+            let dragData: DragData;
+            if (state.is_read_only) {
+                dragData = {
+                    type: 'snapshot_item',
+                    snapshotId: state.snapshot_id!,
+                    windowIndex: state.window_index!,
+                    tabIndex: undefined, // undefined means whole window
+                };
+            } else {
                 const movedNodeIds = Array.from(state.tree.keys());
-                const dragData: DragData = {
+                dragData = {
                     type: 'window',
                     draggedNodeId: state.id,
                     sourceWindowId: state.wbid,
                     movedNodeIds,
                 };
-                this.currentDragData = dragData;
-                event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
-                event.dataTransfer!.effectAllowed = 'move';
-                setTimeout(() => this.container.classList.add('dragging'), 0);
-            });
+            }
+            this.currentDragData = dragData;
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+            event.dataTransfer!.effectAllowed = 'move';
+            setTimeout(() => this.container.classList.add('dragging'), 0);
+        });
 
+        if (!this.isReadOnly) {
+            header.addEventListener('dragend', () => {
+                this.container.classList.remove('dragging');
+                this.currentDragData = null;
+            });
+        } else {
             header.addEventListener('dragend', () => {
                 this.container.classList.remove('dragging');
                 this.currentDragData = null;
@@ -417,13 +456,25 @@ export class TabTreeView {
                 const dragData: DragData = JSON.parse(dragDataStr);
                 this.currentDragData = null;
 
-                this.sendMessage({
-                    type: 'handle_drop', payload: {
-                        drag_data: dragData,
-                        target_bid: state.id,
-                        action: "inside",
-                    }
-                });
+                if (dragData.type == "snapshot_item") {
+                    this.sendMessage({
+                        type: 'handle_snapshot_drop',
+                        payload: {
+                            drag_data: dragData,
+                            target_bid: state.id,
+                            action: 'inside',
+                        },
+                    });
+                } else {
+                    this.sendMessage({
+                        type: 'handle_drop',
+                        payload: {
+                            drag_data: dragData,
+                            target_bid: state.id,
+                            action: `inside`,
+                        }
+                    });
+                }
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;

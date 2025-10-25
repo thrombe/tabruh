@@ -337,6 +337,7 @@ class App {
                     case 'export_data':
                     case 'restore_snapshot_window_into_window':
                     case 'restore_snapshot_subtree_into_window':
+                    case 'handle_snapshot_drop':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -422,6 +423,7 @@ class App {
                     case 'export_data':
                     case 'restore_snapshot_window_into_window':
                     case 'restore_snapshot_subtree_into_window':
+                    case 'handle_snapshot_drop':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -1168,7 +1170,38 @@ class App {
         this.load_export_data(subtreeExport);
     }
 
-    load_tabs_into_parent(tabs: BruhExport['windows'][0]['tabs'], parent_bid: BruhId) {
+    _get_snapshot_subtree_tabs(windowData: BruhExport['windows'][number], root_tab_index?: number): BruhExport['windows'][0]['tabs'] {
+        const tabsToRestore: BruhExport['windows'][0]['tabs'] = [];
+
+        if (root_tab_index === undefined) { // Whole window
+            return windowData.tabs;
+        }
+
+        const subtreeIndices = new Set<number>();
+        const queue = [root_tab_index];
+        while (queue.length > 0) {
+            const currentIndex = queue.shift()!;
+            if (subtreeIndices.has(currentIndex)) continue;
+            subtreeIndices.add(currentIndex);
+            for (let i = 0; i < windowData.tabs.length; i++) {
+                if (windowData.tabs[i]!.parent_index === currentIndex) queue.push(i);
+            }
+        }
+
+        const sortedSubtreeIndices = Array.from(subtreeIndices).sort((a, b) => a - b);
+        const oldIndexToNewIndex = new Map<number, number>();
+        sortedSubtreeIndices.forEach((oldIndex, newIndex) => oldIndexToNewIndex.set(oldIndex, newIndex));
+
+        return sortedSubtreeIndices.map(oldIndex => {
+            const tab = { ...windowData.tabs[oldIndex]! };
+            tab.parent_index = tab.parent_index === null || !oldIndexToNewIndex.has(tab.parent_index)
+                ? null
+                : oldIndexToNewIndex.get(tab.parent_index)!;
+            return tab;
+        });
+    }
+
+    load_tabs_into_parent(tabs: BruhExport['windows'][0]['tabs'], parent_bid: BruhId, index?: number) {
         const parent_node = this.get_node(parent_bid);
         const win = this.get_window(parent_node.wbid);
         if (win.closed) {
@@ -1181,15 +1214,24 @@ class App {
             const tabData = tabs[i]!;
             const new_parent_bid = tabData.parent_index === null ? parent_bid : new_bids[tabData.parent_index]!;
 
+            const insertionIndex = (index === undefined) ? undefined : index + i;
+
             if (new_parent_bid === undefined) {
                 throw new Error(`Error importing subtree: invalid parent_index ${tabData.parent_index}`);
             }
 
             let new_tab_effect;
             if (this.parse_group_url_id(tabData.url)) {
-                new_tab_effect = this.create_new_group(new_parent_bid, { name: { name: tabData.title, generation: 0, is_custom: true } });
+                new_tab_effect = this.create_new_group(new_parent_bid, {
+                    name: { name: tabData.title, generation: 0, is_custom: true },
+                    index: insertionIndex,
+                });
             } else {
-                new_tab_effect = this.create_new_tab(new_parent_bid, { url: tabData.url, title: tabData.title });
+                new_tab_effect = this.create_new_tab(new_parent_bid, {
+                    url: tabData.url,
+                    title: tabData.title,
+                    index: insertionIndex,
+                });
             }
             effects.push(new_tab_effect);
             new_bids.push(new_tab_effect.payload.bid);
@@ -1298,7 +1340,6 @@ class App {
             const bid = Number(bstrid) as BruhId;
             node_storage.set(bid, state.node_storage_data[bstrid]!);
         }
-
 
         return {
             state_version: state.state_version,
@@ -2372,6 +2413,32 @@ class App {
 
                         const effect = this.load_tabs_into_parent(subtreeTabs, target_wbid);
                         if (effect) effects.push_back(effect);
+                    } break;
+                    case 'handle_snapshot_drop': {
+                        const { drag_data, target_bid, action } = msg.payload;
+                        const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
+                        if (!snapshot) break;
+
+                        const windowData = snapshot.data.windows[drag_data.windowIndex];
+                        if (!windowData) break;
+
+                        const tabsToRestore = this._get_snapshot_subtree_tabs(windowData, drag_data.tabIndex);
+
+                        // Use a dummy bid for get_target_index since source doesn't exist in the live tree
+                        const dummySourceBid = -1 as any as BruhId;
+                        const target = this.get_target_index(dummySourceBid, target_bid, action);
+
+                        let effect;
+                        if (drag_data.tabIndex === undefined) { // Dragging a whole window
+                            const groupEffect = this.create_new_group(target.parent_bid, { name: { name: windowData.name ?? 'Restored Window', generation: 0 as any, is_custom: true }, index: target.index });
+                            effect = this.load_tabs_into_parent(tabsToRestore, groupEffect.payload.bid);
+                            if (effect) {
+                                effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
+                            }
+                        } else { // Dragging a subtree
+                            effect = this.load_tabs_into_parent(tabsToRestore, target.parent_bid, target.index);
+                            if (effect) effects.push_back(effect);
+                        }
                     } break;
                     case 'export_data': {
                         const data = this.get_export_data();

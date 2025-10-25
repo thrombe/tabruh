@@ -103,12 +103,23 @@ export type WindowData = Extract<Node, { type: "window" }>;
 export type DragType = 'tabs' | 'window';
 export type DropAction = 'above' | 'below' | 'inside';
 
-export type DragData = {
+export type LiveDragData = {
     type: DragType,
     sourceWindowId: BruhId,
     draggedNodeId: BruhId,
     movedNodeIds: BruhId[],
 };
+
+export type SnapshotDragData = {
+    type: 'snapshot_item',
+    snapshotId: string,
+    windowIndex: number,
+
+    // Undefined if dragging the whole window
+    tabIndex?: number,
+};
+
+export type DragData = LiveDragData | SnapshotDragData;
 
 export type UiStateForRender = {
     id: BruhId,
@@ -167,7 +178,7 @@ export type BackgroundRequest =
     | { type: 'focus_tab', payload: { bid: BruhId } }
     | { type: 'close_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'toggle_collapse', payload: { bid: BruhId } }
-    | { type: 'handle_drop', payload: { drag_data: DragData, target_bid: BruhId, action: DropAction } }
+    | { type: 'handle_drop', payload: { drag_data: LiveDragData, target_bid: BruhId, action: DropAction } }
     | { type: 'duplicate_tab', payload: { bid: BruhId } }
     | { type: 'unload_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'reload_tree', payload: { bid: BruhId } }
@@ -192,6 +203,7 @@ export type BackgroundRequest =
     | { type: 'export_data', payload: {} }
     | { type: 'restore_snapshot_window_into_window', payload: { id: string, window_index: number, target_wid: WindowId } }
     | { type: 'restore_snapshot_subtree_into_window', payload: { id: string, window_index: number, tab_index: number, target_wid: WindowId } }
+    | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction } }
     ;
 
 export type BackgroundResponse =
