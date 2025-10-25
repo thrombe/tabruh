@@ -1295,7 +1295,6 @@ class App {
         }
     }
 
-    // TODO: snapshots
     async load_state(key: string) {
         const result = await browser.storage.local.get(key);
         const state = result[key] as StorageState;
@@ -1319,6 +1318,7 @@ class App {
                 nodes: nodes,
                 node_storage_data: node_storage,
                 browser_restore_cache: this.browser_restore_cache,
+                snapshots: JSON.parse(JSON.stringify(this.snapshots)),
             };
         }
 
@@ -1348,6 +1348,7 @@ class App {
             nodes: nodes,
             node_storage_data: node_storage,
             browser_restore_cache: cache,
+            snapshots: state.snapshots,
         };
     }
 
@@ -1585,6 +1586,7 @@ class App {
         this.bruhid = state.bruhid;
         this.hierarchy_generation_id = state.hierarchy_generation_id;
         this.browser_restore_cache = state.browser_restore_cache;
+        this.snapshots = state.snapshots;
 
         // need to take care of quite a few cases here
         // - this code runs as soon as the browser starts (like before user clicks "restore last session")
