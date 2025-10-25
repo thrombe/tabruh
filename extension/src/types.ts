@@ -159,7 +159,7 @@ export type ConfigStorage = {
     user_config: UserConfig,
 };
 
-export type BackgroundPortRequest =
+export type BackgroundRequest =
     | { type: 'get_state_for_window', payload: { wid: WindowId } }
     | { type: 'get_all_window_states', payload: {} }
 
@@ -189,6 +189,7 @@ export type BackgroundPortRequest =
     | { type: 'restore_snapshot_window', payload: { id: string, window_index: number } }
     | { type: 'restore_snapshot_subtree', payload: { id: string, window_index: number, tab_index: number } }
     | { type: 'import_file_as_snapshot', payload: { data: BruhExport | SideberryExport, name: string } }
+    | { type: 'export_data', payload: {} }
     ;
 
 export type BackgroundResponse =
@@ -227,21 +228,12 @@ export type BrowserEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
-export type BackgroundRequest =
-    | { type: 'export_data', payload: {} }
-    ;
-
 export type PortMessageEvent = {
     type: 'port_message',
-    payload: { message: BackgroundPortRequest, port: browser.Runtime.Port }
+    payload: { message: BackgroundRequest, port: browser.Runtime.Port }
 };
 
-export type BackgroundRequestEvent = {
-    type: 'background_request',
-    payload: BackgroundRequest,
-};
-
-export type StateManagerEvent = BrowserEvent | PortMessageEvent | BackgroundRequestEvent;
+export type StateManagerEvent = BrowserEvent | PortMessageEvent;
 
 export type BruhExport = {
     name?: string,

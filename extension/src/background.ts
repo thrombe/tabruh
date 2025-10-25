@@ -1,7 +1,6 @@
 import browser from 'webextension-polyfill';
 import type {
     BackgroundRequest,
-    BackgroundPortRequest,
     BackgroundResponse,
     DragData,
     Node,
@@ -157,7 +156,7 @@ class App {
             port.onMessage.addListener(async (message) => {
                 await this.eventChannel.send({
                     type: 'port_message',
-                    payload: { message: message as BackgroundPortRequest, port }
+                    payload: { message: message as BackgroundRequest, port }
                 });
             });
             port.onDisconnect.addListener(() => {
@@ -302,15 +301,6 @@ class App {
             case 'tab_activated':
             case 'window_focus_changed':
                 break;
-            case 'background_request': {
-                const message = event.payload;
-                switch (message.type) {
-                    case 'export_data':
-                        break;
-                    default:
-                        throw utils.exhausted(message.type);
-                }
-            } break;
             case 'port_message': {
                 const message = event.payload.message;
                 switch (message.type) {
@@ -344,6 +334,7 @@ class App {
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
                     case 'import_file_as_snapshot':
+                    case 'export_data':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -393,16 +384,6 @@ class App {
             case 'window_focus_changed':
                 break;
 
-            case 'background_request': {
-                const message = event.payload;
-                switch (message.type) {
-                    case "export_data":
-                        break;
-                    default:
-                        throw utils.exhausted(message.type);
-                }
-            } break;
-
             case 'port_message': {
                 const message = event.payload.message;
                 switch (message.type) {
@@ -436,6 +417,7 @@ class App {
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
                     case 'import_file_as_snapshot':
+                    case 'export_data':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -2297,13 +2279,6 @@ class App {
                         this.snapshots.push(newSnapshot);
                         this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
                     } break;
-                    default:
-                        throw utils.exhausted(msg);
-                }
-            } break;
-            case 'background_request': {
-                const message = event.payload;
-                switch (message.type) {
                     case 'export_data': {
                         const data = this.get_export_data();
                         const jsonData = JSON.stringify(data, null, 2);
@@ -2318,7 +2293,7 @@ class App {
                         setTimeout(() => URL.revokeObjectURL(url), 5000);
                     } break;
                     default:
-                        throw utils.exhausted(message.type);
+                        throw utils.exhausted(msg);
                 }
             } break;
             default:

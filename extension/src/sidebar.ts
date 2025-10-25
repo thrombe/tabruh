@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundPortRequest, BackgroundResponse, WindowId } from './types';
+import type { BackgroundRequest, BackgroundResponse, WindowId } from './types';
 
 class TabTreeSidebar {
     private port: browser.Runtime.Port;
@@ -38,7 +38,7 @@ class TabTreeSidebar {
         }
     }
 
-    private sendMessage(message: BackgroundPortRequest) {
+    private sendMessage(message: BackgroundRequest) {
         try {
             this.port.postMessage(message);
         } catch (e) {
