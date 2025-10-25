@@ -1,6 +1,6 @@
 import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
-import type { DragData, BackgroundRequest, UiStateForRender, DropAction, BruhId, UiNode } from './types';
+import type { DragData, BackgroundRequest, UiStateForRender, DropAction, BruhId, UiNode, WindowId } from './types';
 
 const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
@@ -28,7 +28,7 @@ export class TabTreeView {
     private isSidebar: boolean;
     private viewType: 'window' | 'group';
     private isReadOnly: boolean = false;
-    private currentWindowId?: number;
+    private currentWindowId?: WindowId;
 
     constructor(
         container: HTMLElement,
@@ -36,7 +36,7 @@ export class TabTreeView {
         isSidebar: boolean = false,
         viewType: 'window' | 'group' = 'window',
         isReadOnly: boolean = false,
-        currentWindowId?: number,
+        currentWindowId?: WindowId,
     ) {
         this.container = container;
         this.port = port;
@@ -571,7 +571,7 @@ export class TabTreeView {
             });
             createItem('Restore to Current Window', ICON_RESTORE, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined && this.currentWindowId) {
-                    this.sendMessage({ type: 'restore_snapshot_window_into_window', payload: { id: state.snapshot_id, window_index: state.window_index, target_wid: this.currentWindowId as any } });
+                    this.sendMessage({ type: 'restore_snapshot_window_into_window', payload: { id: state.snapshot_id, window_index: state.window_index, target_wid: this.currentWindowId } });
                 }
             }, !this.currentWindowId); // Disable if we don't know the current window ID
         } else if (state.is_closed) {
@@ -664,7 +664,7 @@ export class TabTreeView {
             createItem('Restore to Current Window', ICON_RESTORE, () => {
                 const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined && this.currentWindowId) {
-                    this.sendMessage({ type: 'restore_snapshot_subtree_into_window', payload: { id: snapshot_id, window_index, tab_index: node.tab_index, target_wid: this.currentWindowId as any } });
+                    this.sendMessage({ type: 'restore_snapshot_subtree_into_window', payload: { id: snapshot_id, window_index, tab_index: node.tab_index, target_wid: this.currentWindowId } });
                 }
             }, !this.currentWindowId);
             createSeparator();

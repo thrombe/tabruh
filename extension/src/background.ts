@@ -1019,7 +1019,7 @@ class App {
             const effect = this.create_new_window({
                 name: {
                     name: winData.name ?? this.generate_unique_group_name(),
-                    generation: 0 as any, // generation will be set to bid inside create_new_window
+                    generation: 0,
                     is_custom: !!winData.name
                 },
                 closed: true
@@ -1035,7 +1035,10 @@ class App {
 
                 let new_tab_effect;
                 if (this.parse_group_url_id(tabData.url)) {
-                    new_tab_effect = this.create_new_group(parent_bid, { index: i, name: { name: tabData.title, generation: 0 as any, is_custom: true } });
+                    new_tab_effect = this.create_new_group(parent_bid, {
+                        index: i,
+                        name: { name: tabData.title, generation: 0, is_custom: true },
+                    });
                 } else {
                     new_tab_effect = this.create_new_tab(parent_bid, { url: tabData.url, title: tabData.title, index: i });
                 }
@@ -2372,7 +2375,9 @@ class App {
                         const windowData = snapshot.data.windows[window_index];
                         if (!windowData) break;
 
-                        const groupEffect = this.create_new_group(target_wbid, { name: { name: windowData.name ?? 'Restored Window', generation: 0 as any, is_custom: true } });
+                        const groupEffect = this.create_new_group(target_wbid, {
+                            name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
+                        });
                         const effect = this.load_tabs_into_parent(windowData.tabs, groupEffect.payload.bid);
 
                         if (effect) {
@@ -2425,12 +2430,15 @@ class App {
                         const tabsToRestore = this._get_snapshot_subtree_tabs(windowData, drag_data.tabIndex);
 
                         // Use a dummy bid for get_target_index since source doesn't exist in the live tree
-                        const dummySourceBid = -1 as any as BruhId;
+                        const dummySourceBid = -1 as BruhId;
                         const target = this.get_target_index(dummySourceBid, target_bid, action);
 
                         let effect;
                         if (drag_data.tabIndex === undefined) { // Dragging a whole window
-                            const groupEffect = this.create_new_group(target.parent_bid, { name: { name: windowData.name ?? 'Restored Window', generation: 0 as any, is_custom: true }, index: target.index });
+                            const groupEffect = this.create_new_group(target.parent_bid, {
+                                name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
+                                index: target.index,
+                            });
                             effect = this.load_tabs_into_parent(tabsToRestore, groupEffect.payload.bid);
                             if (effect) {
                                 effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
