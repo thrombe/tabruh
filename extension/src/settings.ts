@@ -1,7 +1,7 @@
 import './settings.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundRequest, BackgroundResponse, BruhExport, SideberryExport, Snapshot, UiNode, UiStateForRender, UserConfig, WindowId } from './types';
+import type { BackgroundRequest, BackgroundResponse, BruhExport, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId } from './types';
 
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -64,6 +64,11 @@ class SettingsPage {
                 this.sendMessage({ type: 'load_bruh_export', payload: { data: message.payload.data } });
                 alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
             } break;
+            case 'state_update':
+                if (message.payload.state.is_read_only) {
+                    this.renderSingleSnapshotWindow(message.payload.state);
+                }
+                break;
         }
     }
 
@@ -259,63 +264,36 @@ class SettingsPage {
 
     private renderSnapshotDetail(container: HTMLElement, snapshot: Snapshot) {
         container.innerHTML = '';
-        snapshot.data.windows.forEach((win, windowIndex) => {
-            const state = this.convertBruhExportWindowToUiState(snapshot.id, windowIndex, win, snapshot.data);
-
+        snapshot.data.windows.forEach((_, windowIndex) => {
             const viewContainer = document.createElement('div');
             viewContainer.className = 'snapshot-window-view';
+            viewContainer.dataset.snapshotId = snapshot.id;
+            viewContainer.dataset.windowIndex = String(windowIndex);
+            viewContainer.innerHTML = '<div>Loading...</div>';
+            container.appendChild(viewContainer);
 
+            this.sendMessage({
+                type: 'get_state_for_snapshot_window',
+                payload: { snapshot_id: snapshot.id, window_index: windowIndex }
+            });
+        });
+    }
+
+    private renderSingleSnapshotWindow(state: UiStateForRender) {
+        const { snapshot_id, window_index } = state;
+        if (snapshot_id === undefined || window_index === undefined) return;
+
+        const viewContainer = this.contentContainer.querySelector<HTMLElement>(
+            `.snapshot-window-view[data-snapshot-id="${snapshot_id}"][data-window-index="${window_index}"]`
+        );
+
+        if (viewContainer) {
+            viewContainer.innerHTML = '';
             const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
             treeView.render(state);
-            container.appendChild(viewContainer);
-        });
+        }
     }
 
-    private convertBruhExportWindowToUiState(snapshotId: string, windowIndex: number, windowData: BruhExport['windows'][number], fullExport: BruhExport): UiStateForRender {
-        const tree = new Map<number, UiNode>();
-        const rootBids: number[] = [];
-
-        windowData.tabs.forEach((tab, index) => {
-            const children: number[] = [];
-            for (let i = 0; i < windowData.tabs.length; i++) {
-                if (windowData.tabs[i]!.parent_index === index) {
-                    children.push(i);
-                }
-            }
-
-            const isGroup = tab.url.includes('/overview.html?view=group');
-
-            tree.set(index, {
-                id: index as any,
-                tab_index: index,
-                title: tab.title,
-                url: tab.url,
-                isGroup,
-                isDiscarded: true,
-                isActive: false,
-                isCollapsed: false,
-                children: children as any,
-            });
-
-            if (tab.parent_index === null) {
-                rootBids.push(index);
-            }
-        });
-
-        return {
-            id: windowIndex as any,
-            wbid: windowIndex as any,
-            name: windowData.name || 'Unnamed Window',
-            is_custom_named: !!windowData.name,
-            is_closed: true,
-            generation: 0,
-            tree: tree as any,
-            root_bids: rootBids as any,
-            is_read_only: true,
-            snapshot_id: snapshotId,
-            window_index: windowIndex
-        };
-    }
 
     // Context Menu Logic
     private removeContextMenu = () => {

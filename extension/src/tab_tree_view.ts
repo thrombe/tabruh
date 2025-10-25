@@ -129,7 +129,7 @@ export class TabTreeView {
         if (node.isGroup) {
             nodeElement.classList.add('group-node');
         }
-        nodeElement.draggable = true; // Make draggable even if read-only
+        nodeElement.draggable = true;
 
         if ((node.isDiscarded || is_closed) && this.treeType !== "snapshot") nodeElement.classList.add('discarded-tab');
         if (node.isActive && this.treeType !== "snapshot") nodeElement.classList.add('focused-tab');
@@ -268,6 +268,17 @@ export class TabTreeView {
                 e.stopPropagation();
                 if (this.treeType !== "snapshot") {
                     this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
+                } else {
+                    if (this.currentRenderState?.snapshot_id !== undefined && this.currentRenderState?.window_index !== undefined) {
+                        this.sendMessage({
+                            type: 'toggle_snapshot_collapse',
+                            payload: {
+                                snapshot_id: this.currentRenderState.snapshot_id,
+                                window_index: this.currentRenderState.window_index,
+                                tab_index: node.tab_index,
+                            }
+                        });
+                    }
                 }
             });
 

@@ -309,6 +309,7 @@ class App {
                     case 'get_all_window_states':
                     case 'get_user_config':
                     case 'get_snapshots':
+                    case 'get_state_for_snapshot_window':
                         break;
 
                     case 'toggle_collapse':
@@ -336,6 +337,7 @@ class App {
                     case 'import_file_as_snapshot':
                     case 'export_data':
                     case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -395,6 +397,7 @@ class App {
                     case 'convert_sideberry_export':
                     case 'get_user_config':
                     case 'get_snapshots':
+                    case 'get_state_for_snapshot_window':
                         break;
 
                     case 'toggle_collapse':
@@ -420,6 +423,7 @@ class App {
                     case 'import_file_as_snapshot':
                     case 'export_data':
                     case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -636,6 +640,70 @@ class App {
             generation: rootNode.name.generation,
             tree: uiTree,
             root_bids,
+        };
+    }
+
+    build_ui_state_for_snapshot_window(snapshot_id: string, window_index: number): UiStateForRender | null {
+        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+        if (!snapshot) return null;
+
+        const winData = snapshot.data.windows[window_index];
+        if (!winData) return null;
+
+        const uiTree: Map<BruhId, UiNode> = new Map();
+        const root_bids: BruhId[] = [];
+
+        // We need fake BruhIds for the nodes. Let's just use array indices.
+        const fakeWindowBid = -1 as BruhId;
+
+        for (let i = 0; i < winData.tabs.length; i++) {
+            const tabData = winData.tabs[i]!;
+            const fakeTabBid = i as BruhId;
+
+            const isGroup = this.parse_group_url_id(tabData.url) !== null;
+
+            uiTree.set(fakeTabBid, {
+                id: fakeTabBid,
+                tab_index: i,
+                title: tabData.title,
+                url: tabData.url,
+                isGroup: isGroup,
+                isDiscarded: false,
+                isActive: false,
+                isCollapsed: tabData.collapsed ?? false,
+                children: [], // We'll populate this next
+            });
+
+            if (tabData.parent_index === null) {
+                root_bids.push(fakeTabBid);
+            }
+        }
+
+        // Populate children arrays
+        for (let i = 0; i < winData.tabs.length; i++) {
+            const tabData = winData.tabs[i]!;
+            const parentIndex = tabData.parent_index;
+
+            if (parentIndex !== null) {
+                const parentUiNode = uiTree.get(parentIndex as BruhId);
+                if (parentUiNode) {
+                    parentUiNode.children.push(i as BruhId);
+                }
+            }
+        }
+
+        return {
+            id: fakeWindowBid,
+            wbid: fakeWindowBid,
+            name: winData.name || "Unnamed Window",
+            is_custom_named: !!winData.name,
+            is_closed: false,
+            generation: 0,
+            tree: uiTree,
+            root_bids,
+            is_read_only: true,
+            snapshot_id: snapshot_id,
+            window_index: window_index,
         };
     }
 
@@ -972,7 +1040,7 @@ class App {
         }
     }
 
-    get_export_data(): BruhExport {
+    get_export_data(for_download: boolean = false): BruhExport {
         const bruhExport: BruhExport = {
             name: "Tabruh Export",
             timestamp: new Date().toISOString(),
@@ -996,14 +1064,20 @@ class App {
                 const node = this.get_tab(tbid);
                 const parent_index = node.parent_bid === win.bid ? null : bid_to_index.get(node.parent_bid) ?? null;
 
-                let url = this.get_node_url(node.bid);
-                let title = this.get_node_name(node.bid);
+                const url = this.get_node_url(node.bid);
+                const title = this.get_node_name(node.bid);
 
-                exportWindow.tabs.push({
+                const tabExport: BruhExport['windows'][0]['tabs'][0] = {
                     url,
                     title,
                     parent_index,
-                });
+                };
+
+                if (!for_download) {
+                    tabExport.collapsed = node.collapsed;
+                }
+
+                exportWindow.tabs.push(tabExport);
             }
             bruhExport.windows.push(exportWindow);
         }
@@ -2403,8 +2477,25 @@ class App {
                             if (effect) effects.push_back(effect);
                         }
                     } break;
+                    case 'toggle_snapshot_collapse': {
+                        const { snapshot_id, window_index, tab_index } = msg.payload;
+                        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+                        if (snapshot) {
+                            const windowData = snapshot.data.windows[window_index];
+                            if (windowData) {
+                                const tabData = windowData.tabs[tab_index];
+                                if (tabData) {
+                                    tabData.collapsed = !tabData.collapsed;
+                                    const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                                    if (state) {
+                                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                                    }
+                                }
+                            }
+                        }
+                    } break;
                     case 'export_data': {
-                        const data = this.get_export_data();
+                        const data = this.get_export_data(true);
                         const jsonData = JSON.stringify(data, null, 2);
                         const blob = new Blob([jsonData], { type: "application/json" });
                         const url = URL.createObjectURL(blob);
@@ -2415,6 +2506,13 @@ class App {
                         let _ = await browser.downloads.download({ url, filename, saveAs: true });
 
                         setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    } break;
+                    case 'get_state_for_snapshot_window': {
+                        const { snapshot_id, window_index } = msg.payload;
+                        const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                        if (state) {
+                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                        }
                     } break;
                     default:
                         throw utils.exhausted(msg);

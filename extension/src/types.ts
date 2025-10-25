@@ -202,6 +202,8 @@ export type BackgroundRequest =
     | { type: 'import_file_as_snapshot', payload: { data: BruhExport | SideberryExport, name: string } }
     | { type: 'export_data', payload: {} }
     | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction, target_wid?: WindowId } }
+    | { type: 'toggle_snapshot_collapse', payload: { snapshot_id: string, window_index: number, tab_index: number } }
+    | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
     ;
 
 export type BackgroundResponse =
@@ -256,6 +258,7 @@ export type BruhExport = {
             url: string,
             title: string,
             parent_index: number | null,
+            collapsed?: boolean,
         }[],
     }[],
 };
