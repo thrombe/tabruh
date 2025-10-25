@@ -28,6 +28,7 @@ export class TabTreeView {
     private isSidebar: boolean;
     private viewType: 'window' | 'group';
     private isReadOnly: boolean = false;
+    private currentWindowId?: number;
 
     constructor(
         container: HTMLElement,
@@ -35,12 +36,14 @@ export class TabTreeView {
         isSidebar: boolean = false,
         viewType: 'window' | 'group' = 'window',
         isReadOnly: boolean = false,
+        currentWindowId?: number,
     ) {
         this.container = container;
         this.port = port;
         this.isSidebar = isSidebar;
         this.viewType = viewType;
-        this.isReadOnly = isReadOnly; // Add this
+        this.isReadOnly = isReadOnly;
+        this.currentWindowId = currentWindowId;
         this.container.classList.add('tab-tree-view-container');
     }
 
@@ -515,6 +518,11 @@ export class TabTreeView {
                     this.sendMessage({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
                 }
             });
+            createItem('Restore to Current Window', ICON_RESTORE, () => {
+                if (state.snapshot_id !== undefined && state.window_index !== undefined && this.currentWindowId) {
+                    this.sendMessage({ type: 'restore_snapshot_window_into_window', payload: { id: state.snapshot_id, window_index: state.window_index, target_wid: this.currentWindowId as any } });
+                }
+            }, !this.currentWindowId); // Disable if we don't know the current window ID
         } else if (state.is_closed) {
             createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'restore_window', payload: { wbid: state.wbid } }));
             createSeparator();
@@ -570,16 +578,19 @@ export class TabTreeView {
         if (!this.currentRenderState) return;
         const menu = this.createContextMenu(x, y);
 
-        const createItem = (label: string, icon: string, action: () => void) => {
+        const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
             const item = document.createElement('div');
             item.className = 'context-menu-item';
+            if (disabled) item.classList.add('disabled');
             const iconSpan = document.createElement('span');
             iconSpan.className = 'context-menu-icon';
             iconSpan.innerHTML = icon;
             const labelSpan = document.createElement('span');
             labelSpan.textContent = label;
             item.append(iconSpan, labelSpan);
-            item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            if (!disabled) {
+                item.addEventListener('click', () => { action(); this.removeContextMenu(); });
+            }
             menu.appendChild(item);
         };
 
@@ -599,6 +610,12 @@ export class TabTreeView {
                     this.sendMessage({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
                 }
             });
+            createItem('Restore to Current Window', ICON_RESTORE, () => {
+                const { snapshot_id, window_index } = this.currentRenderState!;
+                if (snapshot_id !== undefined && window_index !== undefined && this.currentWindowId) {
+                    this.sendMessage({ type: 'restore_snapshot_subtree_into_window', payload: { id: snapshot_id, window_index, tab_index: node.tab_index, target_wid: this.currentWindowId as any } });
+                }
+            }, !this.currentWindowId);
             createSeparator();
             createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
             return;

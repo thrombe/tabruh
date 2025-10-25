@@ -5,6 +5,7 @@ import type { BackgroundRequest, BackgroundResponse, BruhExport, SideberryExport
 
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
+const ICON_EXPORT = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 
 class SettingsPage {
     private port: browser.Runtime.Port;
@@ -13,6 +14,7 @@ class SettingsPage {
     private snapshots: Snapshot[] = [];
     private selectedSnapshotId: string | null = null;
     private userConfig: UserConfig | null = null;
+    private currentWindowId?: number;
 
     constructor() {
         this.contentContainer = document.getElementById('content')!;
@@ -20,6 +22,10 @@ class SettingsPage {
 
         this.port.onMessage.addListener(msg => this.handleMessage(msg as BackgroundResponse));
         this.port.onDisconnect.addListener(() => console.error("Settings page disconnected."));
+
+        browser.windows.getCurrent().then(win => {
+            this.currentWindowId = win.id as any;
+        });
 
         document.querySelectorAll('.sidebar-button').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -367,6 +373,10 @@ class SettingsPage {
         createItem('Restore All Windows', ICON_RESTORE, () => {
             this.sendMessage({ type: 'load_bruh_export', payload: { data: snapshot.data } });
             alert(`Restored ${snapshot.data.windows.length} window(s) from snapshot "${snapshot.name}". They are available in your closed windows list.`);
+        });
+
+        createItem('Export Snapshot', ICON_EXPORT, () => {
+            this.sendMessage({ type: "export_data", payload: {} });
         });
 
         createSeparator();
