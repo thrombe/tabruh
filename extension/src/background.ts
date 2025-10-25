@@ -335,8 +335,6 @@ class App {
                     case 'restore_snapshot_subtree':
                     case 'import_file_as_snapshot':
                     case 'export_data':
-                    case 'restore_snapshot_window_into_window':
-                    case 'restore_snapshot_subtree_into_window':
                     case 'handle_snapshot_drop':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
@@ -421,8 +419,6 @@ class App {
                     case 'restore_snapshot_subtree':
                     case 'import_file_as_snapshot':
                     case 'export_data':
-                    case 'restore_snapshot_window_into_window':
-                    case 'restore_snapshot_subtree_into_window':
                     case 'handle_snapshot_drop':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
@@ -2366,61 +2362,8 @@ class App {
                         this.snapshots.push(newSnapshot);
                         this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
                     } break;
-                    case 'restore_snapshot_window_into_window': {
-                        const { id, window_index, target_wid } = msg.payload;
-                        const snapshot = this.snapshots.find(s => s.id === id);
-                        const target_wbid = this.window_bids.get(target_wid);
-                        if (!snapshot || !target_wbid) break;
-
-                        const windowData = snapshot.data.windows[window_index];
-                        if (!windowData) break;
-
-                        const groupEffect = this.create_new_group(target_wbid, {
-                            name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
-                        });
-                        const effect = this.load_tabs_into_parent(windowData.tabs, groupEffect.payload.bid);
-
-                        if (effect) {
-                            effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
-                        }
-                    } break;
-                    case 'restore_snapshot_subtree_into_window': {
-                        const { id, window_index, tab_index, target_wid } = msg.payload;
-                        const snapshot = this.snapshots.find(s => s.id === id);
-                        const target_wbid = this.window_bids.get(target_wid);
-                        if (!snapshot || !target_wbid) break;
-
-                        const windowData = snapshot.data.windows[window_index];
-                        if (!windowData) break;
-
-                        const subtreeIndices = new Set<number>();
-                        const queue = [tab_index];
-                        while (queue.length > 0) {
-                            const currentIndex = queue.shift()!;
-                            if (subtreeIndices.has(currentIndex)) continue;
-                            subtreeIndices.add(currentIndex);
-                            for (let i = 0; i < windowData.tabs.length; i++) {
-                                if (windowData.tabs[i]!.parent_index === currentIndex) queue.push(i);
-                            }
-                        }
-
-                        const sortedSubtreeIndices = Array.from(subtreeIndices).sort((a, b) => a - b);
-                        const oldIndexToNewIndex = new Map<number, number>();
-                        sortedSubtreeIndices.forEach((oldIndex, newIndex) => oldIndexToNewIndex.set(oldIndex, newIndex));
-
-                        const subtreeTabs = sortedSubtreeIndices.map(oldIndex => {
-                            const tab = { ...windowData.tabs[oldIndex]! };
-                            tab.parent_index = tab.parent_index === null || !oldIndexToNewIndex.has(tab.parent_index)
-                                ? null
-                                : oldIndexToNewIndex.get(tab.parent_index)!;
-                            return tab;
-                        });
-
-                        const effect = this.load_tabs_into_parent(subtreeTabs, target_wbid);
-                        if (effect) effects.push_back(effect);
-                    } break;
                     case 'handle_snapshot_drop': {
-                        const { drag_data, target_bid, action } = msg.payload;
+                        const { drag_data, target_bid, action, target_wid } = msg.payload;
                         const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
                         if (!snapshot) break;
 
@@ -2429,22 +2372,32 @@ class App {
 
                         const tabsToRestore = this._get_snapshot_subtree_tabs(windowData, drag_data.tabIndex);
 
-                        // Use a dummy bid for get_target_index since source doesn't exist in the live tree
-                        const dummySourceBid = -1 as BruhId;
-                        const target = this.get_target_index(dummySourceBid, target_bid, action);
+                        let parentForRestore: BruhId;
+                        let insertionIndex: number | undefined;
+
+                        if (target_wid) { // Context menu case: restore to root of target window
+                            const target_wbid = this.window_bids.get(target_wid);
+                            if (!target_wbid) break;
+                            parentForRestore = target_wbid;
+                            // Index is undefined to append to the end of the window's root.
+                        } else { // Drag-drop case: use target and action for positioning
+                            const target = this.get_target_index(-1 as BruhId, target_bid, action);
+                            parentForRestore = target.parent_bid;
+                            insertionIndex = target.index;
+                        }
 
                         let effect;
-                        if (drag_data.tabIndex === undefined) { // Dragging a whole window
-                            const groupEffect = this.create_new_group(target.parent_bid, {
+                        if (drag_data.tabIndex === undefined) { // Dragging a whole snapshot window
+                            const groupEffect = this.create_new_group(parentForRestore, {
                                 name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
-                                index: target.index,
+                                index: insertionIndex,
                             });
                             effect = this.load_tabs_into_parent(tabsToRestore, groupEffect.payload.bid);
                             if (effect) {
                                 effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
                             }
-                        } else { // Dragging a subtree
-                            effect = this.load_tabs_into_parent(tabsToRestore, target.parent_bid, target.index);
+                        } else { // Dragging a snapshot subtree
+                            effect = this.load_tabs_into_parent(tabsToRestore, parentForRestore, insertionIndex);
                             if (effect) effects.push_back(effect);
                         }
                     } break;

@@ -201,9 +201,7 @@ export type BackgroundRequest =
     | { type: 'restore_snapshot_subtree', payload: { id: string, window_index: number, tab_index: number } }
     | { type: 'import_file_as_snapshot', payload: { data: BruhExport | SideberryExport, name: string } }
     | { type: 'export_data', payload: {} }
-    | { type: 'restore_snapshot_window_into_window', payload: { id: string, window_index: number, target_wid: WindowId } }
-    | { type: 'restore_snapshot_subtree_into_window', payload: { id: string, window_index: number, tab_index: number, target_wid: WindowId } }
-    | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction } }
+    | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction, target_wid?: WindowId } }
     ;
 
 export type BackgroundResponse =
