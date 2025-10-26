@@ -44,6 +44,23 @@
   background-color: var(--gruvbox-hover);
 }
 
+.group-menu-button:hover {
+  background-color: var(--gruvbox-hover);
+}
+
+.header-collapse-button {
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+}
+
+.header-collapse-button .arrow-svg {
+    transition: transform 0.2s ease-in-out;
+}
+
+.header-collapse-button.collapsed .arrow-svg {
+    transform: rotate(-90deg);
+}
+
 .tree-node {
   @apply flex items-center p-1 cursor-pointer select-none relative;
   background-color: transparent;

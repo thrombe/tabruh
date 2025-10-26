@@ -338,6 +338,7 @@ class App {
                     case 'export_data':
                     case 'handle_snapshot_drop':
                     case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
                         console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
                         break;
 
@@ -424,6 +425,7 @@ class App {
                     case 'export_data':
                     case 'handle_snapshot_drop':
                     case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
                         this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
@@ -701,6 +703,7 @@ class App {
             generation: 0,
             tree: uiTree,
             root_bids,
+            collapsed: winData.collapsed ?? false,
             is_read_only: true,
             snapshot_id: snapshot_id,
             window_index: window_index,
@@ -2490,6 +2493,20 @@ class App {
                                     if (state) {
                                         this._post(event.payload.port, { type: 'state_update', payload: { state } });
                                     }
+                                }
+                            }
+                        }
+                    } break;
+                    case 'toggle_snapshot_window_collapse': {
+                        const { snapshot_id, window_index } = msg.payload;
+                        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+                        if (snapshot) {
+                            const windowData = snapshot.data.windows[window_index];
+                            if (windowData) {
+                                windowData.collapsed = !(windowData.collapsed ?? false);
+                                const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                                if (state) {
+                                    this._post(event.payload.port, { type: 'state_update', payload: { state } });
                                 }
                             }
                         }

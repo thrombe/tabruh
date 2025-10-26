@@ -63,6 +63,8 @@ export class TabTreeView {
 
         this.container.appendChild(this.renderHeader(state));
 
+        if (state.collapsed) return;
+
         const treeContainer = document.createElement('div');
         treeContainer.className = 'tab-tree-scroll-container';
 
@@ -347,6 +349,19 @@ export class TabTreeView {
         header.className = 'tab-tree-header';
         header.draggable = true;
 
+        const collapseButton = document.createElement('button');
+        if (state.is_read_only) {
+            collapseButton.className = 'group-menu-button header-collapse-button'; // Use similar style
+            collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+            if (state.collapsed) {
+                collapseButton.classList.add('collapsed');
+            }
+            collapseButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.sendMessage({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: state.snapshot_id!, window_index: state.window_index! } });
+            });
+        }
+
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
             let dragData: DragData;
@@ -425,7 +440,7 @@ export class TabTreeView {
             this.showGroupContextMenu(e.clientX, e.clientY, state);
         });
 
-        header.append(nameSpan, menuButton);
+        header.append(collapseButton, nameSpan, menuButton);
         return header;
     }
 

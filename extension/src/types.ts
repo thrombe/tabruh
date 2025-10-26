@@ -132,6 +132,7 @@ export type UiStateForRender = {
     root_bids: BruhId[],
 
     // for snapshots
+    collapsed?: boolean,
     is_read_only?: boolean,
     snapshot_id?: string,
     window_index?: number,
@@ -203,6 +204,7 @@ export type BackgroundRequest =
     | { type: 'export_data', payload: {} }
     | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction, target_wid?: WindowId } }
     | { type: 'toggle_snapshot_collapse', payload: { snapshot_id: string, window_index: number, tab_index: number } }
+    | { type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: string, window_index: number } }
     | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
     ;
 
@@ -254,6 +256,7 @@ export type BruhExport = {
     timestamp: string, // Date converted to string
     windows: {
         name?: string,
+        collapsed?: boolean,
         tabs: {
             url: string,
             title: string,
