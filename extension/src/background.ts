@@ -510,43 +510,68 @@ class App {
         return win.closed;
     }
 
-    get_children_map(): Map<BruhId, BruhId[]> {
-        const index_map = new Map<BruhId, number>();
-        const map = new Map<BruhId, BruhId[]>();
-        for (const [_, node] of this.nodes) {
-            if (!map.has(node.parent_bid)) {
-                map.set(node.parent_bid, []);
-            }
-            map.get(node.parent_bid)!.push(node.bid);
-            index_map.set(node.bid, this.get_index(node.bid));
+    // get_children_map(): Map<BruhId, BruhId[]> {
+    //     const index_map = new Map<BruhId, number>();
+    //     const map = new Map<BruhId, BruhId[]>();
+    //     for (const [_, node] of this.nodes) {
+    //         if (!map.has(node.parent_bid)) {
+    //             map.set(node.parent_bid, []);
+    //         }
+    //         map.get(node.parent_bid)!.push(node.bid);
+    //         index_map.set(node.bid, this.get_index(node.bid));
+    //     }
+    //     for (const [_, nodes] of map) {
+    //         nodes.sort((a, b) => index_map.get(a)! - index_map.get(b)!);
+    //     }
+    //     return map;
+    // }
+
+    get_subtree(bid: BruhId): BruhId[] {
+        const node = this.get_node(bid);
+        if (node.type == "window") {
+            return [bid, ...node.tab_bids];
         }
-        for (const [_, nodes] of map) {
-            nodes.sort((a, b) => index_map.get(a)! - index_map.get(b)!);
-        }
-        return map;
-    }
 
-    get_subtree(rootId: BruhId): BruhId[] {
-        const subtree: BruhId[] = [];
-        const stack: BruhId[] = [rootId];
-        const visited = new Set<BruhId>();
+        const win = this.get_window(node.wbid);
+        const index = this.get_index(node.bid) + 1;
 
-        const childrenMap = this.get_children_map();
-
-        while (stack.length > 0) {
-            const currentId = stack.pop()!;
-            if (visited.has(currentId)) {
-                continue;
-            }
-            visited.add(currentId);
-            subtree.push(currentId);
-
-            const children = childrenMap.get(currentId) || [];
-            for (let i = children.length - 1; i >= 0; i--) {
-                stack.push(children[i]!);
+        const maybe_parents = new Set();
+        maybe_parents.add(node.bid);
+        const subtree = [bid];
+        for (let i = index; i < win.tab_bids.length; i++) {
+            const tbid = win.tab_bids[i]!;
+            const tab = this.get_tab(tbid);
+            if (maybe_parents.has(tab.parent_bid)) {
+                subtree.push(tbid);
+                maybe_parents.add(tbid);
+            } else {
+                break;
             }
         }
         return subtree;
+    }
+
+    get_immediate_children(bid: BruhId): BruhId[] {
+        const node = this.get_node(bid);
+        const win = this.get_window(node.wbid);
+        const index = this.get_index(node.bid) + 1;
+
+        const maybe_parents = new Set();
+        maybe_parents.add(node.bid);
+        const children = [];
+        for (let i = index; i < win.tab_bids.length; i++) {
+            const tbid = win.tab_bids[i]!;
+            const tab = this.get_tab(tbid);
+            if (maybe_parents.has(tab.parent_bid)) {
+                maybe_parents.add(tbid);
+                if (tab.parent_bid == bid) {
+                    children.push(tbid);
+                }
+            } else {
+                break;
+            }
+        }
+        return children;
     }
 
     get_ordered_tab_list(wbid: BruhId): BruhId[] {
@@ -595,7 +620,6 @@ class App {
     build_ui_state_for_render(wbid: BruhId, root_bid?: BruhId): UiStateForRender {
         const win = this.get_window(wbid);
 
-        const childrenMap = this.get_children_map();
         const root_bids: BruhId[] = [];
         const uiTree: Map<BruhId, UiNode> = new Map();
 
@@ -622,7 +646,7 @@ class App {
                 isDiscarded: node.discarded,
                 isActive: win.active === node.bid,
                 isCollapsed: node.collapsed,
-                children: childrenMap.get(node.bid) || [],
+                children: this.get_immediate_children(node.bid),
             });
 
             if (node.parent_bid === rootId) {
@@ -744,7 +768,7 @@ class App {
 
     get_node_storage_data(bid: BruhId): NodeStorageData {
         const node = this.get_node(bid);
-        const childrenIds = this.get_children_map().get(bid) || [];
+        const childrenIds = this.get_immediate_children(bid);
         const ancestorIds = this.get_ancestors(bid);
 
         const storageData = {
@@ -814,7 +838,7 @@ class App {
 
     flatten_node(bid: BruhId, recursive: boolean, hgid: HierarchyGenerationId) {
         const node = this.get_node(bid);
-        const nodesToMove = recursive ? this.get_subtree(bid).slice(1) : (this.get_children_map().get(bid) || []);
+        const nodesToMove = recursive ? this.get_subtree(bid).slice(1) : this.get_immediate_children(bid);
         for (const childId of nodesToMove) {
             const child = this.get_node(childId);
             child.parent_bid = node.parent_bid;
@@ -871,7 +895,7 @@ class App {
     remove_node_and_reparent_children(bid: BruhId) {
         const node = this.get_node(bid);
 
-        const children = this.get_children_map().get(bid) || [];
+        const children = this.get_immediate_children(bid);
         for (const childId of children) {
             this.get_node(childId).parent_bid = node.parent_bid;
         }
@@ -903,7 +927,7 @@ class App {
         }
 
         const effect = { type: 'tabs_moved', payload: { tbids: [], wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
-        const children = this.get_children_map().get(bid) || [];
+        const children = this.get_immediate_children(bid);
         for (const childId of children) {
             const child_effect = this.reparent_node(childId, new_parent_bid, index);
             effect.payload.tbids.push(...child_effect.payload.tbids);
