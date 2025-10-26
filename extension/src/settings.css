@@ -106,6 +106,5 @@ body {
 
 .snapshot-window-view .tab-tree-scroll-container {
     flex: none;
-    max-height: 60vh;
     overflow-y: auto;
 }
