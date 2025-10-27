@@ -246,12 +246,14 @@ export type AppEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
-type Payload<Enum extends { type: string, payload: any }, type> = Extract<Enum, { type: type }>["payload"];
-
 export type StateEffect =
     | { type: 'effects', payload: { effects: StateEffect[] } }
-    | { type: 'window_removed', payload: Payload<BrowserEvent, 'window_removed'> }
+    | Extract<BrowserEvent, { type: 'window_removed' }>
     | { type: 'sessions_changed', payload: { sessions: Awaited<ReturnType<typeof browser.sessions.getRecentlyClosed>> } }
+    | Extract<BrowserEvent, { type: 'tab_activated' }>
+    | Extract<BrowserEvent, { type: 'tab_attached' }>
+    | Extract<BrowserEvent, { type: 'tab_moved' }>
+    | Extract<BrowserEvent, { type: 'tab_removed' }>
     ;
 
 export type StateEvent =

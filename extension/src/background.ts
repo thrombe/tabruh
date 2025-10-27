@@ -1145,6 +1145,55 @@ class State {
                         }
                     }
                 }
+            } break;
+            case 'tab_activated': {
+                const msg = effect.payload;
+                if (!this.tab_bids.has(msg.activated_info.tabId as TabId)) return;
+                if (!this.window_bids.has(msg.activated_info.windowId as WindowId)) return;
+                const wbid = this.window_bids.get(msg.activated_info.windowId as WindowId)!;
+                const tbid = this.tab_bids.get(msg.activated_info.tabId as TabId)!;
+                const win = this.get_window(wbid);
+                win.active = tbid;
+            } break;
+            case 'tab_attached': {
+                const msg = effect.payload;
+                if (!this.tab_bids.has(msg.tid)) return;
+                const tbid = this.tab_bids.get(msg.tid)!;
+                const node = this.get_tab(tbid);
+                const wbid = this.window_bids.get(msg.attach_info.newWindowId as WindowId)!;
+                const current_index = this.get_index(tbid);
+                if (node.wbid == wbid && current_index == msg.attach_info.newPosition) return;
+                this.add_tab_to_window(node.bid, wbid, msg.attach_info.newPosition);
+            } break;
+            case 'tab_moved': {
+                const msg = effect.payload;
+                if (!this.tab_bids.has(msg.tid)) return;
+                const tbid = this.tab_bids.get(msg.tid)!;
+                const node = this.get_tab(tbid);
+                const current_index = this.get_index(tbid);
+                if (current_index == msg.move_info.toIndex) {
+                    return;
+                }
+                if (current_index == msg.move_info.fromIndex) {
+                    this.add_tab_to_window(tbid, node.wbid, msg.move_info.toIndex);
+                }
+            } break;
+            case 'tab_removed': {
+                const msg = effect.payload;
+                if (!this.tab_bids.has(msg.tid)) return;
+                const tbid = this.tab_bids.get(msg.tid)!;
+                // can't remove the tabs here that are moved to a closed window
+                if (this.is_node_closed(tbid)) return;
+                const tab = this.get_tab(tbid);
+                if (msg.remove_info.isWindowClosing) {
+                    if (!this.closing_window_tabs.has(tab.wbid)) {
+                        this.closing_window_tabs.set(tab.wbid, new Set());
+                    }
+                    this.closing_window_tabs.get(tab.wbid)!.add(tab.bid);
+                } else {
+                    const tbid = this.tab_bids.get(msg.tid)!;
+                    let _ = this.remove_node_and_reparent_children(tbid);
+                }
 
             } break;
             default:
@@ -2583,56 +2632,23 @@ class App {
                         await this.update_tab_info(btab);
                     } break;
                     case 'tab_removed': {
-                        if (!this.tab_bids.has(msg.payload.tid)) return;
-                        const tbid = this.tab_bids.get(msg.payload.tid)!;
-                        // can't remove the tabs here that are moved to a closed window
-                        if (this.is_node_closed(tbid)) return;
-                        const tab = this.get_tab(tbid);
-                        if (msg.payload.remove_info.isWindowClosing) {
-                            if (!this.closing_window_tabs.has(tab.wbid)) {
-                                this.closing_window_tabs.set(tab.wbid, new Set());
-                            }
-                            this.closing_window_tabs.get(tab.wbid)!.add(tab.bid);
-                        } else {
-                            const tbid = this.tab_bids.get(msg.payload.tid)!;
-                            let _ = this.remove_node_and_reparent_children(tbid);
-                        }
+                        state_effects.push_back(msg);
                     } break;
                     case 'tab_updated': {
                         if (!this.tab_bids.has(msg.payload.tid)) return;
                         await this.update_tab_info(msg.payload.tab);
                     } break;
                     case 'tab_moved': {
-                        if (!this.tab_bids.has(msg.payload.tid)) return;
-                        const tbid = this.tab_bids.get(msg.payload.tid)!;
-                        const node = this.get_tab(tbid);
-                        const current_index = this.get_index(tbid);
-                        if (current_index == msg.payload.move_info.toIndex) {
-                            return;
-                        }
-                        if (current_index == msg.payload.move_info.fromIndex) {
-                            this.add_tab_to_window(tbid, node.wbid, msg.payload.move_info.toIndex);
-                        }
+                        state_effects.push_back(msg);
                     } break;
                     case 'tab_attached': {
-                        if (!this.tab_bids.has(msg.payload.tid)) return;
-                        const tbid = this.tab_bids.get(msg.payload.tid)!;
-                        const node = this.get_tab(tbid);
-                        const wbid = this.window_bids.get(msg.payload.attach_info.newWindowId as WindowId)!;
-                        const current_index = this.get_index(tbid);
-                        if (node.wbid == wbid && current_index == msg.payload.attach_info.newPosition) return;
-                        this.add_tab_to_window(node.bid, wbid, msg.payload.attach_info.newPosition);
+                        state_effects.push_back(msg);
                     } break;
                     case 'tab_detached': {
                         // we just rely on 'tab_attached' to do the state changes for detach too
                     } break;
                     case 'tab_activated': {
-                        if (!this.tab_bids.has(msg.payload.activated_info.tabId as TabId)) return;
-                        if (!this.window_bids.has(msg.payload.activated_info.windowId as WindowId)) return;
-                        const wbid = this.window_bids.get(msg.payload.activated_info.windowId as WindowId)!;
-                        const tbid = this.tab_bids.get(msg.payload.activated_info.tabId as TabId)!;
-                        const win = this.get_window(wbid);
-                        win.active = tbid;
+                        state_effects.push_back(msg);
                     } break;
                     case 'window_created': {
                         const bwin = msg.payload.win;
@@ -2647,8 +2663,7 @@ class App {
                         }
                     } break;
                     case 'window_removed': {
-                        // TODO: push state event
-                        state_effects.push_back({ type: 'window_removed', payload: msg.payload });
+                        state_effects.push_back(msg);
                     } break;
                     case 'window_focus_changed': {
                         // nothing to do
