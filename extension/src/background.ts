@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 import type {
     BackgroundRequest,
+    BackgroundAction,
     BackgroundResponse,
     DragData,
     Node,
@@ -912,6 +913,518 @@ class State {
             return effect;
         }
         return null;
+    }
+
+    handle_request(msg: BackgroundAction) {
+        switch (msg.type) {
+            case 'restore_window': {
+                const node = this.get_node(msg.payload.wbid);
+                if (node.type !== "window") throw new Error(`expected 'window' found '${node.type}' bid: ${node.bid}`);
+                if (!node.closed) throw new Error(`expected window to be closed for a restore operation bid: ${node.bid}`);
+                const effect = this.clone_subtree(node.bid, null, 0);
+                effects.push_back(effect);
+
+                // @ts-ignore
+                const wbid = effect.payload.wbid as BruhId;
+                const win = this.get_window(wbid);
+                win.is_archived_pristine = undefined;
+
+                const subtree = this.get_subtree(node.bid);
+                subtree.reverse();
+                for (const bid of subtree) {
+                    let _ = this.remove_node(bid);
+                }
+            } break;
+            case 'handle_drop': {
+                const node = this.get_node(msg.payload.drag_data.draggedNodeId);
+                const target_node = this.get_node(msg.payload.target_bid);
+
+                const source_win = this.get_window(node.wbid);
+                const target_win = this.get_window(target_node.wbid);
+                if (source_win.closed) {
+                    source_win.is_archived_pristine = false;
+                }
+                if (target_win.closed) {
+                    target_win.is_archived_pristine = false;
+                }
+
+                const source_is_closed = source_win.closed;
+                const target_is_closed = target_win.closed;
+
+                let effect: BrowserEffect;
+                const target = this.get_target_index(node.bid, msg.payload.target_bid, msg.payload.action);
+
+                if (source_is_closed && !target_is_closed) {
+                    // if window: create group, revive_tree at target, delete old tree
+                    // if tab: revive_tree at target, delete old tree
+
+                    // create new tabs for revived nodes/group
+                    effect = this.clone_subtree(node.bid, target.parent_bid, target.index);
+
+                    const subtree = this.get_subtree(node.bid);
+                    subtree.reverse();
+                    for (const bid of subtree) {
+                        let _ = this.remove_node(bid);
+                    }
+
+                    effects.push_back(effect);
+                } else {
+                    if (!source_is_closed && target_is_closed) {
+                        const subtree = this.get_subtree(node.bid);
+                        for (let bid of subtree) {
+                            const storage = this.get_node_storage_data(bid);
+                            this.browser_restore_cache.set(storage.bid, storage);
+                        }
+                    }
+
+                    let wid;
+                    let moved_tbids;
+                    if (node.type == "window") {
+                        const new_group_effect = this.create_new_group(target.parent_bid, { index: target.index, name: node.name });
+                        const reparent_effect = this.reparent_children(node.bid, new_group_effect.payload.bid, target.index + 1);
+
+                        // same as NOTE(1005)
+                        if (!node.closed) {
+                            const storage = this.get_node_storage_data(node.bid);
+                            this.browser_restore_cache.set(storage.bid, storage);
+                        }
+                        const window_remove_effect = this.remove_node(node.bid);
+                        wid = window_remove_effect.payload.browser_id as WindowId;
+
+                        effect = {
+                            type: 'effects', payload: {
+                                effects: [
+                                    new_group_effect,
+                                    reparent_effect,
+                                ]
+                            }
+                        };
+                        moved_tbids = reparent_effect.payload.tbids;
+                    } else {
+                        effect = this.reparent_node(node.bid, target.parent_bid, target.index);
+                        moved_tbids = effect.payload.tbids;
+                    }
+
+                    if (source_is_closed && target_is_closed) {
+                        // if window: create group, reparent children, remove window
+                        // if tab: reparent node
+                    } else if (!source_is_closed && target_is_closed) {
+                        // if window: create group, reparent children, remove window
+                        // if tab: reparent node
+
+                        // close tree
+                        if (node.type == 'window') {
+                            if (wid === undefined) {
+                                throw new Error(`non-null wid expected here`);
+                            }
+                            this.forget_wids.add(wid);
+                            effects.push_back({ type: 'window_closed', payload: { wid: wid } });
+                        } else {
+                            const moved_tids = moved_tbids.map(tbid => this.tab_ids.get(tbid)!);
+                            for (const tid of moved_tids) {
+                                this.forget_tids.add(tid);
+                            }
+                            effects.push_back({ type: 'tabs_closed', payload: { tids: moved_tids } });
+                        }
+                    } else if (!source_is_closed && !target_is_closed) {
+                        // if window: create group, reparent children, remove window
+                        // if tab: reparent node
+
+                        // create browser tab for group, move tabs
+                        effects.push_back(effect);
+                    } else throw utils.exhausted(undefined as never);
+                }
+
+            } break;
+            case 'duplicate_tab': {
+                const node = this.get_node(msg.payload.bid);
+                if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+
+                const win = this.get_window(node.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                let effect;
+                if (node.type == "group") {
+                    effect = this.create_new_group(node.parent_bid, { index: this.get_index(node.bid) });
+                } else {
+                    effect = this.create_new_tab(node.parent_bid, {
+                        url: node.url,
+                        title: node.title,
+                        index: this.get_index(node.bid),
+                    });
+                }
+
+                if (!this.is_node_closed(node.bid)) {
+                    effects.push_back(effect);
+                }
+            } break;
+            case 'move_subtree_to_new_window': {
+                const node = this.get_node(msg.payload.bid);
+                if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                const win = this.get_window(node.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+                const is_closed = win.closed;
+
+                const subtree = this.get_subtree(node.bid);
+
+                // this is very messy cuz moving a group to a new tab destroys the group tab
+                let effect;
+                if (node.type == "group") {
+                    effect = this.create_new_window({ name: node.name, closed: is_closed });
+                } else {
+                    effect = this.create_new_window({ closed: is_closed });
+                }
+                let _ = this.reparent_node(node.bid, effect.payload.wbid, 0);
+                if (node.type == "group") {
+                    if (!is_closed) {
+                        const storage = this.get_node_storage_data(node.bid);
+                        this.browser_restore_cache.set(storage.bid, storage);
+                    }
+                    const remove_group_effect = this.remove_node_and_reparent_children(node.bid);
+                    if (!is_closed) {
+                        effects.push_back(remove_group_effect);
+                    }
+                }
+
+                const old_win = this.get_window(node.wbid);
+                if (old_win.tab_bids.length == 0) {
+                    // if we move all tabs from this window to a new window
+                    // browser will just remove this window.
+                    //
+                    // on restoring such a window, it clones one of the tabs that got moved. (atleast on ff)
+                    // so we just save the storage data for the window (with no tabs)
+                    // NOTE(1005): this special case needs to be carefully handled in the browser restore handling code
+
+                    if (!is_closed) {
+                        const storage = this.get_node_storage_data(old_win.bid);
+                        this.browser_restore_cache.set(storage.bid, storage);
+                    }
+
+                    let _ = this.remove_node(old_win.bid);
+                }
+
+                if (!is_closed) {
+                    effects.push_back(effect);
+                }
+            } break;
+            case 'close_tabs': {
+                const node = this.get_node(msg.payload.bid);
+                if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                const win = this.get_window(node.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                if (msg.payload.recursive) {
+                    const subtree = this.get_subtree(node.bid);
+                    const closing_all_tabs = subtree.length == win.tab_bids.length;
+                    let wid;
+                    if (node.type == "window" || closing_all_tabs) {
+                        wid = this.window_ids.get(win.bid)!;
+                    }
+
+                    if (!win.closed) {
+                        for (let bid of subtree) {
+                            const storage = this.get_node_storage_data(bid);
+                            this.browser_restore_cache.set(storage.bid, storage);
+                        }
+
+                        if (closing_all_tabs) {
+                            // if we are closing all tabs in the window
+                            const storage = this.get_node_storage_data(win.bid);
+                            this.browser_restore_cache.set(storage.bid, storage);
+                        }
+                    }
+
+                    let tids = [];
+                    for (let bid of subtree) {
+                        const tid = this.tab_ids.get(bid)!;
+                        const effect = this.remove_node(bid);
+
+                        if (effect.payload.node.type !== "window") {
+                            tids.push(tid);
+                        }
+                    }
+
+                    if (closing_all_tabs) {
+                        const _ = this.remove_node(win.bid);
+                    }
+
+                    if (!win.closed) {
+                        if (node.type == "window" || closing_all_tabs) {
+                            if (wid === undefined) {
+                                throw new Error(`non-null wid expected here`);
+                            }
+                            // difference between 'remove tabs' on a window and 'close window' is that
+                            // this one deletes window, whereas 'close window' just closes them, but remembers them for restoration via extension gui
+                            effects.push_back({ type: "window_closed", payload: { wid: wid } });
+                        } else {
+                            effects.push_back({ type: "tabs_closed", payload: { tids } });
+                        }
+                    }
+                } else {
+                    if (!win.closed) {
+                        const storage = this.get_node_storage_data(node.bid);
+                        this.browser_restore_cache.set(storage.bid, storage);
+                    }
+
+                    const effect = this.remove_node_and_reparent_children(node.bid);;
+                    if (!win.closed) {
+                        effects.push_back(effect);
+                    }
+                }
+            } break;
+            case 'close_window': {
+                // window is open (we can't close closed windows)
+
+                const win = this.get_window(msg.payload.wbid);
+                if (win.closed) return;
+                const wid = this.window_ids.get(win.bid)!;
+
+                this.mark_window_closed(win.bid);
+
+                effects.push_back({ type: 'window_closed', payload: { wid } });
+            } break;
+            case 'delete_window_state': {
+                const win = this.get_window(msg.payload.wbid);
+                if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
+                const tbids = [...win.tab_bids];
+                let _;
+                for (let bid of tbids) {
+                    _ = this.remove_node(bid);
+                }
+                _ = this.remove_node(win.bid);
+            } break;
+            case 'reload_tree': {
+                const root = this.get_node(msg.payload.bid);
+                const win = this.get_window(root.wbid);
+                if (win.closed) return;
+                const bids = this.get_subtree(root.bid);
+
+                let tbids = [];
+                for (let bid of bids) {
+                    const node = this.get_node(bid);
+                    if (node.type == "window") {
+                        continue;
+                    }
+
+                    node.discarded = false;
+                    tbids.push(node.bid);
+                }
+                if (tbids.length > 0) {
+                    effects.push_back({ type: 'tabs_reloaded', payload: { tbids, wbid: win.bid } });
+                }
+            } break;
+            case 'unload_tabs': {
+                const node = this.get_node(msg.payload.bid);
+                const win = this.get_window(node.wbid);
+                if (win.closed) return;
+                const bids = msg.payload.recursive ? this.get_subtree(msg.payload.bid) : [node.bid];
+
+                let tbids = [];
+                for (let bid of bids) {
+                    const node = this.get_node(bid);
+                    if (node.type == "window") {
+                        continue;
+                    }
+
+                    if (win.active !== node.bid) {
+                        node.discarded = true;
+                        tbids.push(node.bid);
+                    }
+                }
+
+                if (tbids.length > 0) {
+                    effects.push_back({ type: 'tabs_discarded', payload: { tbids, wbid: win.bid } });
+                }
+            } break;
+            case 'focus_tab': {
+                const node = this.get_tab(msg.payload.bid);
+                const win = this.get_window(node.wbid);
+                if (win.closed) return;
+                win.active = node.bid;
+
+                effects.push_back({ type: 'tab_focused', payload: { bid: node.bid } });
+            } break;
+            case 'create_group': {
+                const parent_bid = msg.payload.parent_bid;
+                const parent = this.get_node(parent_bid);
+                const win = this.get_window(parent.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                const bid = this.bruhid++ as BruhId;
+                const target = this.get_target_index(bid, parent.bid, "inside");
+                const effect = this.create_new_group(target.parent_bid, { bid: bid, index: target.index });
+                effects.push_back(effect);
+            } break;
+            case 'create_tab': {
+                const url = msg.payload.url;
+                const parent_bid = msg.payload.parent_bid;
+                const parent = this.get_node(parent_bid);
+                const win = this.get_window(parent.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                const bid = this.bruhid++ as BruhId;
+                const target = this.get_target_index(bid, parent.bid, msg.payload.action);
+                let create_effect;
+                if (!!url && this.parse_group_url_id(url) !== null) {
+                    create_effect = this.create_new_group(parent.bid, { bid: bid, index: target.index });
+                } else {
+                    create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index });
+                }
+
+                effects.push_back(create_effect);
+            } break;
+            case 'toggle_collapse': {
+                const node = this.get_node(msg.payload.bid);
+                node.collapsed = !node.collapsed;
+            } break;
+            case 'flatten_tree': {
+                const node = this.get_node(msg.payload.bid);
+                const win = this.get_window(node.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                this.flatten_node(node.bid, msg.payload.recursive, this.increment_hgid());
+            } break;
+            case 'rename_node': {
+                const node = this.get_node(msg.payload.bid);
+                if (node.type == "tab") {
+                    throw new Error(`'tab' nodes cannot be renamed`);
+                }
+
+                const win = this.get_window(node.wbid);
+                if (win.closed) {
+                    win.is_archived_pristine = false;
+                }
+
+                node.name.name = msg.payload.new_name;
+                node.name.is_custom = true;
+            } break;
+            case 'load_bruh_export': {
+                this.load_export_data(msg.payload.data);
+            } break;
+            case 'convert_sideberry_export': {
+                const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
+                this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
+            } break;
+            case 'create_snapshot': {
+                this.create_snapshot(msg.payload.name);
+                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+            } break;
+            case 'delete_snapshot': {
+                this.delete_snapshot(msg.payload.id);
+                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+            } break;
+            case 'restore_snapshot_window': {
+                this.restore_snapshot_window(msg.payload.id, msg.payload.window_index);
+                this._broadcast({ type: 'render_all', payload: {} });
+            } break;
+            case 'restore_snapshot_subtree': {
+                this.restore_snapshot_subtree(msg.payload.id, msg.payload.window_index, msg.payload.tab_index);
+                this._broadcast({ type: 'render_all', payload: {} });
+            } break;
+            case 'import_file_as_snapshot': {
+                let bruhData: BruhExport;
+                const data = msg.payload.data;
+                if ('id' in data && 'sidebar' in data) {
+                    bruhData = App.convert_sideberry_export_to_bruh(data as SideberryExport);
+                } else {
+                    bruhData = data as BruhExport;
+                }
+
+                const newSnapshot: Snapshot = {
+                    id: crypto.randomUUID(),
+                    name: msg.payload.name,
+                    timestamp: new Date().toISOString(),
+                    data: bruhData
+                };
+                this.snapshots.push(newSnapshot);
+                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
+            } break;
+            case 'handle_snapshot_drop': {
+                const { drag_data, target_bid, action, target_wid } = msg.payload;
+                const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
+                if (!snapshot) break;
+
+                const windowData = snapshot.data.windows[drag_data.windowIndex];
+                if (!windowData) break;
+
+                const tabsToRestore = this._get_snapshot_subtree_tabs(windowData, drag_data.tabIndex);
+
+                let parentForRestore: BruhId;
+                let insertionIndex: number | undefined;
+
+                if (target_wid) { // Context menu case: restore to root of target window
+                    const target_wbid = this.window_bids.get(target_wid);
+                    if (!target_wbid) break;
+                    parentForRestore = target_wbid;
+                    // Index is undefined to append to the end of the window's root.
+                } else { // Drag-drop case: use target and action for positioning
+                    const target = this.get_target_index(-1 as BruhId, target_bid, action);
+                    parentForRestore = target.parent_bid;
+                    insertionIndex = target.index;
+                }
+
+                let effect;
+                if (drag_data.tabIndex === undefined) { // Dragging a whole snapshot window
+                    const groupEffect = this.create_new_group(parentForRestore, {
+                        name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
+                        index: insertionIndex,
+                    });
+                    effect = this.load_tabs_into_parent(tabsToRestore, groupEffect.payload.bid);
+                    if (effect) {
+                        effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
+                    }
+                } else { // Dragging a snapshot subtree
+                    effect = this.load_tabs_into_parent(tabsToRestore, parentForRestore, insertionIndex);
+                    if (effect) effects.push_back(effect);
+                }
+            } break;
+            case 'toggle_snapshot_collapse': {
+                const { snapshot_id, window_index, tab_index } = msg.payload;
+                const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+                if (snapshot) {
+                    const windowData = snapshot.data.windows[window_index];
+                    if (windowData) {
+                        const tabData = windowData.tabs[tab_index];
+                        if (tabData) {
+                            tabData.collapsed = !tabData.collapsed;
+                            const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                            if (state) {
+                                this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                            }
+                        }
+                    }
+                }
+            } break;
+            case 'toggle_snapshot_window_collapse': {
+                const { snapshot_id, window_index } = msg.payload;
+                const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+                if (snapshot) {
+                    const windowData = snapshot.data.windows[window_index];
+                    if (windowData) {
+                        windowData.collapsed = !(windowData.collapsed ?? false);
+                        const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                        if (state) {
+                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                        }
+                    }
+                }
+            } break;
+            default:
+                throw utils.exhausted(msg);
+        }
+
     }
 }
 
@@ -2014,7 +2527,8 @@ class App {
             } break;
             case 'port_message': {
                 const msg = event.payload.message;
-                switch (msg.type) {
+                this.state.handle_requests(msg);
+                switch (msg.payload) {
                     case 'get_state_for_window': {
                         const wid = msg.payload.wid;
                         if (!this.window_bids.has(wid)) {
@@ -2033,406 +2547,6 @@ class App {
                         const state = this.build_ui_state_for_render(root.wbid, root.bid);
                         this._post(event.payload.port, { type: 'state_update', payload: { state } });
                     } break;
-                    case 'restore_window': {
-                        const node = this.get_node(msg.payload.wbid);
-                        if (node.type !== "window") throw new Error(`expected 'window' found '${node.type}' bid: ${node.bid}`);
-                        if (!node.closed) throw new Error(`expected window to be closed for a restore operation bid: ${node.bid}`);
-                        const effect = this.clone_subtree(node.bid, null, 0);
-                        effects.push_back(effect);
-
-                        // @ts-ignore
-                        const wbid = effect.payload.wbid as BruhId;
-                        const win = this.get_window(wbid);
-                        win.is_archived_pristine = undefined;
-
-                        const subtree = this.get_subtree(node.bid);
-                        subtree.reverse();
-                        for (const bid of subtree) {
-                            let _ = this.remove_node(bid);
-                        }
-                    } break;
-                    case 'handle_drop': {
-                        const node = this.get_node(msg.payload.drag_data.draggedNodeId);
-                        const target_node = this.get_node(msg.payload.target_bid);
-
-                        const source_win = this.get_window(node.wbid);
-                        const target_win = this.get_window(target_node.wbid);
-                        if (source_win.closed) {
-                            source_win.is_archived_pristine = false;
-                        }
-                        if (target_win.closed) {
-                            target_win.is_archived_pristine = false;
-                        }
-
-                        const source_is_closed = source_win.closed;
-                        const target_is_closed = target_win.closed;
-
-                        let effect: BrowserEffect;
-                        const target = this.get_target_index(node.bid, msg.payload.target_bid, msg.payload.action);
-
-                        if (source_is_closed && !target_is_closed) {
-                            // if window: create group, revive_tree at target, delete old tree
-                            // if tab: revive_tree at target, delete old tree
-
-                            // create new tabs for revived nodes/group
-                            effect = this.clone_subtree(node.bid, target.parent_bid, target.index);
-
-                            const subtree = this.get_subtree(node.bid);
-                            subtree.reverse();
-                            for (const bid of subtree) {
-                                let _ = this.remove_node(bid);
-                            }
-
-                            effects.push_back(effect);
-                        } else {
-                            if (!source_is_closed && target_is_closed) {
-                                const subtree = this.get_subtree(node.bid);
-                                for (let bid of subtree) {
-                                    const storage = this.get_node_storage_data(bid);
-                                    this.browser_restore_cache.set(storage.bid, storage);
-                                }
-                            }
-
-                            let wid;
-                            let moved_tbids;
-                            if (node.type == "window") {
-                                const new_group_effect = this.create_new_group(target.parent_bid, { index: target.index, name: node.name });
-                                const reparent_effect = this.reparent_children(node.bid, new_group_effect.payload.bid, target.index + 1);
-
-                                // same as NOTE(1005)
-                                if (!node.closed) {
-                                    const storage = this.get_node_storage_data(node.bid);
-                                    this.browser_restore_cache.set(storage.bid, storage);
-                                }
-                                const window_remove_effect = this.remove_node(node.bid);
-                                wid = window_remove_effect.payload.browser_id as WindowId;
-
-                                effect = {
-                                    type: 'effects', payload: {
-                                        effects: [
-                                            new_group_effect,
-                                            reparent_effect,
-                                        ]
-                                    }
-                                };
-                                moved_tbids = reparent_effect.payload.tbids;
-                            } else {
-                                effect = this.reparent_node(node.bid, target.parent_bid, target.index);
-                                moved_tbids = effect.payload.tbids;
-                            }
-
-                            if (source_is_closed && target_is_closed) {
-                                // if window: create group, reparent children, remove window
-                                // if tab: reparent node
-                            } else if (!source_is_closed && target_is_closed) {
-                                // if window: create group, reparent children, remove window
-                                // if tab: reparent node
-
-                                // close tree
-                                if (node.type == 'window') {
-                                    if (wid === undefined) {
-                                        throw new Error(`non-null wid expected here`);
-                                    }
-                                    this.forget_wids.add(wid);
-                                    effects.push_back({ type: 'window_closed', payload: { wid: wid } });
-                                } else {
-                                    const moved_tids = moved_tbids.map(tbid => this.tab_ids.get(tbid)!);
-                                    for (const tid of moved_tids) {
-                                        this.forget_tids.add(tid);
-                                    }
-                                    effects.push_back({ type: 'tabs_closed', payload: { tids: moved_tids } });
-                                }
-                            } else if (!source_is_closed && !target_is_closed) {
-                                // if window: create group, reparent children, remove window
-                                // if tab: reparent node
-
-                                // create browser tab for group, move tabs
-                                effects.push_back(effect);
-                            } else throw utils.exhausted(undefined as never);
-                        }
-
-                    } break;
-                    case 'duplicate_tab': {
-                        const node = this.get_node(msg.payload.bid);
-                        if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
-
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        let effect;
-                        if (node.type == "group") {
-                            effect = this.create_new_group(node.parent_bid, { index: this.get_index(node.bid) });
-                        } else {
-                            effect = this.create_new_tab(node.parent_bid, {
-                                url: node.url,
-                                title: node.title,
-                                index: this.get_index(node.bid),
-                            });
-                        }
-
-                        if (!this.is_node_closed(node.bid)) {
-                            effects.push_back(effect);
-                        }
-                    } break;
-                    case 'move_subtree_to_new_window': {
-                        const node = this.get_node(msg.payload.bid);
-                        if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-                        const is_closed = win.closed;
-
-                        const subtree = this.get_subtree(node.bid);
-
-                        // this is very messy cuz moving a group to a new tab destroys the group tab
-                        let effect;
-                        if (node.type == "group") {
-                            effect = this.create_new_window({ name: node.name, closed: is_closed });
-                        } else {
-                            effect = this.create_new_window({ closed: is_closed });
-                        }
-                        let _ = this.reparent_node(node.bid, effect.payload.wbid, 0);
-                        if (node.type == "group") {
-                            if (!is_closed) {
-                                const storage = this.get_node_storage_data(node.bid);
-                                this.browser_restore_cache.set(storage.bid, storage);
-                            }
-                            const remove_group_effect = this.remove_node_and_reparent_children(node.bid);
-                            if (!is_closed) {
-                                effects.push_back(remove_group_effect);
-                            }
-                        }
-
-                        const old_win = this.get_window(node.wbid);
-                        if (old_win.tab_bids.length == 0) {
-                            // if we move all tabs from this window to a new window
-                            // browser will just remove this window.
-                            //
-                            // on restoring such a window, it clones one of the tabs that got moved. (atleast on ff)
-                            // so we just save the storage data for the window (with no tabs)
-                            // NOTE(1005): this special case needs to be carefully handled in the browser restore handling code
-
-                            if (!is_closed) {
-                                const storage = this.get_node_storage_data(old_win.bid);
-                                this.browser_restore_cache.set(storage.bid, storage);
-                            }
-
-                            let _ = this.remove_node(old_win.bid);
-                        }
-
-                        if (!is_closed) {
-                            effects.push_back(effect);
-                        }
-                    } break;
-                    case 'close_tabs': {
-                        const node = this.get_node(msg.payload.bid);
-                        if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        if (msg.payload.recursive) {
-                            const subtree = this.get_subtree(node.bid);
-                            const closing_all_tabs = subtree.length == win.tab_bids.length;
-                            let wid;
-                            if (node.type == "window" || closing_all_tabs) {
-                                wid = this.window_ids.get(win.bid)!;
-                            }
-
-                            if (!win.closed) {
-                                for (let bid of subtree) {
-                                    const storage = this.get_node_storage_data(bid);
-                                    this.browser_restore_cache.set(storage.bid, storage);
-                                }
-
-                                if (closing_all_tabs) {
-                                    // if we are closing all tabs in the window
-                                    const storage = this.get_node_storage_data(win.bid);
-                                    this.browser_restore_cache.set(storage.bid, storage);
-                                }
-                            }
-
-                            let tids = [];
-                            for (let bid of subtree) {
-                                const tid = this.tab_ids.get(bid)!;
-                                const effect = this.remove_node(bid);
-
-                                if (effect.payload.node.type !== "window") {
-                                    tids.push(tid);
-                                }
-                            }
-
-                            if (closing_all_tabs) {
-                                const _ = this.remove_node(win.bid);
-                            }
-
-                            if (!win.closed) {
-                                if (node.type == "window" || closing_all_tabs) {
-                                    if (wid === undefined) {
-                                        throw new Error(`non-null wid expected here`);
-                                    }
-                                    // difference between 'remove tabs' on a window and 'close window' is that
-                                    // this one deletes window, whereas 'close window' just closes them, but remembers them for restoration via extension gui
-                                    effects.push_back({ type: "window_closed", payload: { wid: wid } });
-                                } else {
-                                    effects.push_back({ type: "tabs_closed", payload: { tids } });
-                                }
-                            }
-                        } else {
-                            if (!win.closed) {
-                                const storage = this.get_node_storage_data(node.bid);
-                                this.browser_restore_cache.set(storage.bid, storage);
-                            }
-
-                            const effect = this.remove_node_and_reparent_children(node.bid);;
-                            if (!win.closed) {
-                                effects.push_back(effect);
-                            }
-                        }
-                    } break;
-                    case 'close_window': {
-                        // window is open (we can't close closed windows)
-
-                        const win = this.get_window(msg.payload.wbid);
-                        if (win.closed) return;
-                        const wid = this.window_ids.get(win.bid)!;
-
-                        this.mark_window_closed(win.bid);
-
-                        effects.push_back({ type: 'window_closed', payload: { wid } });
-                    } break;
-                    case 'delete_window_state': {
-                        const win = this.get_window(msg.payload.wbid);
-                        if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
-                        const tbids = [...win.tab_bids];
-                        let _;
-                        for (let bid of tbids) {
-                            _ = this.remove_node(bid);
-                        }
-                        _ = this.remove_node(win.bid);
-                    } break;
-                    case 'reload_tree': {
-                        const root = this.get_node(msg.payload.bid);
-                        const win = this.get_window(root.wbid);
-                        if (win.closed) return;
-                        const bids = this.get_subtree(root.bid);
-
-                        let tbids = [];
-                        for (let bid of bids) {
-                            const node = this.get_node(bid);
-                            if (node.type == "window") {
-                                continue;
-                            }
-
-                            node.discarded = false;
-                            tbids.push(node.bid);
-                        }
-                        if (tbids.length > 0) {
-                            effects.push_back({ type: 'tabs_reloaded', payload: { tbids, wbid: win.bid } });
-                        }
-                    } break;
-                    case 'unload_tabs': {
-                        const node = this.get_node(msg.payload.bid);
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) return;
-                        const bids = msg.payload.recursive ? this.get_subtree(msg.payload.bid) : [node.bid];
-
-                        let tbids = [];
-                        for (let bid of bids) {
-                            const node = this.get_node(bid);
-                            if (node.type == "window") {
-                                continue;
-                            }
-
-                            if (win.active !== node.bid) {
-                                node.discarded = true;
-                                tbids.push(node.bid);
-                            }
-                        }
-
-                        if (tbids.length > 0) {
-                            effects.push_back({ type: 'tabs_discarded', payload: { tbids, wbid: win.bid } });
-                        }
-                    } break;
-                    case 'focus_tab': {
-                        const node = this.get_tab(msg.payload.bid);
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) return;
-                        win.active = node.bid;
-
-                        effects.push_back({ type: 'tab_focused', payload: { bid: node.bid } });
-                    } break;
-                    case 'create_group': {
-                        const parent_bid = msg.payload.parent_bid;
-                        const parent = this.get_node(parent_bid);
-                        const win = this.get_window(parent.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        const bid = this.bruhid++ as BruhId;
-                        const target = this.get_target_index(bid, parent.bid, "inside");
-                        const effect = this.create_new_group(target.parent_bid, { bid: bid, index: target.index });
-                        effects.push_back(effect);
-                    } break;
-                    case 'create_tab': {
-                        const url = msg.payload.url;
-                        const parent_bid = msg.payload.parent_bid;
-                        const parent = this.get_node(parent_bid);
-                        const win = this.get_window(parent.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        const bid = this.bruhid++ as BruhId;
-                        const target = this.get_target_index(bid, parent.bid, msg.payload.action);
-                        let create_effect;
-                        if (!!url && this.parse_group_url_id(url) !== null) {
-                            create_effect = this.create_new_group(parent.bid, { bid: bid, index: target.index });
-                        } else {
-                            create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index });
-                        }
-
-                        effects.push_back(create_effect);
-                    } break;
-                    case 'toggle_collapse': {
-                        const node = this.get_node(msg.payload.bid);
-                        node.collapsed = !node.collapsed;
-                    } break;
-                    case 'flatten_tree': {
-                        const node = this.get_node(msg.payload.bid);
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        this.flatten_node(node.bid, msg.payload.recursive, this.increment_hgid());
-                    } break;
-                    case 'rename_node': {
-                        const node = this.get_node(msg.payload.bid);
-                        if (node.type == "tab") {
-                            throw new Error(`'tab' nodes cannot be renamed`);
-                        }
-
-                        const win = this.get_window(node.wbid);
-                        if (win.closed) {
-                            win.is_archived_pristine = false;
-                        }
-
-                        node.name.name = msg.payload.new_name;
-                        node.name.is_custom = true;
-                    } break;
-                    case 'load_bruh_export': {
-                        this.load_export_data(msg.payload.data);
-                    } break;
-                    case 'convert_sideberry_export': {
-                        const data = App.convert_sideberry_export_to_bruh(msg.payload.data);
-                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
-                    } break;
                     case 'get_user_config': {
                         this._post(event.payload.port, { type: 'user_config_update', payload: { config: this.user_config } });
                     } break;
@@ -2442,110 +2556,6 @@ class App {
                     } break;
                     case 'get_snapshots': {
                         this._post(event.payload.port, { type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
-                    } break;
-                    case 'create_snapshot': {
-                        this.create_snapshot(msg.payload.name);
-                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
-                    } break;
-                    case 'delete_snapshot': {
-                        this.delete_snapshot(msg.payload.id);
-                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
-                    } break;
-                    case 'restore_snapshot_window': {
-                        this.restore_snapshot_window(msg.payload.id, msg.payload.window_index);
-                        this._broadcast({ type: 'render_all', payload: {} });
-                    } break;
-                    case 'restore_snapshot_subtree': {
-                        this.restore_snapshot_subtree(msg.payload.id, msg.payload.window_index, msg.payload.tab_index);
-                        this._broadcast({ type: 'render_all', payload: {} });
-                    } break;
-                    case 'import_file_as_snapshot': {
-                        let bruhData: BruhExport;
-                        const data = msg.payload.data;
-                        if ('id' in data && 'sidebar' in data) {
-                            bruhData = App.convert_sideberry_export_to_bruh(data as SideberryExport);
-                        } else {
-                            bruhData = data as BruhExport;
-                        }
-
-                        const newSnapshot: Snapshot = {
-                            id: crypto.randomUUID(),
-                            name: msg.payload.name,
-                            timestamp: new Date().toISOString(),
-                            data: bruhData
-                        };
-                        this.snapshots.push(newSnapshot);
-                        this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
-                    } break;
-                    case 'handle_snapshot_drop': {
-                        const { drag_data, target_bid, action, target_wid } = msg.payload;
-                        const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
-                        if (!snapshot) break;
-
-                        const windowData = snapshot.data.windows[drag_data.windowIndex];
-                        if (!windowData) break;
-
-                        const tabsToRestore = this._get_snapshot_subtree_tabs(windowData, drag_data.tabIndex);
-
-                        let parentForRestore: BruhId;
-                        let insertionIndex: number | undefined;
-
-                        if (target_wid) { // Context menu case: restore to root of target window
-                            const target_wbid = this.window_bids.get(target_wid);
-                            if (!target_wbid) break;
-                            parentForRestore = target_wbid;
-                            // Index is undefined to append to the end of the window's root.
-                        } else { // Drag-drop case: use target and action for positioning
-                            const target = this.get_target_index(-1 as BruhId, target_bid, action);
-                            parentForRestore = target.parent_bid;
-                            insertionIndex = target.index;
-                        }
-
-                        let effect;
-                        if (drag_data.tabIndex === undefined) { // Dragging a whole snapshot window
-                            const groupEffect = this.create_new_group(parentForRestore, {
-                                name: { name: windowData.name ?? 'Restored Window', generation: 0, is_custom: true },
-                                index: insertionIndex,
-                            });
-                            effect = this.load_tabs_into_parent(tabsToRestore, groupEffect.payload.bid);
-                            if (effect) {
-                                effects.push_back({ type: 'effects', payload: { effects: [groupEffect, effect] } });
-                            }
-                        } else { // Dragging a snapshot subtree
-                            effect = this.load_tabs_into_parent(tabsToRestore, parentForRestore, insertionIndex);
-                            if (effect) effects.push_back(effect);
-                        }
-                    } break;
-                    case 'toggle_snapshot_collapse': {
-                        const { snapshot_id, window_index, tab_index } = msg.payload;
-                        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
-                        if (snapshot) {
-                            const windowData = snapshot.data.windows[window_index];
-                            if (windowData) {
-                                const tabData = windowData.tabs[tab_index];
-                                if (tabData) {
-                                    tabData.collapsed = !tabData.collapsed;
-                                    const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                                    if (state) {
-                                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                                    }
-                                }
-                            }
-                        }
-                    } break;
-                    case 'toggle_snapshot_window_collapse': {
-                        const { snapshot_id, window_index } = msg.payload;
-                        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
-                        if (snapshot) {
-                            const windowData = snapshot.data.windows[window_index];
-                            if (windowData) {
-                                windowData.collapsed = !(windowData.collapsed ?? false);
-                                const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                                if (state) {
-                                    this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                                }
-                            }
-                        }
                     } break;
                     case 'export_data': {
                         const data = this.get_export_data(true);
@@ -2568,8 +2578,8 @@ class App {
                         }
                     } break;
                     default:
-                        throw utils.exhausted(msg);
-                }
+                        throw utils.exhausted(event);
+                } break;
             } break;
             default:
                 throw utils.exhausted(event);

@@ -174,8 +174,14 @@ export type ConfigStorage = {
 export type BackgroundRequest =
     | { type: 'get_state_for_window', payload: { wid: WindowId } }
     | { type: 'get_all_window_states', payload: {} }
-
     | { type: 'get_state_for_group_view', payload: { bid: BruhId } }
+    | { type: 'get_user_config', payload: {} }
+    | { type: 'get_snapshots', payload: {} }
+    | { type: 'export_data', payload: {} }
+    | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
+    ;
+
+export type BackgroundAction =
     | { type: 'focus_tab', payload: { bid: BruhId } }
     | { type: 'close_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'toggle_collapse', payload: { bid: BruhId } }
@@ -193,19 +199,15 @@ export type BackgroundRequest =
     | { type: 'rename_node', payload: { bid: BruhId, new_name: string } }
     | { type: 'load_bruh_export', payload: { data: BruhExport } }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
-    | { type: 'get_user_config', payload: {} }
     | { type: 'update_user_config', payload: { config: Partial<UserConfig> } }
-    | { type: 'get_snapshots', payload: {} }
     | { type: 'create_snapshot', payload: { name: string } }
     | { type: 'delete_snapshot', payload: { id: string } }
     | { type: 'restore_snapshot_window', payload: { id: string, window_index: number } }
     | { type: 'restore_snapshot_subtree', payload: { id: string, window_index: number, tab_index: number } }
     | { type: 'import_file_as_snapshot', payload: { data: BruhExport | SideberryExport, name: string } }
-    | { type: 'export_data', payload: {} }
     | { type: 'handle_snapshot_drop', payload: { drag_data: SnapshotDragData, target_bid: BruhId, action: DropAction, target_wid?: WindowId } }
     | { type: 'toggle_snapshot_collapse', payload: { snapshot_id: string, window_index: number, tab_index: number } }
     | { type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: string, window_index: number } }
-    | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
     ;
 
 export type BackgroundResponse =
