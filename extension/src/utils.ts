@@ -174,6 +174,40 @@ export class Xoshiro256 {
         const upper_bits = this.next() >> 11n;
         return Number(upper_bits) / (2 ** 53);
     }
+
+    // A UUID string in the format "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".
+    public nextUUID(): string {
+        // Generate 128 bits of random data
+        const part1 = this.next();
+        const part2 = this.next();
+
+        // Convert bigints to 16-character padded hex strings
+        const hex1 = part1.toString(16).padStart(16, '0');
+        const hex2 = part2.toString(16).padStart(16, '0');
+
+        const fullHex = hex1 + hex2;
+
+        // Set the version number (4)
+        const p3_version = '4' + fullHex.substring(13, 16);
+
+        // Set the variant (must be 8, 9, A, or B)
+        const variantCharRaw = parseInt(fullHex.charAt(16), 16);
+        const variantChar = (variantCharRaw & 0x3 | 0x8).toString(16);
+        const p4_variant = variantChar + fullHex.substring(17, 20);
+
+        // Assemble the final UUID string with hyphens
+        return (
+            fullHex.substring(0, 8) +
+            '-' +
+            fullHex.substring(8, 12) +
+            '-' +
+            p3_version +
+            '-' +
+            p4_variant +
+            '-' +
+            fullHex.substring(20, 32)
+        );
+    }
 }
 
 export class Deque<T> {
