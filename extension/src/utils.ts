@@ -65,8 +65,10 @@ class SplitMix64 {
 
 // gemini 2.5 port of zig's impl of
 // Xoshiro256++ - http://xoroshiro.di.unimi.it/
+export type Xoshiro256State = [bigint, bigint, bigint, bigint];
+
 export class Xoshiro256 {
-    s: [bigint, bigint, bigint, bigint];
+    s: Xoshiro256State;
 
     static from_bigint(s: bigint) {
         const rng = new Xoshiro256();
@@ -74,7 +76,7 @@ export class Xoshiro256 {
         return rng;
     }
 
-    static from_state(s: [bigint, bigint, bigint, bigint]) {
+    static from_state(s: Xoshiro256State) {
         const rng = new Xoshiro256();
         rng.s = s;
         return rng;

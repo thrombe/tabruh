@@ -16,6 +16,7 @@ export type Snapshot = {
 };
 
 export type StorageState = {
+    rng_state: utils.Xoshiro256State,
     state_version: string,
     bruh_session_key: string,
     bruhid: BruhId,

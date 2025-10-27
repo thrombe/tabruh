@@ -70,7 +70,6 @@ class State {
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     constructor(version: string) {
-        // TODO: save and load the rng internal state
         this.rng = utils.Xoshiro256.from_bigint(BigInt(Math.floor(Math.random() * 1 << 30)));
         this.extension_version = version;
 
@@ -1073,6 +1072,7 @@ class State {
         }
 
         const state_to_save: StorageState = {
+            rng_state: this.rng.s,
             state_version: this.extension_version,
             bruh_session_key: this.bruh_session_key,
             bruhid: this.bruhid,
@@ -1089,7 +1089,7 @@ class State {
         };
 
         const state = { state: state_to_save, config };
-        return JSON.parse(JSON.stringify(state)) as typeof state;
+        return structuredClone(state);
     }
 
     update_tab_info(btab: Extract<StateEffect, { type: 'upate_tab_info' }>["payload"]) {
@@ -2219,7 +2219,8 @@ class App {
             for (const [bid, storage] of this.state.browser_restore_cache.entries()) {
                 browser_restore_cache.set(bid, storage);
             }
-            return {
+            return structuredClone({
+                rng_state: this.state.rng.s,
                 state_version: this.state.extension_version,
                 bruh_session_key: this.state.bruh_session_key,
                 bruhid: this.state.bruhid,
@@ -2227,8 +2228,8 @@ class App {
                 nodes: nodes,
                 node_storage_data: node_storage,
                 browser_restore_cache: this.state.browser_restore_cache,
-                snapshots: JSON.parse(JSON.stringify(this.state.snapshots)),
-            };
+                snapshots: this.state.snapshots,
+            });
         }
 
         const cache: Map<BruhId, NodeStorageData> = new Map();
@@ -2250,6 +2251,7 @@ class App {
         }
 
         return {
+            rng_state: state.rng_state,
             state_version: state.state_version,
             bruh_session_key: state.bruh_session_key,
             bruhid: state.bruhid,
@@ -2314,6 +2316,7 @@ class App {
         if (this.state.user_config.dbg_reset_state_on_load) {
             state = await this.load_state("blah");
         }
+        this.state.rng.s = state.rng_state;
         this.state.bruh_session_key = state.bruh_session_key;
         this.state.bruhid = state.bruhid;
         this.state.hierarchy_generation_id = state.hierarchy_generation_id;
