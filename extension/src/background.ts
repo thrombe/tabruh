@@ -69,7 +69,8 @@ class State {
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     constructor(version: string) {
-        this.rng = utils.Xoshiro256.from_bigint(BigInt(Math.random()));
+        // TODO: save and load the rng internal state
+        this.rng = utils.Xoshiro256.from_bigint(BigInt(Math.floor(Math.random() * 1 << 30)));
         this.extension_version = version;
 
         const session_values = browser.sessions.setWindowValue !== undefined;
