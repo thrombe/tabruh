@@ -453,6 +453,16 @@ class State {
         }
     }
 
+    register_bwindow(wid: WindowId, bid: BruhId) {
+        this.window_ids.set(bid, wid);
+        this.window_bids.set(wid, bid);
+    }
+
+    register_btab(tid: TabId, bid: BruhId) {
+        this.tab_ids.set(bid, tid);
+        this.tab_bids.set(tid, bid);
+    }
+
     remove_node(bid: BruhId) {
         const node = this.nodes.get(bid);
         if (!node) throw new Error(`node with bid: ${bid} does not exist`);
@@ -1939,24 +1949,24 @@ class App {
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
             const node_storage: Map<BruhId, NodeStorageData> = new Map();
-            for (const [bid, node] of this.nodes.entries()) {
-                const storage = this.get_node_storage_data(bid);
+            for (const [bid, node] of this.state.nodes.entries()) {
+                const storage = this.state.get_node_storage_data(bid);
                 node_storage.set(bid, storage);
                 nodes.set(bid, node);
             }
             const browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
-            for (const [bid, storage] of this.browser_restore_cache.entries()) {
+            for (const [bid, storage] of this.state.browser_restore_cache.entries()) {
                 browser_restore_cache.set(bid, storage);
             }
             return {
-                state_version: this.extension_version,
-                bruh_session_key: this.bruh_session_key,
-                bruhid: this.bruhid,
-                hierarchy_generation_id: this.hierarchy_generation_id,
+                state_version: this.state.extension_version,
+                bruh_session_key: this.state.bruh_session_key,
+                bruhid: this.state.bruhid,
+                hierarchy_generation_id: this.state.hierarchy_generation_id,
                 nodes: nodes,
                 node_storage_data: node_storage,
-                browser_restore_cache: this.browser_restore_cache,
-                snapshots: JSON.parse(JSON.stringify(this.snapshots)),
+                browser_restore_cache: this.state.browser_restore_cache,
+                snapshots: JSON.parse(JSON.stringify(this.state.snapshots)),
             };
         }
 
@@ -1991,8 +2001,8 @@ class App {
     }
 
     async write_session_pointer(bid: BruhId, id: TabId | WindowId, type: 'tab' | 'window'): Promise<void> {
-        if (!this.config.available_apis.session_values) return;
-        const data = { bid, bruh_session_key: this.bruh_session_key };
+        if (!this.state.config.available_apis.session_values) return;
+        const data = { bid, bruh_session_key: this.state.bruh_session_key };
         try {
             if (type === 'tab') {
                 await browser.sessions.setTabValue(id as TabId, this.session_pointer_key, data);
@@ -2005,7 +2015,7 @@ class App {
     }
 
     async read_session_pointer(id: TabId | WindowId, type: 'tab' | 'window'): Promise<BruhId | undefined> {
-        if (!this.config.available_apis.session_values) return;
+        if (!this.state.config.available_apis.session_values) return;
         try {
             let data: any;
             if (type === 'tab') {
@@ -2013,7 +2023,7 @@ class App {
             } else {
                 data = await browser.sessions.getWindowValue(id as WindowId, this.session_pointer_key);
             }
-            if (this.bruh_session_key == data?.bruh_session_key) {
+            if (this.state.bruh_session_key == data?.bruh_session_key) {
                 return data?.bid;
             } else {
                 return undefined;
@@ -2073,14 +2083,12 @@ class App {
     }
 
     async register_bwindow(wid: WindowId, bid: BruhId) {
-        this.window_ids.set(bid, wid);
-        this.window_bids.set(wid, bid);
+        this.state.register_bwindow(wid, bid);
         await this.write_session_pointer(bid, wid, "window");
     }
 
     async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
-        this.tab_ids.set(bid, btab.id! as TabId);
-        this.tab_bids.set(btab.id! as TabId, bid);
+        this.state.register_btab(btab.id as TabId, bid);
         await this.write_session_pointer(bid, btab.id as TabId, "tab");
     }
 
@@ -2213,18 +2221,18 @@ class App {
     async init_tree() {
         const config = await this.load_config();
         // TODO: some way to easily migrate using `config.config_version`
-        this.user_config = config.user_config;
+        this.state.user_config = config.user_config;
 
         let state = await this.load_state(this.storage_state_key);
         // TODO: some way to easily migrate using `state.state_version`
-        if (this.user_config.dbg_reset_state_on_load) {
+        if (this.state.user_config.dbg_reset_state_on_load) {
             state = await this.load_state("blah");
         }
-        this.bruh_session_key = state.bruh_session_key;
-        this.bruhid = state.bruhid;
-        this.hierarchy_generation_id = state.hierarchy_generation_id;
-        this.browser_restore_cache = state.browser_restore_cache;
-        this.snapshots = state.snapshots;
+        this.state.bruh_session_key = state.bruh_session_key;
+        this.state.bruhid = state.bruhid;
+        this.state.hierarchy_generation_id = state.hierarchy_generation_id;
+        this.state.browser_restore_cache = state.browser_restore_cache;
+        this.state.snapshots = state.snapshots;
 
         // need to take care of quite a few cases here
         // - this code runs as soon as the browser starts (like before user clicks "restore last session")
@@ -2290,13 +2298,13 @@ class App {
             const old_wbid = old_wbids.get(bwin.id as WindowId);
             if (!old_wbid) {
                 // we create completely new windows here
-                let new_win_effect = this.create_new_window({});
+                let new_win_effect = this.state.create_new_window({});
                 await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
             } else {
                 const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
                 if (!node) {
                     // windows that were restored via the browser restore api after the state for it was deleted
-                    await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
+                    await this.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
                 } else {
                     // windows that are open/closed, but still in state
                     if (node.is_archived_pristine) {
@@ -2316,15 +2324,15 @@ class App {
             //    and the restore logic explodes
             // NOTE tho:
             //  - we never can do a pristine restore here cuz this.nodes does not contain a window with .is_archived_pristine = true
-            const win = this.get_window(this.window_bids.get(bwin.id as WindowId)!);
+            const win = this.state.get_window(this.state.window_bids.get(bwin.id as WindowId)!);
             for (const btab of bwin.tabs!) {
                 const old_tbid = old_tbids.get(btab.id as TabId);
                 let needs_new_tab = false;
                 if (old_tbid) {
                     const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
                     if (!node) {
-                        if (this.browser_restore_cache.has(old_tbid)) {
-                            await this.restore_tab(btab, old_tbid, this.browser_restore_cache);
+                        if (this.state.browser_restore_cache.has(old_tbid)) {
+                            await this.restore_tab(btab, old_tbid, this.state.browser_restore_cache);
                         } else {
                             needs_new_tab = true;
                         }
@@ -2340,31 +2348,31 @@ class App {
                         new_tabs_to_reparent_via_opener_id.add(btab.id!);
                     }
                     let tab;
-                    if (this.is_group_tab(btab)) {
-                        const new_tab_effect = this.create_new_group(win.bid, { index: btab.index });
-                        tab = this.get_tab(new_tab_effect.payload.bid);
+                    if (this.state.is_group_tab(btab.url)) {
+                        const new_tab_effect = this.state.create_new_group(win.bid, { index: btab.index });
+                        tab = this.state.get_tab(new_tab_effect.payload.bid);
                     } else {
-                        const new_tab_effect = this.create_new_tab(win.bid, {
+                        const new_tab_effect = this.state.create_new_tab(win.bid, {
                             url: btab.url,
                             title: btab.title ?? "Untitled",
                             index: btab.index,
                         });
-                        tab = this.get_tab(new_tab_effect.payload.bid);
+                        tab = this.state.get_tab(new_tab_effect.payload.bid);
                     }
                     await this.register_btab(btab, tab.bid);
                     await this.update_tab_info(btab);
                 }
 
-                const tab = this.get_tab(this.tab_bids.get(btab.id as TabId)!);
+                const tab = this.state.get_tab(this.state.tab_bids.get(btab.id as TabId)!);
                 if (btab.active) {
                     win.active = tab.bid;
                 }
             }
         }
 
-        for (const [wbid, data] of this.pre_allocated_bids_for_non_pristine_restore.entries()) {
-            this.pre_allocated_bids_for_non_pristine_restore.delete(wbid);
-            const win = this.get_window(wbid);
+        for (const [wbid, data] of this.state.pre_allocated_bids_for_non_pristine_restore.entries()) {
+            this.state.pre_allocated_bids_for_non_pristine_restore.delete(wbid);
+            const win = this.state.get_window(wbid);
             win.is_archived_pristine = undefined;
         }
 
@@ -2372,13 +2380,13 @@ class App {
             for (const bwin of bwins) {
                 for (const btab of bwin.tabs!) {
                     if (btab.id !== tid) {
-                        const bid = this.tab_bids.get(tid as TabId)!;
-                        const node = this.get_node(bid);
-                        if (!this.tab_bids.has(btab.openerTabId! as TabId)) {
+                        const bid = this.state.tab_bids.get(tid as TabId)!;
+                        const node = this.state.get_node(bid);
+                        if (!this.state.tab_bids.has(btab.openerTabId! as TabId)) {
                             break;
                         }
-                        const pbid = this.tab_bids.get(btab.openerTabId as TabId)!;
-                        this.reparent_node(node.bid, pbid);
+                        const pbid = this.state.tab_bids.get(btab.openerTabId as TabId)!;
+                        this.state.reparent_node(node.bid, pbid);
                         break;
                     }
                 }
@@ -2391,10 +2399,10 @@ class App {
                 wnode.closed = true;
                 wnode.is_archived_pristine = true;
             }
-            this.nodes.set(wnode.bid, wnode);
+            this.state.nodes.set(wnode.bid, wnode);
             for (const tbid of wnode.tab_bids) {
                 const tnode = state.nodes.get(tbid)! as Exclude<Node, { type: "window" }>;
-                this.nodes.set(tnode.bid, tnode);
+                this.state.nodes.set(tnode.bid, tnode);
             }
         }
     }
@@ -2539,7 +2547,10 @@ class App {
             } break;
             case 'port_message': {
                 const msg = event.payload.message;
-                this.state.handle_requests(msg);
+
+                // TODO:
+                // this.state.handle_requests(msg);
+
                 switch (msg.payload) {
                     case 'get_state_for_window': {
                         const wid = msg.payload.wid;
