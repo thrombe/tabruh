@@ -5,8 +5,8 @@ import type {
     BackgroundResponse,
     DragData,
     Node,
-    StateManagerEvent,
     TabId,
+    AppEvent,
     HierarchyGenerationId,
     UiNode,
     UiStateForRender,
@@ -1603,7 +1603,7 @@ class State {
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
-    eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
+    eventChannel: utils.Channel<AppEvent> = new utils.Channel();
 
     state: State;
 
@@ -1677,47 +1677,77 @@ class App {
             this.ports.add(port);
 
             port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({
-                    type: 'port_message',
-                    payload: { message: message as BackgroundRequest, port }
-                });
+                await this.eventChannel.send({ type: 'background_request', payload: { message: message as BackgroundRequest, port } });
             });
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);
             });
         });
         browser.tabs.onCreated.addListener(async (tab) => {
-            let _ = await this.eventChannel.send({ type: 'tab_created', payload: { tab: tab } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_created', payload: { tab: tab } },
+            });
         });
         browser.tabs.onRemoved.addListener(async (tid, remove_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_removed', payload: { tid: tid as TabId, remove_info } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_removed', payload: { tid: tid as TabId, remove_info } },
+            });
         });
         browser.tabs.onUpdated.addListener(async (tid, change_info, tab) => {
-            let _ = await this.eventChannel.send({ type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } },
+            });
         });
         browser.tabs.onMoved.addListener(async (tid, move_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_moved', payload: { tid: tid as TabId, move_info } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_moved', payload: { tid: tid as TabId, move_info } },
+            });
         });
         browser.tabs.onAttached.addListener(async (tid, attach_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_attached', payload: { tid: tid as TabId, attach_info } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_attached', payload: { tid: tid as TabId, attach_info } },
+            });
         });
         browser.tabs.onDetached.addListener(async (tid, detach_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_detached', payload: { tid: tid as TabId, detach_info } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_detached', payload: { tid: tid as TabId, detach_info } },
+            });
         });
         browser.tabs.onActivated.addListener(async (activated_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_activated', payload: { activated_info } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'tab_activated', payload: { activated_info } },
+            });
         });
         browser.windows.onCreated.addListener(async (win) => {
-            let _ = await this.eventChannel.send({ type: 'window_created', payload: { win } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'window_created', payload: { win } },
+            });
         });
         browser.windows.onRemoved.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({ type: 'window_removed', payload: { wid: wid as WindowId } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'window_removed', payload: { wid: wid as WindowId } },
+            });
         });
         browser.windows.onFocusChanged.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({ type: 'window_focus_changed', payload: { wid: wid as WindowId } });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'window_focus_changed', payload: { wid: wid as WindowId } },
+            });
         });
         browser.sessions.onChanged.addListener(async () => {
-            let _ = await this.eventChannel.send({ type: 'sessions_changed', payload: {} });
+            let _ = await this.eventChannel.send({
+                type: "browser_event",
+                payload: { type: 'sessions_changed', payload: {} },
+            });
         });
     }
 
@@ -1894,7 +1924,7 @@ class App {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
 
-            if (this.user_config.dbg_log_events) {
+            if (this.state.user_config.dbg_log_events) {
                 this._log_event(event);
             }
 
@@ -1911,7 +1941,7 @@ class App {
             const effect = effects.pop_front();
             if (!effect) break;
 
-            if (this.user_config.dbg_log_effects) {
+            if (this.state.user_config.dbg_log_effects) {
                 this._log_effect(effect);
             }
             await this._process_effect(effects, effect).catch(console.error);
@@ -2407,7 +2437,72 @@ class App {
         }
     }
 
-    async _process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
+    async _process_event(event: AppEvent, effects: utils.Deque<BrowserEffect>) {
+        switch (event.type) {
+            case 'browser_event': {
+            } break;
+            case 'background_actions': {
+            } break;
+            case 'background_request': {
+                const msg = event.payload.message;
+                switch (msg.type) {
+                    case 'get_state_for_window': {
+                        const wid = msg.payload.wid;
+                        if (!this.state.window_bids.has(wid)) {
+                            return;
+                        }
+                        const wbid = this.state.window_bids.get(wid)!;
+                        const state = this.state.build_ui_state_for_render(wbid);
+                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                    } break;
+                    case 'get_all_window_states': {
+                        const states = this.state.nodes
+                            .values()
+                            .filter(n => n.type == "window")
+                            .map(n => this.state.build_ui_state_for_render(n.wbid));
+                        this._post(event.payload.port, { type: 'all_states_update', payload: { states: [...states] } });
+                    } break;
+                    case 'get_state_for_group_view': {
+                        const root = this.state.get_tab(msg.payload.bid);
+                        const state = this.state.build_ui_state_for_render(root.wbid, root.bid);
+                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                    } break;
+                    case 'get_user_config': {
+                        this._post(event.payload.port, { type: 'user_config_update', payload: { config: this.state.user_config } });
+                    } break;
+                    case 'get_snapshots': {
+                        this._post(event.payload.port, { type: 'snapshots_list_update', payload: { snapshots: this.state.snapshots } });
+                    } break;
+                    case 'export_data': {
+                        const data = this.state.get_export_data(true);
+                        const jsonData = JSON.stringify(data, null, 2);
+                        const blob = new Blob([jsonData], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+
+                        const now = new Date();
+                        const timestamp = now.toISOString().replace(/[:.]/g, '-');
+                        const filename = `tabruh-export-${timestamp}.json`;
+                        let _ = await browser.downloads.download({ url, filename, saveAs: true });
+
+                        setTimeout(() => URL.revokeObjectURL(url), 5000);
+                    } break;
+                    case 'get_state_for_snapshot_window': {
+                        const { snapshot_id, window_index } = msg.payload;
+                        const state = this.state.build_ui_state_for_snapshot_window(snapshot_id, window_index);
+                        if (state) {
+                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
+                        }
+                    } break;
+                    default:
+                        throw utils.exhausted(msg);
+                } break;
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    async __process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
         switch (event.type) {
             case 'tab_created': {
                 const btab = event.payload.tab;
@@ -2551,54 +2646,6 @@ class App {
                 // TODO:
                 // this.state.handle_requests(msg);
 
-                switch (msg.payload) {
-                    case 'get_state_for_window': {
-                        const wid = msg.payload.wid;
-                        if (!this.window_bids.has(wid)) {
-                            return;
-                        }
-                        const wbid = this.window_bids.get(wid)!;
-                        const state = this.build_ui_state_for_render(wbid);
-                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                    } break;
-                    case 'get_all_window_states': {
-                        const states = this.nodes.values().filter(n => n.type == "window").map(n => this.build_ui_state_for_render(n.wbid));
-                        this._post(event.payload.port, { type: 'all_states_update', payload: { states: [...states] } });
-                    } break;
-                    case 'get_state_for_group_view': {
-                        const root = this.get_tab(msg.payload.bid);
-                        const state = this.build_ui_state_for_render(root.wbid, root.bid);
-                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                    } break;
-                    case 'get_user_config': {
-                        this._post(event.payload.port, { type: 'user_config_update', payload: { config: this.user_config } });
-                    } break;
-                    case 'get_snapshots': {
-                        this._post(event.payload.port, { type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
-                    } break;
-                    case 'export_data': {
-                        const data = this.get_export_data(true);
-                        const jsonData = JSON.stringify(data, null, 2);
-                        const blob = new Blob([jsonData], { type: "application/json" });
-                        const url = URL.createObjectURL(blob);
-
-                        const now = new Date();
-                        const timestamp = now.toISOString().replace(/[:.]/g, '-');
-                        const filename = `tabruh-export-${timestamp}.json`;
-                        let _ = await browser.downloads.download({ url, filename, saveAs: true });
-
-                        setTimeout(() => URL.revokeObjectURL(url), 5000);
-                    } break;
-                    case 'get_state_for_snapshot_window': {
-                        const { snapshot_id, window_index } = msg.payload;
-                        const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                        if (state) {
-                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                        }
-                    } break;
-                    default:
-                        throw utils.exhausted(event);
-                } break;
             } break;
             default:
                 throw utils.exhausted(event);
@@ -2621,10 +2668,10 @@ class App {
                 }
             } break;
             case 'tab_created': {
-                const node = this.get_tab(effect.payload.bid);
-                const win = this.get_window(node.wbid);
-                const wid = this.window_ids.get(node.wbid);
-                const index = this.get_index(node.bid);
+                const node = this.state.get_tab(effect.payload.bid);
+                const win = this.state.get_window(node.wbid);
+                const wid = this.state.window_ids.get(node.wbid);
+                const index = this.state.get_index(node.bid);
                 const active = win.active == node.wbid;
 
                 let url;
@@ -2633,7 +2680,7 @@ class App {
                     url = node.url;
                     title = node.title;
                 } else {
-                    url = this.get_group_url(node.bid);
+                    url = this.state.get_group_url(node.bid);
                     title = node.name.name;
                 }
 
@@ -2645,20 +2692,23 @@ class App {
                 await this.register_btab(btab, node.bid);
             } break;
             case 'tab_focused': {
-                const node = this.get_tab(effect.payload.bid);
-                const tid = this.tab_ids.get(node.bid);
+                const node = this.state.get_tab(effect.payload.bid);
+                const tid = this.state.tab_ids.get(node.bid);
                 if (tid === undefined) throw new Error(`non null tid expected for '${effect.type}'`);
                 let _ = await browser.tabs.update(tid, { active: true });
             } break;
             case 'tabs_moved': {
-                const wid = this.window_ids.get(effect.payload.wbid);
+                const wid = this.state.window_ids.get(effect.payload.wbid);
                 if (wid === undefined) throw new Error(`non null wid expected for ${effect.type}`)
-                let _ = await browser.tabs.move(effect.payload.tbids.map(tbid => this.tab_ids.get(tbid)!), { windowId: wid, index: effect.payload.index });
+                let _ = await browser.tabs.move(effect.payload.tbids.map(tbid => this.state.tab_ids.get(tbid)!), {
+                    windowId: wid,
+                    index: effect.payload.index,
+                });
             } break;
             case 'tabs_discarded': {
                 const tids = [];
                 for (const tbid of effect.payload.tbids) {
-                    let tid = this.tab_ids.get(tbid);
+                    let tid = this.state.tab_ids.get(tbid);
                     if (tid === undefined) {
                         throw new Error(`non null tid expected for ${effect.type}`);
                     }
@@ -2668,7 +2718,7 @@ class App {
             } break;
             case 'tabs_reloaded': {
                 for (const tbid of effect.payload.tbids) {
-                    let tid = this.tab_ids.get(tbid);
+                    let tid = this.state.tab_ids.get(tbid);
                     if (tid === undefined) {
                         throw new Error(`non null tid expected for ${effect.type}`);
                     }
@@ -2680,20 +2730,20 @@ class App {
                 await browser.tabs.remove(effect.payload.tids);
             } break;
             case 'window_created': {
-                const win = this.get_window(effect.payload.wbid);
+                const win = this.state.get_window(effect.payload.wbid);
                 let tbids = [...win.tab_bids];
                 const indexof_active = tbids.indexOf(win.active ?? tbids[0]!);
                 if (indexof_active < 0) throw new Error(`win.active does not exist in win.tab_bids for wbid: ${win.bid}`);
                 const active = tbids.splice(indexof_active, 1)[0]!;
 
                 let bwin;
-                if (this.tab_ids.has(active)) {
+                if (this.state.tab_ids.has(active)) {
                     bwin = await browser.windows.create({
-                        tabId: this.tab_ids.get(active)!,
+                        tabId: this.state.tab_ids.get(active)!,
                     });
                 } else {
                     bwin = await browser.windows.create({
-                        url: this.get_node_url(active),
+                        url: this.state.get_node_url(active),
                     });
                     const btab = bwin.tabs![0]!;
                     await this.register_btab(btab, active);
@@ -2705,16 +2755,16 @@ class App {
                     if (indexof_active == i) {
                         i += 1;
                     }
-                    if (this.tab_ids.has(tbid)) {
-                        let _ = await browser.tabs.move(this.tab_ids.get(tbid)!, { windowId: bwin.id!, index: i });
+                    if (this.state.tab_ids.has(tbid)) {
+                        let _ = await browser.tabs.move(this.state.tab_ids.get(tbid)!, { windowId: bwin.id!, index: i });
                     } else {
                         let btab = await browser.tabs.create({
                             windowId: bwin.id!,
-                            url: this.get_node_url(tbid),
+                            url: this.state.get_node_url(tbid),
                             index: i,
                             discarded: true,
                             active: false,
-                            title: this.get_node_name(tbid),
+                            title: this.state.get_node_name(tbid),
                         });
                         await this.register_btab(btab, tbid);
                     }

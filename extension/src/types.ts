@@ -246,12 +246,11 @@ export type BrowserEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
-export type PortMessageEvent = {
-    type: 'port_message',
-    payload: { message: BackgroundRequest, port: browser.Runtime.Port }
-};
-
-export type StateManagerEvent = BrowserEvent | PortMessageEvent;
+export type AppEvent =
+    | { type: 'browser_event', payload: BrowserEvent }
+    | { type: 'background_request', payload: { message: BackgroundRequest, port: browser.Runtime.Port } }
+    | { type: 'background_actions', payload: { message: BackgroundAction, port: browser.Runtime.Port } }
+    ;
 
 export type BruhExport = {
     name?: string,
