@@ -179,6 +179,7 @@ export type AppRequest =
     | { type: 'get_snapshots', payload: {} }
     | { type: 'export_data', payload: {} }
     | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
+    | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
     ;
 
 export type AppResponse =
@@ -207,7 +208,6 @@ export type StateAction =
     | { type: 'create_group', payload: { parent_bid: BruhId } }
     | { type: 'rename_node', payload: { bid: BruhId, new_name: string } }
     | { type: 'load_bruh_export', payload: { data: BruhExport } }
-    | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
     | { type: 'update_user_config', payload: { config: Partial<UserConfig> } }
     | { type: 'create_snapshot', payload: { name: string } }
     | { type: 'delete_snapshot', payload: { id: string } }

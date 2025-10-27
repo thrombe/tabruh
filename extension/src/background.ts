@@ -1857,25 +1857,17 @@ class State {
             case 'load_bruh_export': {
                 this.load_export_data(action.payload.data);
             } break;
-            case 'convert_sideberry_export': {
-                const data = State.convert_sideberry_export_to_bruh(action.payload.data);
-                this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
-            } break;
             case 'create_snapshot': {
                 this.create_snapshot(action.payload.name);
-                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'delete_snapshot': {
                 this.delete_snapshot(action.payload.id);
-                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'restore_snapshot_window': {
                 this.restore_snapshot_window(action.payload.id, action.payload.window_index);
-                this._broadcast({ type: 'render_all', payload: {} });
             } break;
             case 'restore_snapshot_subtree': {
                 this.restore_snapshot_subtree(action.payload.id, action.payload.window_index, action.payload.tab_index);
-                this._broadcast({ type: 'render_all', payload: {} });
             } break;
             case 'import_file_as_snapshot': {
                 let bruhData: BruhExport;
@@ -1893,10 +1885,9 @@ class State {
                     data: bruhData
                 };
                 this.snapshots.push(newSnapshot);
-                this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'handle_snapshot_drop': {
-                const { drag_data, target_bid, action, target_wid } = action.payload;
+                const { drag_data, target_bid, action: target_action, target_wid } = action.payload;
                 const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
                 if (!snapshot) break;
 
@@ -1914,7 +1905,7 @@ class State {
                     parentForRestore = target_wbid;
                     // Index is undefined to append to the end of the window's root.
                 } else { // Drag-drop case: use target and action for positioning
-                    const target = this.get_target_index(-1 as BruhId, target_bid, action);
+                    const target = this.get_target_index(-1 as BruhId, target_bid, target_action);
                     parentForRestore = target.parent_bid;
                     insertionIndex = target.index;
                 }
@@ -1943,10 +1934,6 @@ class State {
                         const tabData = windowData.tabs[tab_index];
                         if (tabData) {
                             tabData.collapsed = !tabData.collapsed;
-                            const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                            if (state) {
-                                this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                            }
                         }
                     }
                 }
@@ -1958,16 +1945,11 @@ class State {
                     const windowData = snapshot.data.windows[window_index];
                     if (windowData) {
                         windowData.collapsed = !(windowData.collapsed ?? false);
-                        const state = this.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                        if (state) {
-                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                        }
                     }
                 }
             } break;
             case 'update_user_config': {
                 this.user_config = { ...this.user_config, ...action.payload.config };
-                this._broadcast({ type: 'user_config_update', payload: { config: this.user_config } });
             } break;
             default:
                 throw utils.exhausted(action);
@@ -2530,6 +2512,7 @@ class App {
                     case 'get_snapshots':
                     case 'get_state_for_snapshot_window':
                     case 'export_data':
+                    case 'convert_sideberry_export':
                         break;
                     default:
                         throw utils.exhausted(event.payload.message);
@@ -2553,7 +2536,6 @@ class App {
                     case 'rename_node':
                     case 'focus_tab':
                     case 'load_bruh_export':
-                    case 'convert_sideberry_export':
                     case 'update_user_config':
                     case 'create_snapshot':
                     case 'delete_snapshot':
@@ -2631,6 +2613,7 @@ class App {
                     case 'get_snapshots':
                     case 'export_data':
                     case 'get_state_for_snapshot_window':
+                    case 'convert_sideberry_export':
                         break;
 
                     default:
@@ -2667,7 +2650,6 @@ class App {
                         break;
 
                     case 'load_bruh_export':
-                    case 'convert_sideberry_export':
                         break;
 
                     default:
@@ -2805,6 +2787,10 @@ class App {
                         if (state) {
                             this._post(event.payload.port, { type: 'state_update', payload: { state } });
                         }
+                    } break;
+                    case 'convert_sideberry_export': {
+                        const data = State.convert_sideberry_export_to_bruh(msg.payload.data);
+                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
                     } break;
                     default:
                         throw utils.exhausted(msg);
