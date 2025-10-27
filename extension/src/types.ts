@@ -257,21 +257,21 @@ export type StateEffect =
     | Extract<BrowserEvent, { type: 'tab_attached' }>
     | Extract<BrowserEvent, { type: 'tab_moved' }>
     | Extract<BrowserEvent, { type: 'tab_removed' }>
-    | { type: 'window_created', payload: { old_wbid?: BruhId, wid: WindowId } }
-    | { type: 'upate_tab_info', payload: { tid: TabId, url?: string, favIconUrl?: string, title?: string, discarded?: boolean } }
+    | { type: 'window_created', payload: { old_wbid: BruhId | undefined, wid: WindowId } }
+    | { type: 'upate_tab_info', payload: { tid: TabId, url: string | undefined, favIconUrl: string | undefined, title: string | undefined, discarded: boolean | undefined } }
     | {
         type: 'tab_created', payload: {
-            old_wbid?: BruhId,
-            old_tbid?: BruhId,
+            old_wbid: BruhId | undefined,
+            old_tbid: BruhId | undefined,
 
             wid: WindowId,
             tid: TabId,
-            opener_tab_id?: TabId,
-            index?: number,
-            url?: string,
-            favIconUrl?: string,
-            title?: string,
-            discarded?: boolean,
+            opener_tab_id: TabId | undefined,
+            index: number | undefined,
+            url: string | undefined,
+            favIconUrl: string | undefined,
+            title: string | undefined,
+            discarded: boolean | undefined,
         }
     }
     ;

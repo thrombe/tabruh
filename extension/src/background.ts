@@ -2283,12 +2283,12 @@ class App {
     }
 
     async register_bwindow(wid: WindowId, bid: BruhId) {
-        this.state.register_bwindow(wid, bid);
+        let _ = this.state.register_bwindow(wid, bid);
         await this.write_session_pointer(bid, wid, "window");
     }
 
     async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
-        this.state.register_btab(btab.id as TabId, bid);
+        let _ = this.state.register_btab(btab.id as TabId, bid);
         await this.write_session_pointer(bid, btab.id as TabId, "tab");
     }
 
@@ -2365,6 +2365,7 @@ class App {
             }
         }
 
+        const app_effects = new utils.Deque<AppEffect>();
         const new_tabs_to_reparent_via_opener_id = new Set();
         // in this pass we try to restore only the windows that were open/closed+pristine, because the non-pristine closed windows
         // can only be restored by the extension
@@ -2378,7 +2379,8 @@ class App {
                 const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
                 if (!node) {
                     // windows that were restored via the browser restore api after the state for it was deleted
-                    await this.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
+                    const e = this.state.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
+                    app_effects.push_back(e);
                 } else {
                     // windows that are open/closed, but still in state
                     if (node.is_archived_pristine) {
@@ -2389,9 +2391,11 @@ class App {
                         // no copying over if node wasn't closed and was restored here.
                         windows_to_preserve.delete(old_wbid);
                     }
-                    await this.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
+                    const e = this.state.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
+                    app_effects.push_back(e);
                 }
             }
+            await this.process_app_effects(app_effects);
 
             // TODO: MAYBE: there's probably a subtle bug somewhere in here,
             //    where a non-pristine/pristine restored tab is moved to a pristine/non-pristine restored window,
@@ -2401,17 +2405,31 @@ class App {
             const win = this.state.get_window(this.state.window_bids.get(bwin.id as WindowId)!);
             for (const btab of bwin.tabs!) {
                 const old_tbid = old_tbids.get(btab.id as TabId);
+                const tab_info = {
+                    old_tbid: undefined,
+                    old_wbid: undefined,
+                    tid: btab.id as TabId,
+                    wid: bwin.id as WindowId,
+                    opener_tab_id: btab.openerTabId as TabId,
+                    index: btab.index,
+                    url: btab.url,
+                    favIconUrl: btab.favIconUrl,
+                    title: btab.title,
+                    discarded: btab.discarded,
+                };
                 let needs_new_tab = false;
                 if (old_tbid) {
                     const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
                     if (!node) {
                         if (this.state.browser_restore_cache.has(old_tbid)) {
-                            await this.restore_tab(btab, old_tbid, this.state.browser_restore_cache);
+                            const e = this.state.restore_tab(tab_info, old_tbid, this.state.browser_restore_cache);
+                            app_effects.push_back(e);
                         } else {
                             needs_new_tab = true;
                         }
                     } else {
-                        await this.restore_tab(btab, old_tbid, state.node_storage_data);
+                        const e = this.state.restore_tab(tab_info, old_tbid, state.node_storage_data);
+                        app_effects.push_back(e);
                     }
                 } else {
                     needs_new_tab = true;
@@ -2433,14 +2451,18 @@ class App {
                         });
                         tab = this.state.get_tab(new_tab_effect.payload.bid);
                     }
-                    await this.register_btab(btab, tab.bid);
-                    await this.update_tab_info(btab);
+                    const e = this.state.register_btab(btab.id as TabId, tab.bid);
+                    app_effects.push_back(e);
+                    const e1 = this.state.update_tab_info(tab_info);
+                    if (e1) app_effects.push_back(e1);
                 }
 
                 const tab = this.state.get_tab(this.state.tab_bids.get(btab.id as TabId)!);
                 if (btab.active) {
                     win.active = tab.bid;
                 }
+
+                await this.process_app_effects(app_effects);
             }
         }
 
