@@ -161,6 +161,19 @@ export class Xoshiro256 {
             }
         }
     }
+
+    public nextU32(): number {
+        // Take the upper 32 bits of the 64-bit result.
+        // This is a common practice for getting higher quality bits.
+        return Number(this.next() >> 32n);
+    }
+
+    // [0, 1)
+    public nextFloat(): number {
+        // We use the upper 53 bits for the mantissa of a double-precision float.
+        const upper_bits = this.next() >> 11n;
+        return Number(upper_bits) / (2 ** 53);
+    }
 }
 
 export class Deque<T> {
