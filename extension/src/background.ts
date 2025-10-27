@@ -1,5 +1,6 @@
 import browser from 'webextension-polyfill';
 import type {
+    StateEvent,
     AppRequest,
     StateAction,
     AppResponse,
@@ -27,6 +28,7 @@ import type {
     UserConfig,
     Snapshot,
     ConfigStorage,
+    StateEffect,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -1084,7 +1086,73 @@ class State {
         return JSON.parse(JSON.stringify(state)) as typeof state;
     }
 
-    hande_action(action: StateAction, effects: utils.Deque<AppEffect>) {
+    handle_event(event: StateEvent, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
+        switch (event.type) {
+            case 'state_effect': {
+                this.handle_effect(event.payload, state_effects);
+            } break;
+            case 'state_action': {
+                this.handle_action(event.payload, app_effects);
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    handle_effect(effect: StateEffect, effects: utils.Deque<StateEffect>) {
+        switch (effect.type) {
+            case 'effects': {
+                for (let i = effect.payload.effects.length; i > 0; i--) {
+                    const e = effect.payload.effects[i - 1]!;
+                    effects.push_front(e);
+                }
+            } break;
+            case 'window_removed': {
+                if (!this.window_bids.has(effect.payload.wid)) return;
+                const wbid = this.window_bids.get(effect.payload.wid)!;
+                if (this.closing_window_tabs.has(wbid)) {
+                    let tbids = this.closing_window_tabs.get(wbid)!;
+                    this.closing_window_tabs.delete(wbid);
+
+                    this.mark_window_closed(wbid);
+                }
+            } break;
+            case 'sessions_changed': {
+                // TODO: completely broken. does not contain ids anywhere. not sure how to even link sessionId to tabs/windows
+                // NOTE: there's no reasonable way to know what tab/window a session belongs to.
+                //  - what is possible tho - is to sort of track the tabs/windows that *just* got closed and match them to newly created sessions.
+                if (true) {
+                    this.forget_tids.clear();
+                    this.forget_wids.clear();
+                }
+
+                const sessions = effect.payload.sessions;
+                for (let session of sessions) {
+                    if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
+                        if (this.forget_tids.has(session.tab.id as TabId)) {
+                            this.forget_tids.delete(session.tab.id as TabId);
+
+                            // TODO:
+                            // await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
+                        }
+                    }
+                    if (session.window && session.window.id !== undefined && session.window.sessionId !== undefined) {
+                        if (this.forget_wids.has(session.window.id as WindowId)) {
+                            this.forget_wids.delete(session.window.id as WindowId);
+
+                            // TODO:
+                            // await browser.sessions.forgetClosedWindow(session.window.sessionId);
+                        }
+                    }
+                }
+
+            } break;
+            default:
+                throw utils.exhausted(effect);
+        }
+    }
+
+    handle_action(action: StateAction, effects: utils.Deque<AppEffect>) {
         switch (action.type) {
             case 'restore_window': {
                 const node = this.get_node(action.payload.wbid);
@@ -1677,7 +1745,7 @@ class App {
             this.ports.add(port);
 
             port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({ type: 'background_request', payload: { message: message as AppRequest, port } });
+                await this.eventChannel.send({ type: 'app_request', payload: { message: message as AppRequest, port } });
             });
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);
@@ -1766,7 +1834,8 @@ class App {
     }
 
     async process_events() {
-        const effects = new utils.Deque<AppEffect>();
+        const app_effects = new utils.Deque<AppEffect>();
+        const state_effects = new utils.Deque<StateEffect>();
         while (true) {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
@@ -1775,15 +1844,29 @@ class App {
                 this._log_event(event);
             }
 
-            await this._process_event(event, effects).catch(console.error);
-            await this.process_effects(effects);
+            await this.process_event(event, state_effects, app_effects).catch(console.error);
+            this.process_state_effects(state_effects);
+            await this.process_app_effects(app_effects);
             await this.save_state().catch(console.error);
 
             this._broadcast_updates(event);
         }
     }
 
-    async process_effects(effects: utils.Deque<AppEffect>) {
+    async process_state_effects(effects: utils.Deque<StateEffect>) {
+        while (true) {
+            const effect = effects.pop_front();
+            if (!effect) break;
+
+            if (this.state.user_config.dbg_log_effects) {
+                // TODO:
+                // this._log_effect(effect);
+            }
+            this.state.handle_effect(effect, effects);
+        }
+    }
+
+    async process_app_effects(effects: utils.Deque<AppEffect>) {
         while (true) {
             const effect = effects.pop_front();
             if (!effect) break;
@@ -2460,7 +2543,7 @@ class App {
         }
     }
 
-    async _process_event(event: AppEvent, effects: utils.Deque<AppEffect>) {
+    async process_event(event: AppEvent, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
         switch (event.type) {
             case 'browser_event': {
                 const msg = event.payload;
@@ -2564,49 +2647,22 @@ class App {
                         }
                     } break;
                     case 'window_removed': {
-                        if (!this.window_bids.has(msg.payload.wid)) return;
-                        const wbid = this.window_bids.get(msg.payload.wid)!;
-                        if (this.closing_window_tabs.has(wbid)) {
-                            let tbids = this.closing_window_tabs.get(wbid)!;
-                            this.closing_window_tabs.delete(wbid);
-
-                            this.mark_window_closed(wbid);
-                        }
+                        // TODO: push state event
+                        state_effects.push_back({ type: 'window_removed', payload: msg.payload });
                     } break;
                     case 'window_focus_changed': {
                         // nothing to do
                     } break;
                     case 'sessions_changed': {
-                        // TODO: completely broken. does not contain ids anywhere. not sure how to even link sessionId to tabs/windows
-                        // NOTE: there's no reasonable way to know what tab/window a session belongs to.
-                        //  - what is possible tho - is to sort of track the tabs/windows that *just* got closed and match them to newly created sessions.
-                        if (true) {
-                            this.forget_tids.clear();
-                            this.forget_wids.clear();
-                        }
-
                         const sessions = await browser.sessions.getRecentlyClosed();
-                        for (let session of sessions) {
-                            if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
-                                if (this.forget_tids.has(session.tab.id as TabId)) {
-                                    this.forget_tids.delete(session.tab.id as TabId);
-                                    await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
-                                }
-                            }
-                            if (session.window && session.window.id !== undefined && session.window.sessionId !== undefined) {
-                                if (this.forget_wids.has(session.window.id as WindowId)) {
-                                    this.forget_wids.delete(session.window.id as WindowId);
-                                    await browser.sessions.forgetClosedWindow(session.window.sessionId);
-                                }
-                            }
-                        }
+                        state_effects.push_back({ type: 'sessions_changed', payload: { sessions } });
                     } break;
                     default:
                         throw utils.exhausted(msg);
                 }
             } break;
             case 'state_action': {
-                this.state.hande_action(event.payload.message, effects);
+                this.state.handle_action(event.payload.message, app_effects);
             } break;
             case 'app_request': {
                 const msg = event.payload.message;
