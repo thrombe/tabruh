@@ -171,7 +171,7 @@ export type ConfigStorage = {
     user_config: UserConfig,
 };
 
-export type BackgroundRequest =
+export type AppRequest =
     | { type: 'get_state_for_window', payload: { wid: WindowId } }
     | { type: 'get_all_window_states', payload: {} }
     | { type: 'get_state_for_group_view', payload: { bid: BruhId } }
@@ -181,7 +181,16 @@ export type BackgroundRequest =
     | { type: 'get_state_for_snapshot_window', payload: { snapshot_id: string, window_index: number } }
     ;
 
-export type BackgroundAction =
+export type AppResponse =
+    | { type: 'state_update', payload: { state: UiStateForRender, } }
+    | { type: 'all_states_update', payload: { states: UiStateForRender[] } }
+    | { type: 'render_all', payload: {} }
+    | { type: 'converted_sideberry_export_ready', payload: { data: BruhExport } }
+    | { type: 'user_config_update', payload: { config: UserConfig } }
+    | { type: 'snapshots_list_update', payload: { snapshots: Snapshot[] } }
+    ;
+
+export type StateAction =
     | { type: 'focus_tab', payload: { bid: BruhId } }
     | { type: 'close_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'toggle_collapse', payload: { bid: BruhId } }
@@ -210,15 +219,6 @@ export type BackgroundAction =
     | { type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: string, window_index: number } }
     ;
 
-export type BackgroundResponse =
-    | { type: 'state_update', payload: { state: UiStateForRender, } }
-    | { type: 'all_states_update', payload: { states: UiStateForRender[] } }
-    | { type: 'render_all', payload: {} }
-    | { type: 'converted_sideberry_export_ready', payload: { data: BruhExport } }
-    | { type: 'user_config_update', payload: { config: UserConfig } }
-    | { type: 'snapshots_list_update', payload: { snapshots: Snapshot[] } }
-    ;
-
 export type BrowserEvent =
     | { type: 'tab_created', payload: { tab: browser.Tabs.Tab } }
     | { type: 'tab_removed', payload: { tid: TabId, remove_info: browser.Tabs.OnRemovedRemoveInfoType } }
@@ -233,8 +233,8 @@ export type BrowserEvent =
     | { type: 'sessions_changed', payload: {} }
     ;
 
-export type BrowserEffect =
-    | { type: 'effects', payload: { effects: BrowserEffect[] } }
+export type AppEffect =
+    | { type: 'effects', payload: { effects: AppEffect[] } }
     | { type: 'node_removed', payload: { node: Node, browser_id: BrowserId } }
     | { type: 'tab_created', payload: { bid: BruhId, wbid: BruhId, index: number } }
     | { type: 'tab_focused', payload: { bid: BruhId } }
@@ -246,10 +246,18 @@ export type BrowserEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     ;
 
+export type StateEffect =
+    | { type: '', payload: {} }
+    ;
+
+export type StateEvent =
+    | { type: 'state_action', payload: StateAction }
+    ;
+
 export type AppEvent =
     | { type: 'browser_event', payload: BrowserEvent }
-    | { type: 'background_request', payload: { message: BackgroundRequest, port: browser.Runtime.Port } }
-    | { type: 'background_actions', payload: { message: BackgroundAction, port: browser.Runtime.Port } }
+    | { type: 'app_request', payload: { message: AppRequest, port: browser.Runtime.Port } }
+    | { type: 'state_action', payload: { message: StateAction, port: browser.Runtime.Port } }
     ;
 
 export type BruhExport = {

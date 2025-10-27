@@ -1,7 +1,7 @@
 import './settings.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundRequest, BackgroundResponse, BruhExport, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId } from './types';
+import type { AppRequest, AppResponse, BruhExport, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId } from './types';
 
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -20,7 +20,7 @@ class SettingsPage {
         this.contentContainer = document.getElementById('content')!;
         this.port = browser.runtime.connect({ name: 'settings-page' });
 
-        this.port.onMessage.addListener(msg => this.handleMessage(msg as BackgroundResponse));
+        this.port.onMessage.addListener(msg => this.handleMessage(msg as AppResponse));
         this.port.onDisconnect.addListener(() => console.error("Settings page disconnected."));
 
         browser.windows.getCurrent().then(win => {
@@ -42,11 +42,11 @@ class SettingsPage {
         this.render();
     }
 
-    private sendMessage(message: BackgroundRequest) {
+    private sendMessage(message: AppRequest) {
         this.port.postMessage(message);
     }
 
-    private handleMessage(message: BackgroundResponse) {
+    private handleMessage(message: AppResponse) {
         switch (message.type) {
             case 'snapshots_list_update':
                 this.snapshots = message.payload.snapshots.sort((a, b) => b.timestamp.localeCompare(a.timestamp));

@@ -1,7 +1,7 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BruhId, BackgroundRequest, BackgroundResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
+import type { BruhId, AppRequest, AppResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
 
 class OverviewPage {
     private port: browser.Runtime.Port | null = null;
@@ -59,7 +59,7 @@ class OverviewPage {
         this.hasConnected = true;
 
         this.port = browser.runtime.connect({ name: 'overview-connection' });
-        this.port.onMessage.addListener(message => this.handleMessage(message as BackgroundResponse));
+        this.port.onMessage.addListener(message => this.handleMessage(message as AppResponse));
         this.port.onDisconnect.addListener(() => console.error("Overview page disconnected from background script."));
 
         if (this.action === 'import') {
@@ -69,7 +69,7 @@ class OverviewPage {
         }
     }
 
-    private sendMessage(message: BackgroundRequest) {
+    private sendMessage(message: AppRequest) {
         if (!this.port) {
             console.warn("Attempted to send message before port was connected.", message);
             return;
@@ -197,7 +197,7 @@ class OverviewPage {
         });
     }
 
-    private handleMessage(message: BackgroundResponse) {
+    private handleMessage(message: AppResponse) {
         switch (message.type) {
             case 'all_states_update': {
                 if (this.viewMode === 'overview') {

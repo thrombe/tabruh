@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BackgroundRequest, BackgroundResponse, WindowId } from './types';
+import type { AppRequest, AppResponse, WindowId } from './types';
 
 class TabTreeSidebar {
     private port: browser.Runtime.Port;
@@ -26,7 +26,7 @@ class TabTreeSidebar {
 
         this.view = new TabTreeView(container, this.port, "sidebar", 'window');
 
-        this.port.onMessage.addListener(message => this.handleMessage(message as BackgroundResponse));
+        this.port.onMessage.addListener(message => this.handleMessage(message as AppResponse));
         this.port.onDisconnect.addListener(() => console.error("Sidebar disconnected from background script."));
 
         this.requestState();
@@ -38,7 +38,7 @@ class TabTreeSidebar {
         }
     }
 
-    private sendMessage(message: BackgroundRequest) {
+    private sendMessage(message: AppRequest) {
         try {
             this.port.postMessage(message);
         } catch (e) {
@@ -46,7 +46,7 @@ class TabTreeSidebar {
         }
     }
 
-    private handleMessage(message: BackgroundResponse) {
+    private handleMessage(message: AppResponse) {
         if (message.type === 'render_all') {
             this.requestState();
         } else if (message.type === 'state_update' && this.view) {

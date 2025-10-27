@@ -1,8 +1,8 @@
 import browser from 'webextension-polyfill';
 import type {
-    BackgroundRequest,
-    BackgroundAction,
-    BackgroundResponse,
+    AppRequest,
+    StateAction,
+    AppResponse,
     DragData,
     Node,
     TabId,
@@ -19,7 +19,7 @@ import type {
     GroupTabData,
     WindowData,
     DropAction,
-    BrowserEffect,
+    AppEffect,
     StorageState,
     BruhExport,
     SideberryExport,
@@ -477,7 +477,7 @@ class State {
         const wid = this.window_ids.get(bid);
         if (wid !== undefined) this.window_bids.delete(wid);
         this.window_ids.delete(bid);
-        return { type: 'node_removed', payload: { node, browser_id: tid === undefined ? wid : tid } } as Extract<BrowserEffect, { type: 'node_removed' }>;
+        return { type: 'node_removed', payload: { node, browser_id: tid === undefined ? wid : tid } } as Extract<AppEffect, { type: 'node_removed' }>;
     }
 
     remove_node_and_reparent_children(bid: BruhId) {
@@ -504,7 +504,7 @@ class State {
             this.add_tab_to_window(tbid, parent.wbid, index + i);
         }
 
-        return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
+        return { type: 'tabs_moved', payload: { tbids: tbids_to_move, wbid: parent.wbid, index } } as Extract<AppEffect, { type: 'tabs_moved' }>;
     }
 
     reparent_children(bid: BruhId, new_parent_bid: BruhId, index?: number) {
@@ -514,7 +514,7 @@ class State {
             index = this.get_target_index(node.bid, parent.bid, "inside").index;
         }
 
-        const effect = { type: 'tabs_moved', payload: { tbids: [], wbid: parent.wbid, index } } as Extract<BrowserEffect, { type: 'tabs_moved' }>;
+        const effect = { type: 'tabs_moved', payload: { tbids: [], wbid: parent.wbid, index } } as Extract<AppEffect, { type: 'tabs_moved' }>;
         const children = this.get_immediate_children(bid);
         for (const childId of children) {
             const child_effect = this.reparent_node(childId, new_parent_bid, index);
@@ -549,7 +549,7 @@ class State {
         this.nodes.set(bid, node);
 
         this.add_tab_to_window(bid, win.bid, options.index !== undefined ? options.index : win.tab_bids.length);
-        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
+        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<AppEffect, { type: 'tab_created' }>;
     }
 
     create_new_group(parent_bid: BruhId, options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, index?: number, collapsed?: boolean }) {
@@ -570,7 +570,7 @@ class State {
         this.nodes.set(bid, node);
 
         this.add_tab_to_window(bid, win.bid, options.index !== undefined ? options.index : win.tab_bids.length);
-        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<BrowserEffect, { type: 'tab_created' }>;
+        return { type: 'tab_created', payload: { bid: bid, wbid: win.bid, index: this.get_index(bid) } } as Extract<AppEffect, { type: 'tab_created' }>;
     }
 
     create_new_window(options: { bid?: BruhId, hgid?: HierarchyGenerationId, name?: GroupName, closed?: boolean }) {
@@ -590,7 +590,7 @@ class State {
         };
         this.nodes.set(bid, node);
 
-        return { type: 'window_created', payload: { wbid: bid } } as Extract<BrowserEffect, { type: 'window_created' }>;
+        return { type: 'window_created', payload: { wbid: bid } } as Extract<AppEffect, { type: 'window_created' }>;
     }
 
     clone_subtree(root_bid: BruhId, parent_bid: BruhId | null, index: number) {
@@ -651,7 +651,7 @@ class State {
         if (new_window_effect !== undefined) {
             return new_window_effect;
         } else {
-            return { type: 'effects', payload: { effects: new_tab_effects } } as Extract<BrowserEffect, { type: "effects" }>;
+            return { type: 'effects', payload: { effects: new_tab_effects } } as Extract<AppEffect, { type: "effects" }>;
         }
     }
 
@@ -927,7 +927,7 @@ class State {
 
         if (!win.closed) {
             // If the target window is open, we need to create the browser tabs for the newly added nodes
-            const effect = { type: 'effects', payload: { effects } } as Extract<BrowserEffect, { type: 'effects' }>;
+            const effect = { type: 'effects', payload: { effects } } as Extract<AppEffect, { type: 'effects' }>;
             return effect;
         }
         return null;
@@ -1084,10 +1084,10 @@ class State {
         return JSON.parse(JSON.stringify(state)) as typeof state;
     }
 
-    handle_request(msg: BackgroundAction, effects: utils.Deque<BrowserEffect>) {
-        switch (msg.type) {
+    hande_action(action: StateAction, effects: utils.Deque<AppEffect>) {
+        switch (action.type) {
             case 'restore_window': {
-                const node = this.get_node(msg.payload.wbid);
+                const node = this.get_node(action.payload.wbid);
                 if (node.type !== "window") throw new Error(`expected 'window' found '${node.type}' bid: ${node.bid}`);
                 if (!node.closed) throw new Error(`expected window to be closed for a restore operation bid: ${node.bid}`);
                 const effect = this.clone_subtree(node.bid, null, 0);
@@ -1105,8 +1105,8 @@ class State {
                 }
             } break;
             case 'handle_drop': {
-                const node = this.get_node(msg.payload.drag_data.draggedNodeId);
-                const target_node = this.get_node(msg.payload.target_bid);
+                const node = this.get_node(action.payload.drag_data.draggedNodeId);
+                const target_node = this.get_node(action.payload.target_bid);
 
                 const source_win = this.get_window(node.wbid);
                 const target_win = this.get_window(target_node.wbid);
@@ -1120,8 +1120,8 @@ class State {
                 const source_is_closed = source_win.closed;
                 const target_is_closed = target_win.closed;
 
-                let effect: BrowserEffect;
-                const target = this.get_target_index(node.bid, msg.payload.target_bid, msg.payload.action);
+                let effect: AppEffect;
+                const target = this.get_target_index(node.bid, action.payload.target_bid, action.payload.action);
 
                 if (source_is_closed && !target_is_closed) {
                     // if window: create group, revive_tree at target, delete old tree
@@ -1206,7 +1206,7 @@ class State {
 
             } break;
             case 'duplicate_tab': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
 
                 const win = this.get_window(node.wbid);
@@ -1230,7 +1230,7 @@ class State {
                 }
             } break;
             case 'move_subtree_to_new_window': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 if (node.type == "window") throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
                 const win = this.get_window(node.wbid);
                 if (win.closed) {
@@ -1281,14 +1281,14 @@ class State {
                 }
             } break;
             case 'close_tabs': {
-                const node = this.get_node(msg.payload.bid);
-                if (node.type == "window" && !msg.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
+                const node = this.get_node(action.payload.bid);
+                if (node.type == "window" && !action.payload.recursive) throw new Error(`expected 'tab' found 'window' bid: ${node.bid}`);
                 const win = this.get_window(node.wbid);
                 if (win.closed) {
                     win.is_archived_pristine = false;
                 }
 
-                if (msg.payload.recursive) {
+                if (action.payload.recursive) {
                     const subtree = this.get_subtree(node.bid);
                     const closing_all_tabs = subtree.length == win.tab_bids.length;
                     let wid;
@@ -1350,7 +1350,7 @@ class State {
             case 'close_window': {
                 // window is open (we can't close closed windows)
 
-                const win = this.get_window(msg.payload.wbid);
+                const win = this.get_window(action.payload.wbid);
                 if (win.closed) return;
                 const wid = this.window_ids.get(win.bid)!;
 
@@ -1359,7 +1359,7 @@ class State {
                 effects.push_back({ type: 'window_closed', payload: { wid } });
             } break;
             case 'delete_window_state': {
-                const win = this.get_window(msg.payload.wbid);
+                const win = this.get_window(action.payload.wbid);
                 if (!win.closed) throw new Error(`cannot delete state for open window with bid: ${win.bid}`);
                 const tbids = [...win.tab_bids];
                 let _;
@@ -1369,7 +1369,7 @@ class State {
                 _ = this.remove_node(win.bid);
             } break;
             case 'reload_tree': {
-                const root = this.get_node(msg.payload.bid);
+                const root = this.get_node(action.payload.bid);
                 const win = this.get_window(root.wbid);
                 if (win.closed) return;
                 const bids = this.get_subtree(root.bid);
@@ -1389,10 +1389,10 @@ class State {
                 }
             } break;
             case 'unload_tabs': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 const win = this.get_window(node.wbid);
                 if (win.closed) return;
-                const bids = msg.payload.recursive ? this.get_subtree(msg.payload.bid) : [node.bid];
+                const bids = action.payload.recursive ? this.get_subtree(action.payload.bid) : [node.bid];
 
                 let tbids = [];
                 for (let bid of bids) {
@@ -1412,7 +1412,7 @@ class State {
                 }
             } break;
             case 'focus_tab': {
-                const node = this.get_tab(msg.payload.bid);
+                const node = this.get_tab(action.payload.bid);
                 const win = this.get_window(node.wbid);
                 if (win.closed) return;
                 win.active = node.bid;
@@ -1420,7 +1420,7 @@ class State {
                 effects.push_back({ type: 'tab_focused', payload: { bid: node.bid } });
             } break;
             case 'create_group': {
-                const parent_bid = msg.payload.parent_bid;
+                const parent_bid = action.payload.parent_bid;
                 const parent = this.get_node(parent_bid);
                 const win = this.get_window(parent.wbid);
                 if (win.closed) {
@@ -1433,8 +1433,8 @@ class State {
                 effects.push_back(effect);
             } break;
             case 'create_tab': {
-                const url = msg.payload.url;
-                const parent_bid = msg.payload.parent_bid;
+                const url = action.payload.url;
+                const parent_bid = action.payload.parent_bid;
                 const parent = this.get_node(parent_bid);
                 const win = this.get_window(parent.wbid);
                 if (win.closed) {
@@ -1442,7 +1442,7 @@ class State {
                 }
 
                 const bid = this.bruhid++ as BruhId;
-                const target = this.get_target_index(bid, parent.bid, msg.payload.action);
+                const target = this.get_target_index(bid, parent.bid, action.payload.action);
                 let create_effect;
                 if (!!url && this.parse_group_url_id(url) !== null) {
                     create_effect = this.create_new_group(parent.bid, { bid: bid, index: target.index });
@@ -1453,20 +1453,20 @@ class State {
                 effects.push_back(create_effect);
             } break;
             case 'toggle_collapse': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 node.collapsed = !node.collapsed;
             } break;
             case 'flatten_tree': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 const win = this.get_window(node.wbid);
                 if (win.closed) {
                     win.is_archived_pristine = false;
                 }
 
-                this.flatten_node(node.bid, msg.payload.recursive, this.increment_hgid());
+                this.flatten_node(node.bid, action.payload.recursive, this.increment_hgid());
             } break;
             case 'rename_node': {
-                const node = this.get_node(msg.payload.bid);
+                const node = this.get_node(action.payload.bid);
                 if (node.type == "tab") {
                     throw new Error(`'tab' nodes cannot be renamed`);
                 }
@@ -1476,35 +1476,35 @@ class State {
                     win.is_archived_pristine = false;
                 }
 
-                node.name.name = msg.payload.new_name;
+                node.name.name = action.payload.new_name;
                 node.name.is_custom = true;
             } break;
             case 'load_bruh_export': {
-                this.load_export_data(msg.payload.data);
+                this.load_export_data(action.payload.data);
             } break;
             case 'convert_sideberry_export': {
-                const data = State.convert_sideberry_export_to_bruh(msg.payload.data);
+                const data = State.convert_sideberry_export_to_bruh(action.payload.data);
                 this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
             } break;
             case 'create_snapshot': {
-                this.create_snapshot(msg.payload.name);
+                this.create_snapshot(action.payload.name);
                 this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'delete_snapshot': {
-                this.delete_snapshot(msg.payload.id);
+                this.delete_snapshot(action.payload.id);
                 this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'restore_snapshot_window': {
-                this.restore_snapshot_window(msg.payload.id, msg.payload.window_index);
+                this.restore_snapshot_window(action.payload.id, action.payload.window_index);
                 this._broadcast({ type: 'render_all', payload: {} });
             } break;
             case 'restore_snapshot_subtree': {
-                this.restore_snapshot_subtree(msg.payload.id, msg.payload.window_index, msg.payload.tab_index);
+                this.restore_snapshot_subtree(action.payload.id, action.payload.window_index, action.payload.tab_index);
                 this._broadcast({ type: 'render_all', payload: {} });
             } break;
             case 'import_file_as_snapshot': {
                 let bruhData: BruhExport;
-                const data = msg.payload.data;
+                const data = action.payload.data;
                 if ('id' in data && 'sidebar' in data) {
                     bruhData = State.convert_sideberry_export_to_bruh(data as SideberryExport);
                 } else {
@@ -1513,7 +1513,7 @@ class State {
 
                 const newSnapshot: Snapshot = {
                     id: crypto.randomUUID(),
-                    name: msg.payload.name,
+                    name: action.payload.name,
                     timestamp: new Date().toISOString(),
                     data: bruhData
                 };
@@ -1521,7 +1521,7 @@ class State {
                 this._broadcast({ type: 'snapshots_list_update', payload: { snapshots: this.snapshots } });
             } break;
             case 'handle_snapshot_drop': {
-                const { drag_data, target_bid, action, target_wid } = msg.payload;
+                const { drag_data, target_bid, action, target_wid } = action.payload;
                 const snapshot = this.snapshots.find(s => s.id === drag_data.snapshotId);
                 if (!snapshot) break;
 
@@ -1560,7 +1560,7 @@ class State {
                 }
             } break;
             case 'toggle_snapshot_collapse': {
-                const { snapshot_id, window_index, tab_index } = msg.payload;
+                const { snapshot_id, window_index, tab_index } = action.payload;
                 const snapshot = this.snapshots.find(s => s.id === snapshot_id);
                 if (snapshot) {
                     const windowData = snapshot.data.windows[window_index];
@@ -1577,7 +1577,7 @@ class State {
                 }
             } break;
             case 'toggle_snapshot_window_collapse': {
-                const { snapshot_id, window_index } = msg.payload;
+                const { snapshot_id, window_index } = action.payload;
                 const snapshot = this.snapshots.find(s => s.id === snapshot_id);
                 if (snapshot) {
                     const windowData = snapshot.data.windows[window_index];
@@ -1591,11 +1591,11 @@ class State {
                 }
             } break;
             case 'update_user_config': {
-                this.user_config = { ...this.user_config, ...msg.payload.config };
+                this.user_config = { ...this.user_config, ...action.payload.config };
                 this._broadcast({ type: 'user_config_update', payload: { config: this.user_config } });
             } break;
             default:
-                throw utils.exhausted(msg);
+                throw utils.exhausted(action);
         }
 
     }
@@ -1677,7 +1677,7 @@ class App {
             this.ports.add(port);
 
             port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({ type: 'background_request', payload: { message: message as BackgroundRequest, port } });
+                await this.eventChannel.send({ type: 'background_request', payload: { message: message as AppRequest, port } });
             });
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);
@@ -1751,7 +1751,7 @@ class App {
         });
     }
 
-    _post(port: browser.Runtime.Port, message: BackgroundResponse) {
+    _post(port: browser.Runtime.Port, message: AppResponse) {
         try {
             port.postMessage(message);
         } catch (e) {
@@ -1759,14 +1759,14 @@ class App {
         }
     }
 
-    _broadcast(message: BackgroundResponse) {
+    _broadcast(message: AppResponse) {
         for (const port of this.ports) {
             this._post(port, message);
         }
     }
 
     async process_events() {
-        const effects = new utils.Deque<BrowserEffect>();
+        const effects = new utils.Deque<AppEffect>();
         while (true) {
             const event = await this.eventChannel.wait_recv();
             if (!event) break;
@@ -1783,7 +1783,7 @@ class App {
         }
     }
 
-    async process_effects(effects: utils.Deque<BrowserEffect>) {
+    async process_effects(effects: utils.Deque<AppEffect>) {
         while (true) {
             const effect = effects.pop_front();
             if (!effect) break;
@@ -2306,7 +2306,7 @@ class App {
                         throw utils.exhausted(event.payload);
                 }
                 break;
-            case 'background_request':
+            case 'app_request':
                 switch (event.payload.message.type) {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
@@ -2320,7 +2320,7 @@ class App {
                         throw utils.exhausted(event.payload.message);
                 }
                 break;
-            case 'background_actions':
+            case 'state_action':
                 switch (event.payload.message.type) {
                     case 'toggle_collapse':
                     case 'handle_drop':
@@ -2360,7 +2360,7 @@ class App {
         }
     }
 
-    _log_effect(effect: BrowserEffect) {
+    _log_effect(effect: AppEffect) {
         switch (effect.type) {
             case 'effects':
             case 'node_removed':
@@ -2403,7 +2403,7 @@ class App {
                         throw utils.exhausted(event.payload);
                 }
                 break;
-            case 'background_request':
+            case 'app_request':
                 switch (event.payload.message.type) {
                     case 'get_state_for_window':
                     case 'get_state_for_group_view':
@@ -2418,7 +2418,7 @@ class App {
                         throw utils.exhausted(event.payload.message);
                 }
                 break;
-            case 'background_actions':
+            case 'state_action':
                 switch (event.payload.message.type) {
                     case 'toggle_collapse':
                     case 'handle_drop':
@@ -2460,7 +2460,7 @@ class App {
         }
     }
 
-    async _process_event(event: AppEvent, effects: utils.Deque<BrowserEffect>) {
+    async _process_event(event: AppEvent, effects: utils.Deque<AppEffect>) {
         switch (event.type) {
             case 'browser_event': {
                 const msg = event.payload;
@@ -2605,10 +2605,10 @@ class App {
                         throw utils.exhausted(msg);
                 }
             } break;
-            case 'background_actions': {
-                this.state.handle_request(event.payload.message, effects);
+            case 'state_action': {
+                this.state.hande_action(event.payload.message, effects);
             } break;
-            case 'background_request': {
+            case 'app_request': {
                 const msg = event.payload.message;
                 switch (msg.type) {
                     case 'get_state_for_window': {
@@ -2667,7 +2667,7 @@ class App {
         }
     }
 
-    async _process_effect(effects: utils.Deque<BrowserEffect>, effect: BrowserEffect) {
+    async _process_effect(effects: utils.Deque<AppEffect>, effect: AppEffect) {
         switch (effect.type) {
             case 'effects': {
                 for (let i = effect.payload.effects.length; i > 0; i--) {
