@@ -244,6 +244,8 @@ export type AppEffect =
     | { type: 'tabs_closed', payload: { tids: TabId[] } }
     | { type: 'window_created', payload: { wbid: BruhId } }
     | { type: 'window_closed', payload: { wid: WindowId } }
+    | { type: 'write_window_session', payload: { wid: WindowId, bid: BruhId } }
+    | { type: 'write_tab_session', payload: { tid: TabId, bid: BruhId } }
     ;
 
 export type StateEffect =
@@ -254,6 +256,7 @@ export type StateEffect =
     | Extract<BrowserEvent, { type: 'tab_attached' }>
     | Extract<BrowserEvent, { type: 'tab_moved' }>
     | Extract<BrowserEvent, { type: 'tab_removed' }>
+    | { type: 'window_created', payload: { old_wbid?: BruhId, wid: WindowId } }
     ;
 
 export type StateEvent =

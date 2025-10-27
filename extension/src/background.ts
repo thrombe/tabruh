@@ -460,11 +460,13 @@ class State {
     register_bwindow(wid: WindowId, bid: BruhId) {
         this.window_ids.set(bid, wid);
         this.window_bids.set(wid, bid);
+        return { type: "write_window_session", payload: { wid, bid } } as Extract<AppEffect, { type: 'write_window_session' }>;
     }
 
     register_btab(tid: TabId, bid: BruhId) {
         this.tab_ids.set(bid, tid);
         this.tab_bids.set(tid, bid);
+        return { type: "write_tab_session", payload: { tid, bid } } as Extract<AppEffect, { type: 'write_tab_session' }>;
     }
 
     remove_node(bid: BruhId) {
@@ -1088,10 +1090,188 @@ class State {
         return JSON.parse(JSON.stringify(state)) as typeof state;
     }
 
+    update_tab_info(btab: browser.Tabs.Tab) {
+        const tbid = this.tab_bids.get(btab.id as TabId)!;
+        const tab = this.get_tab(tbid);
+        tab.discarded = btab.discarded ?? false;
+
+        if (tab.type == "tab") {
+            if (btab.title && !btab.discarded) {
+                tab.title = btab.title;
+            }
+            if (btab.url && btab.url != "about:blank") {
+                tab.url = btab.url;
+            }
+            if (btab.favIconUrl) {
+                tab.fav_icon_url = btab.favIconUrl;
+            }
+        }
+
+        if (btab.url == "about:blank") return;
+        if (this.is_group_tab(btab)) {
+            if (tab.type === "tab") {
+                const name = this.tab_name_cache.get(tab.bid);
+                this.tab_name_cache.delete(tab.bid);
+                const _ = this.create_new_group(tab.parent_bid, {
+                    bid: tab.bid,
+                    hgid: tab.hgid,
+                    name: name,
+                    index: this.get_index(tab.bid),
+                });
+            }
+
+            if (btab.url) {
+                const url_bid = this.parse_group_url_id(btab.url);
+                if (url_bid != tab.bid) {
+                    await browser.tabs.update(btab.id!, { url: this.get_group_url(tab.bid) });
+                }
+            }
+        } else {
+            if (tab.type === "group") {
+                this.tab_name_cache.set(tab.bid, tab.name);
+                const _ = this.create_new_tab(tab.parent_bid, {
+                    bid: tab.bid,
+                    hgid: tab.hgid,
+                    index: this.get_index(tab.bid),
+                    title: btab.title,
+                });
+            }
+        }
+    }
+
+    restore_window(wid: WindowId, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid);
+        restore_cache.delete(old_bid);
+        if (!cache || cache.type !== "window") {
+            throw new Error(`wrong cache for window bid: ${old_bid} tid: ${wid}`);
+        }
+
+        const node = this.nodes.get(old_bid) as Extract<Node, { type: "window" }> | undefined;
+        const is_pristine = node?.is_archived_pristine ?? false;
+
+        let effect;
+        if (node && is_pristine) {
+            node.closed = false;
+            node.is_archived_pristine = true;
+            node.tab_bids = [];
+            effect = this.register_bwindow(wid, node.bid);
+        } else {
+            const new_win_effect = this.create_new_window({
+                hgid: cache.hgid,
+                name: cache.group_name,
+            });
+            const wbid = new_win_effect.payload.wbid;
+            effect = this.register_bwindow(wid, wbid);
+
+            // handled NOTE(1005) here. we don't create an entry here, if cache.tab_bids is empty
+            if (cache.tab_bids.length > 0) {
+                const new_ids = new Map();
+                this.pre_allocated_bids_for_non_pristine_restore.set(wbid, { ids: new_ids, left_to_restore: new Set(cache.tab_bids) });
+                new_ids.set(cache.bid, wbid);
+                for (let tbid of cache.tab_bids) {
+                    let new_tbid = this.bruhid++ as BruhId;
+                    new_ids.set(tbid, new_tbid);
+                }
+            }
+        }
+
+        return effect;
+    }
+
+    restore_tab(btab: browser.Tabs.Tab, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid);
+        restore_cache.delete(old_bid);
+        if (!cache || cache.type === "window") {
+            throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.id}`);
+        }
+
+        const node = this.nodes.get(old_bid) as Exclude<Node, { type: "window" }> | undefined;
+        const win = this.get_window(this.window_bids.get(btab.windowId as WindowId)!);
+        const is_pristine = win.is_archived_pristine ?? false;
+
+        if (node && is_pristine) {
+            this.add_tab_to_window(node.bid, win.bid, cache.comes_after_bids.length);
+            await this.register_btab(btab, node.bid);
+            await this.update_tab_info(btab);
+        } else {
+            const non_pristine_restore = this.pre_allocated_bids_for_non_pristine_restore.get(win.bid);
+            // NOTE: if non_pristine_restore is non-null, we have a complete window restore case - else it's a bunch of tabs being restored on a existing window
+            if (non_pristine_restore) {
+                non_pristine_restore.left_to_restore.delete(old_bid);
+                // TODO: this will leak if
+                //  - window closed
+                //  - extension disabled
+                //  - window restored
+                //  - tabs edited
+                //  - window closed
+                //  - extension enabled
+                //  - window restored (via browser)
+                if (non_pristine_restore.left_to_restore.size == 0) {
+                    this.pre_allocated_bids_for_non_pristine_restore.delete(win.bid);
+                    win.is_archived_pristine = undefined;
+                }
+            }
+            const new_ids = non_pristine_restore?.ids ?? new Map();
+            // NOTE: we can safely reuse old_bid here, as the node is surely deleted in case of non-window restores
+            const bid = new_ids.get(old_bid) ?? old_bid;
+
+            if (cache.type == "group") {
+                let _ = this.create_new_group(win.bid, {
+                    bid,
+                    hgid: cache.hgid,
+                    name: cache.group_name,
+                    collapsed: cache.collapsed,
+                });
+            } else {
+                let _ = this.create_new_tab(win.bid, {
+                    bid,
+                    hgid: cache.hgid,
+                    url: cache.url,
+                    title: cache.title,
+                    collapsed: cache.collapsed,
+                });
+                if (cache.cached_group_name) {
+                    this.tab_name_cache.set(bid, cache.cached_group_name);
+                }
+            }
+            await this.register_btab(btab, bid);
+            await this.update_tab_info(btab);
+            const tab = this.get_node(bid);
+
+            // for parent reclamation, either the parent is not yet restored, or the parent is restored. (in no case can it just not be restored)
+            const pid = new_ids.get(cache.parent_bid) ?? cache.parent_bid;
+            if (this.nodes.has(pid) && win.tab_bids.indexOf(pid) >= 0) {
+                tab.parent_bid = pid;
+            }
+
+            let index = win.tab_bids.length;
+            for (let tbid of cache.comes_after_bids.toReversed()) {
+                const i = win.tab_bids.indexOf(new_ids.get(tbid) ?? tbid);
+                if (i != -1) {
+                    index = i + 1;
+                    break;
+                }
+            }
+            this.add_tab_to_window(tab.bid, win.bid, index);
+
+            // child reclamation
+            for (const _child_id of cache.children_bids) {
+                const child_id = new_ids.get(_child_id) ?? _child_id;
+                if (this.nodes.has(child_id) && win.tab_bids.indexOf(child_id) >= 0) {
+                    const child_node = this.get_tab(child_id);
+                    // only restore if the archieve was done after this child was repositioned manually
+                    if (child_node.hgid <= cache.cache_hgid) {
+                        child_node.parent_bid = bid;
+                    }
+                }
+            }
+        }
+    }
+
     handle_event(event: StateEvent, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
         switch (event.type) {
             case 'state_effect': {
-                this.handle_effect(event.payload, state_effects);
+                this.handle_effect(event.payload, state_effects, app_effects);
             } break;
             case 'state_action': {
                 this.handle_action(event.payload, app_effects);
@@ -1101,12 +1281,12 @@ class State {
         }
     }
 
-    handle_effect(effect: StateEffect, effects: utils.Deque<StateEffect>) {
+    handle_effect(effect: StateEffect, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
         switch (effect.type) {
             case 'effects': {
                 for (let i = effect.payload.effects.length; i > 0; i--) {
                     const e = effect.payload.effects[i - 1]!;
-                    effects.push_front(e);
+                    state_effects.push_front(e);
                 }
             } break;
             case 'window_removed': {
@@ -1197,6 +1377,21 @@ class State {
                     let _ = this.remove_node_and_reparent_children(tbid);
                 }
 
+            } break;
+            case 'window_created': {
+                const msg = effect.payload;
+                const old_wbid = effect.payload.old_wbid;
+                const wid = msg.wid;
+                if (this.window_bids.has(wid)) return;
+
+                let e;
+                if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                    e = this.restore_window(wid, old_wbid, this.browser_restore_cache);
+                } else {
+                    let new_win_effect = this.create_new_window({});
+                    e = this.register_bwindow(wid, new_win_effect.payload.wbid);
+                }
+                app_effects.push_back(e);
             } break;
             default:
                 throw utils.exhausted(effect);
@@ -2044,55 +2239,6 @@ class App {
         }
     }
 
-    async update_tab_info(btab: browser.Tabs.Tab) {
-        const tbid = this.tab_bids.get(btab.id as TabId)!;
-        const tab = this.get_tab(tbid);
-        tab.discarded = btab.discarded ?? false;
-
-        if (tab.type == "tab") {
-            if (btab.title && !btab.discarded) {
-                tab.title = btab.title;
-            }
-            if (btab.url && btab.url != "about:blank") {
-                tab.url = btab.url;
-            }
-            if (btab.favIconUrl) {
-                tab.fav_icon_url = btab.favIconUrl;
-            }
-        }
-
-        if (btab.url == "about:blank") return;
-        if (this.is_group_tab(btab)) {
-            if (tab.type === "tab") {
-                const name = this.tab_name_cache.get(tab.bid);
-                this.tab_name_cache.delete(tab.bid);
-                const _ = this.create_new_group(tab.parent_bid, {
-                    bid: tab.bid,
-                    hgid: tab.hgid,
-                    name: name,
-                    index: this.get_index(tab.bid),
-                });
-            }
-
-            if (btab.url) {
-                const url_bid = this.parse_group_url_id(btab.url);
-                if (url_bid != tab.bid) {
-                    await browser.tabs.update(btab.id!, { url: this.get_group_url(tab.bid) });
-                }
-            }
-        } else {
-            if (tab.type === "group") {
-                this.tab_name_cache.set(tab.bid, tab.name);
-                const _ = this.create_new_tab(tab.parent_bid, {
-                    bid: tab.bid,
-                    hgid: tab.hgid,
-                    index: this.get_index(tab.bid),
-                    title: btab.title,
-                });
-            }
-        }
-    }
-
     async register_bwindow(wid: WindowId, bid: BruhId) {
         this.state.register_bwindow(wid, bid);
         await this.write_session_pointer(bid, wid, "window");
@@ -2101,132 +2247,6 @@ class App {
     async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
         this.state.register_btab(btab.id as TabId, bid);
         await this.write_session_pointer(bid, btab.id as TabId, "tab");
-    }
-
-    async restore_window(wid: WindowId, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
-        const cache = restore_cache.get(old_bid);
-        restore_cache.delete(old_bid);
-        if (!cache || cache.type !== "window") {
-            throw new Error(`wrong cache for window bid: ${old_bid} tid: ${wid}`);
-        }
-
-        const node = this.nodes.get(old_bid) as Extract<Node, { type: "window" }> | undefined;
-        const is_pristine = node?.is_archived_pristine ?? false;
-
-        if (node && is_pristine) {
-            node.closed = false;
-            node.is_archived_pristine = true;
-            node.tab_bids = [];
-            await this.register_bwindow(wid, node.bid);
-        } else {
-            const new_win_effect = this.create_new_window({
-                hgid: cache.hgid,
-                name: cache.group_name,
-            });
-            const wbid = new_win_effect.payload.wbid;
-            await this.register_bwindow(wid, wbid);
-
-            // handled NOTE(1005) here. we don't create an entry here, if cache.tab_bids is empty
-            if (cache.tab_bids.length > 0) {
-                const new_ids = new Map();
-                this.pre_allocated_bids_for_non_pristine_restore.set(wbid, { ids: new_ids, left_to_restore: new Set(cache.tab_bids) });
-                new_ids.set(cache.bid, wbid);
-                for (let tbid of cache.tab_bids) {
-                    let new_tbid = this.bruhid++ as BruhId;
-                    new_ids.set(tbid, new_tbid);
-                }
-            }
-        }
-    }
-
-    async restore_tab(btab: browser.Tabs.Tab, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
-        const cache = restore_cache.get(old_bid);
-        restore_cache.delete(old_bid);
-        if (!cache || cache.type === "window") {
-            throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.id}`);
-        }
-
-        const node = this.nodes.get(old_bid) as Exclude<Node, { type: "window" }> | undefined;
-        const win = this.get_window(this.window_bids.get(btab.windowId as WindowId)!);
-        const is_pristine = win.is_archived_pristine ?? false;
-
-        if (node && is_pristine) {
-            this.add_tab_to_window(node.bid, win.bid, cache.comes_after_bids.length);
-            await this.register_btab(btab, node.bid);
-            await this.update_tab_info(btab);
-        } else {
-            const non_pristine_restore = this.pre_allocated_bids_for_non_pristine_restore.get(win.bid);
-            // NOTE: if non_pristine_restore is non-null, we have a complete window restore case - else it's a bunch of tabs being restored on a existing window
-            if (non_pristine_restore) {
-                non_pristine_restore.left_to_restore.delete(old_bid);
-                // TODO: this will leak if
-                //  - window closed
-                //  - extension disabled
-                //  - window restored
-                //  - tabs edited
-                //  - window closed
-                //  - extension enabled
-                //  - window restored (via browser)
-                if (non_pristine_restore.left_to_restore.size == 0) {
-                    this.pre_allocated_bids_for_non_pristine_restore.delete(win.bid);
-                    win.is_archived_pristine = undefined;
-                }
-            }
-            const new_ids = non_pristine_restore?.ids ?? new Map();
-            // NOTE: we can safely reuse old_bid here, as the node is surely deleted in case of non-window restores
-            const bid = new_ids.get(old_bid) ?? old_bid;
-
-            if (cache.type == "group") {
-                let _ = this.create_new_group(win.bid, {
-                    bid,
-                    hgid: cache.hgid,
-                    name: cache.group_name,
-                    collapsed: cache.collapsed,
-                });
-            } else {
-                let _ = this.create_new_tab(win.bid, {
-                    bid,
-                    hgid: cache.hgid,
-                    url: cache.url,
-                    title: cache.title,
-                    collapsed: cache.collapsed,
-                });
-                if (cache.cached_group_name) {
-                    this.tab_name_cache.set(bid, cache.cached_group_name);
-                }
-            }
-            await this.register_btab(btab, bid);
-            await this.update_tab_info(btab);
-            const tab = this.get_node(bid);
-
-            // for parent reclamation, either the parent is not yet restored, or the parent is restored. (in no case can it just not be restored)
-            const pid = new_ids.get(cache.parent_bid) ?? cache.parent_bid;
-            if (this.nodes.has(pid) && win.tab_bids.indexOf(pid) >= 0) {
-                tab.parent_bid = pid;
-            }
-
-            let index = win.tab_bids.length;
-            for (let tbid of cache.comes_after_bids.toReversed()) {
-                const i = win.tab_bids.indexOf(new_ids.get(tbid) ?? tbid);
-                if (i != -1) {
-                    index = i + 1;
-                    break;
-                }
-            }
-            this.add_tab_to_window(tab.bid, win.bid, index);
-
-            // child reclamation
-            for (const _child_id of cache.children_bids) {
-                const child_id = new_ids.get(_child_id) ?? _child_id;
-                if (this.nodes.has(child_id) && win.tab_bids.indexOf(child_id) >= 0) {
-                    const child_node = this.get_tab(child_id);
-                    // only restore if the archieve was done after this child was repositioned manually
-                    if (child_node.hgid <= cache.cache_hgid) {
-                        child_node.parent_bid = bid;
-                    }
-                }
-            }
-        }
     }
 
     async init_tree() {
@@ -2508,6 +2528,9 @@ class App {
             case 'window_closed':
                 console.log(Date.now(), effect.type, effect.payload);
                 break;
+            case 'write_window_session':
+            case 'write_tab_session':
+                break;
             default:
                 throw utils.exhausted(effect);
         }
@@ -2654,15 +2677,8 @@ class App {
                     } break;
                     case 'window_created': {
                         const bwin = msg.payload.win;
-                        if (this.window_bids.has(bwin.id as WindowId)) return;
-
                         const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
-                        if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                            await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
-                        } else {
-                            let new_win_effect = this.create_new_window({});
-                            await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
-                        }
+                        state_effects.push_back({ type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } });
                     } break;
                     case 'window_removed': {
                         state_effects.push_back(msg);
@@ -2861,6 +2877,12 @@ class App {
             } break;
             case 'window_closed': {
                 await browser.windows.remove(effect.payload.wid);
+            } break;
+            case 'write_window_session': {
+                await this.write_session_pointer(effect.payload.bid, effect.payload.wid, "window");
+            } break;
+            case 'write_tab_session': {
+                await this.write_session_pointer(effect.payload.bid, effect.payload.tid, "tab");
             } break;
             default:
                 throw utils.exhausted(effect);
