@@ -68,9 +68,20 @@ class SplitMix64 {
 export class Xoshiro256 {
     s: [bigint, bigint, bigint, bigint];
 
-    constructor(init_s: bigint) {
+    static from_bigint(s: bigint) {
+        const rng = new Xoshiro256();
+        rng.seed(s);
+        return rng;
+    }
+
+    static from_state(s: [bigint, bigint, bigint, bigint]) {
+        const rng = new Xoshiro256();
+        rng.s = s;
+        return rng;
+    }
+
+    private constructor() {
         this.s = [0n, 0n, 0n, 0n];
-        this.seed(init_s);
     }
 
     private static rotl(x: bigint, k: number): bigint {
