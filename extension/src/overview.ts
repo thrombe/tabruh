@@ -1,7 +1,7 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BruhId, AppRequest, AppResponse, UiStateForRender, BruhExport, SideberryExport } from './types';
+import type { BruhId, AppRequest, AppResponse, UiStateForRender, BruhExport, SideberryExport, ExtensionAction, StateAction } from './types';
 
 class OverviewPage {
     private port: browser.Runtime.Port | null = null;
@@ -69,7 +69,15 @@ class OverviewPage {
         }
     }
 
-    private sendMessage(message: AppRequest) {
+    private sendRequest(msg: AppRequest) {
+        this.sendMessage({ type: 'app_request', payload: msg })
+    }
+
+    private sendAction(msg: StateAction) {
+        this.sendMessage({ type: 'state_action', payload: msg })
+    }
+
+    private sendMessage(message: ExtensionAction) {
         if (!this.port) {
             console.warn("Attempted to send message before port was connected.", message);
             return;
@@ -83,9 +91,9 @@ class OverviewPage {
 
     private requestInitialState() {
         if (this.viewMode === 'group' && this.groupViewNodeId) {
-            this.sendMessage({ type: 'get_state_for_group_view', payload: { bid: this.groupViewNodeId } });
+            this.sendRequest({ type: 'get_state_for_group_view', payload: { bid: this.groupViewNodeId } });
         } else {
-            this.sendMessage({ type: 'get_all_window_states', payload: {} });
+            this.sendRequest({ type: 'get_all_window_states', payload: {} });
         }
     }
 
@@ -160,9 +168,9 @@ class OverviewPage {
                             const data = JSON.parse(content);
 
                             if (data.id) { // Sideberry format
-                                this.sendMessage({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
+                                this.sendRequest({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
                             } else if (data.timestamp) { // Bruh format
-                                this.sendMessage({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
+                                this.sendAction({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
                                 alert('Import successful! Your imported windows have been added as closed windows.');
                                 window.close();
                             } else {
@@ -223,7 +231,7 @@ class OverviewPage {
                 break;
             }
             case 'converted_sideberry_export_ready': {
-                this.sendMessage({ type: 'load_bruh_export', payload: { data: message.payload.data } });
+                this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
                 alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
                 window.close();
             } break;

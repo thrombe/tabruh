@@ -29,6 +29,7 @@ import type {
     Snapshot,
     ConfigStorage,
     StateEffect,
+    ExtensionAction,
 } from './types';
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
@@ -2035,7 +2036,17 @@ class App {
             this.ports.add(port);
 
             port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({ type: 'app_request', payload: { message: message as AppRequest, port } });
+                const msg = message as ExtensionAction;
+                switch (msg.type) {
+                    case 'app_request':
+                        await this.eventChannel.send({ type: 'app_request', payload: { message: msg.payload as AppRequest, port } });
+                        break;
+                    case 'state_action':
+                        await this.eventChannel.send({ type: 'state_action', payload: { message: msg.payload as StateAction, port } });
+                        break;
+                    default:
+                        throw utils.exhausted(msg);
+                }
             });
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);

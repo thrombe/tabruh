@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { AppRequest, AppResponse, WindowId } from './types';
+import type { AppRequest, AppResponse, ExtensionAction, StateAction, WindowId } from './types';
 
 class TabTreeSidebar {
     private port: browser.Runtime.Port;
@@ -34,11 +34,19 @@ class TabTreeSidebar {
 
     private requestState() {
         if (this.windowId) {
-            this.sendMessage({ type: 'get_state_for_window', payload: { wid: this.windowId } });
+            this.sendRequest({ type: 'get_state_for_window', payload: { wid: this.windowId } });
         }
     }
 
-    private sendMessage(message: AppRequest) {
+    private sendRequest(msg: AppRequest) {
+        this.sendMessage({ type: 'app_request', payload: msg })
+    }
+
+    private sendAction(msg: StateAction) {
+        this.sendMessage({ type: 'state_action', payload: msg })
+    }
+
+    private sendMessage(message: ExtensionAction) {
         try {
             this.port.postMessage(message);
         } catch (e) {

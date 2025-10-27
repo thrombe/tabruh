@@ -536,7 +536,7 @@ function datastructuee_tests() {
         console.log("Running Channel tests...");
 
         // Test send and wait_recv
-        let ch = new Channel<number>();
+        let ch: Channel<any> = new Channel<number>();
         await ch.send(42);
         assert(await ch.count() === 1, "Count should be 1 after send");
         let val = await ch.wait_recv();

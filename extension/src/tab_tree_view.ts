@@ -1,6 +1,6 @@
 import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
-import type { DragData, AppRequest, UiStateForRender, DropAction, BruhId, UiNode, WindowId, SnapshotDragData } from './types';
+import type { DragData, AppRequest, UiStateForRender, DropAction, BruhId, UiNode, WindowId, SnapshotDragData, ExtensionAction, StateAction } from './types';
 
 const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
@@ -44,7 +44,15 @@ export class TabTreeView {
         this.container.classList.add('tab-tree-view-container');
     }
 
-    private sendMessage(message: AppRequest) {
+    private sendRequest(msg: AppRequest) {
+        this.sendMessage({ type: 'app_request', payload: msg })
+    }
+
+    private sendAction(msg: StateAction) {
+        this.sendMessage({ type: 'state_action', payload: msg })
+    }
+
+    private sendMessage(message: ExtensionAction) {
         try {
             this.port.postMessage(message);
         } catch (e) {
@@ -138,12 +146,12 @@ export class TabTreeView {
 
         if (this.treeType !== "snapshot") {
             if (!is_closed) {
-                nodeElement.addEventListener('click', () => this.sendMessage({ type: 'focus_tab', payload: { bid: node.id } }));
+                nodeElement.addEventListener('click', () => this.sendAction({ type: 'focus_tab', payload: { bid: node.id } }));
             }
             nodeElement.addEventListener('mousedown', (event) => {
                 if (event.button === 1) {
                     event.preventDefault();
-                    this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
+                    this.sendAction({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
                 }
             });
         }
@@ -180,7 +188,7 @@ export class TabTreeView {
                 const dragData = this.currentDragData;
                 // Type guard to ensure we are dealing with a live drag
                 if (event.dataTransfer?.dropEffect === 'none' && dragData && dragData.type !== 'snapshot_item') {
-                    this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: dragData.draggedNodeId } });
+                    this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: dragData.draggedNodeId } });
                 }
                 this.currentDragData = null;
             });
@@ -248,14 +256,14 @@ export class TabTreeView {
                 this.currentDragData = null;
 
                 if (dragData.type === 'snapshot_item') {
-                    this.sendMessage({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                    this.sendAction({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
                 } else if ((dragData.type === 'tabs' || dragData.type === 'window') && !dragData.movedNodeIds.includes(node.id)) {
-                    this.sendMessage({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                    this.sendAction({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
                 }
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
+                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
             }
         });
 
@@ -269,10 +277,10 @@ export class TabTreeView {
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this.treeType !== "snapshot") {
-                    this.sendMessage({ type: 'toggle_collapse', payload: { bid: node.id } });
+                    this.sendAction({ type: 'toggle_collapse', payload: { bid: node.id } });
                 } else {
                     if (this.currentRenderState?.snapshot_id !== undefined && this.currentRenderState?.window_index !== undefined) {
-                        this.sendMessage({
+                        this.sendAction({
                             type: 'toggle_snapshot_collapse',
                             payload: {
                                 snapshot_id: this.currentRenderState.snapshot_id,
@@ -326,7 +334,7 @@ export class TabTreeView {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
             closeButton.innerHTML = ICON_CLOSE;
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendMessage({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         }
 
@@ -358,7 +366,7 @@ export class TabTreeView {
             }
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendMessage({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: state.snapshot_id!, window_index: state.window_index! } });
+                this.sendAction({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: state.snapshot_id!, window_index: state.window_index! } });
             });
         }
 
@@ -418,7 +426,7 @@ export class TabTreeView {
                 input.select();
                 const save = () => {
                     if (input.value.trim()) {
-                        this.sendMessage({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
+                        this.sendAction({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
                     }
                     header.replaceChild(nameSpan, input);
                 };
@@ -452,7 +460,7 @@ export class TabTreeView {
         button.className = 'add-tab-button';
         button.textContent = '+';
         button.addEventListener('click', () => {
-            this.sendMessage({
+            this.sendAction({
                 type: 'create_tab',
                 payload: { parent_bid: state.id, action: "inside" }
             });
@@ -481,7 +489,7 @@ export class TabTreeView {
                 this.currentDragData = null;
 
                 if (dragData.type == "snapshot_item") {
-                    this.sendMessage({
+                    this.sendAction({
                         type: 'handle_snapshot_drop',
                         payload: {
                             drag_data: dragData,
@@ -490,7 +498,7 @@ export class TabTreeView {
                         },
                     });
                 } else {
-                    this.sendMessage({
+                    this.sendAction({
                         type: 'handle_drop',
                         payload: {
                             drag_data: dragData,
@@ -503,7 +511,7 @@ export class TabTreeView {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
 
-                this.sendMessage({ type: 'create_tab', payload: { url, parent_bid: state.id, action: "inside" } });
+                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: state.id, action: "inside" } });
             }
         });
         return button;
@@ -590,14 +598,14 @@ export class TabTreeView {
         if (this.treeType === "snapshot") {
             createItem('Restore as New Window', ICON_RESTORE, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined) {
-                    this.sendMessage({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
+                    this.sendAction({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
                 }
             });
             createItem('Restore to Current Window', ICON_RESTORE, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined && this.currentWindowId) {
                     const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: state.snapshot_id, windowIndex: state.window_index };
                     // We send a dummy target_bid and action because target_wid takes precedence in the background script.
-                    this.sendMessage({
+                    this.sendAction({
                         type: 'handle_snapshot_drop',
                         payload: {
                             drag_data: dragData,
@@ -609,13 +617,13 @@ export class TabTreeView {
                 }
             }, !this.currentWindowId);
         } else if (state.is_closed) {
-            createItem('Restore Window', ICON_RESTORE, () => this.sendMessage({ type: 'restore_window', payload: { wbid: state.wbid } }));
+            createItem('Restore Window', ICON_RESTORE, () => this.sendAction({ type: 'restore_window', payload: { wbid: state.wbid } }));
             createSeparator();
-            createItem('Delete State', ICON_TRASH, () => this.sendMessage({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
+            createItem('Delete State', ICON_TRASH, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
         } else {
-            createItem('New Group', ICON_GROUP, () => this.sendMessage({ type: 'create_group', payload: { parent_bid: state.id } }));
+            createItem('New Group', ICON_GROUP, () => this.sendAction({ type: 'create_group', payload: { parent_bid: state.id } }));
             createSeparator();
-            createItem('Close Window', ICON_CLOSE, () => this.sendMessage({ type: 'close_window', payload: { wbid: state.wbid } }));
+            createItem('Close Window', ICON_CLOSE, () => this.sendAction({ type: 'close_window', payload: { wbid: state.wbid } }));
         }
     }
 
@@ -640,7 +648,7 @@ export class TabTreeView {
                 nodeElement.replaceChild(titleElement, input);
             }
             if (newName !== node.title) {
-                this.sendMessage({ type: 'rename_node', payload: { bid: nodeId, new_name: newName } });
+                this.sendAction({ type: 'rename_node', payload: { bid: nodeId, new_name: newName } });
             }
         };
 
@@ -692,7 +700,7 @@ export class TabTreeView {
             createItem('Restore as New Window', ICON_RESTORE, () => {
                 const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined) {
-                    this.sendMessage({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
+                    this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
                 }
             });
             createItem('Restore to Current Window', ICON_RESTORE, () => {
@@ -704,7 +712,7 @@ export class TabTreeView {
                         windowIndex: window_index,
                         tabIndex: node.tab_index,
                     };
-                    this.sendMessage({
+                    this.sendAction({
                         type: 'handle_snapshot_drop',
                         payload: {
                             drag_data: dragData,
@@ -729,32 +737,32 @@ export class TabTreeView {
 
         createItem('New Group Here', ICON_GROUP, () => {
             if (this.currentRenderState?.wbid) {
-                this.sendMessage({ type: 'create_group', payload: { parent_bid: nodeId } })
+                this.sendAction({ type: 'create_group', payload: { parent_bid: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendMessage({ type: 'duplicate_tab', payload: { bid: nodeId } }));
+        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendAction({ type: 'duplicate_tab', payload: { bid: nodeId } }));
         createSeparator();
 
         if (!isNodeClosed) {
-            createItem('Load Tree', ICON_LOAD, () => this.sendMessage({ type: 'reload_tree', payload: { bid: nodeId } }));
-            createItem('Unload Tab', ICON_UNLOAD, () => this.sendMessage({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
+            createItem('Load Tree', ICON_LOAD, () => this.sendAction({ type: 'reload_tree', payload: { bid: nodeId } }));
+            createItem('Unload Tab', ICON_UNLOAD, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
 
             if (node.children.length > 0) {
-                createItem('Unload Tree', ICON_UNLOAD, () => this.sendMessage({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
+                createItem('Unload Tree', ICON_UNLOAD, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
             }
             createSeparator();
         }
 
-        createItem('Close Tab Only', ICON_CLOSE, () => this.sendMessage({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
+        createItem('Close Tab Only', ICON_CLOSE, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
         if (node.children.length > 0) {
-            createItem('Close Tree', ICON_TREE, () => this.sendMessage({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
+            createItem('Close Tree', ICON_TREE, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
         }
-        createItem('Move to New Window', ICON_WINDOW, () => this.sendMessage({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
+        createItem('Move to New Window', ICON_WINDOW, () => this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
         createSeparator();
 
         if (node.children.length > 0) {
-            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendMessage({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
-            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendMessage({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
+            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
+            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
             createSeparator();
         }
 

@@ -287,6 +287,11 @@ export type AppEvent =
     | { type: 'state_action', payload: { message: StateAction, port: browser.Runtime.Port } }
     ;
 
+export type ExtensionAction =
+    | { type: 'app_request', payload: AppRequest }
+    | { type: 'state_action', payload: StateAction }
+    ;
+
 export type BruhExport = {
     name?: string,
     timestamp: string, // Date converted to string

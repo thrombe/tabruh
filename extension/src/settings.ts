@@ -1,7 +1,7 @@
 import './settings.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { AppRequest, AppResponse, BruhExport, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId } from './types';
+import type { AppRequest, AppResponse, BruhExport, StateAction, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId, ExtensionAction } from './types';
 
 const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
 const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
@@ -36,13 +36,21 @@ class SettingsPage {
             });
         });
 
-        this.sendMessage({ type: 'get_user_config', payload: {} });
-        this.sendMessage({ type: 'get_snapshots', payload: {} });
+        this.sendRequest({ type: 'get_user_config', payload: {} });
+        this.sendRequest({ type: 'get_snapshots', payload: {} });
 
         this.render();
     }
 
-    private sendMessage(message: AppRequest) {
+    private sendRequest(msg: AppRequest) {
+        this.sendMessage({ type: 'app_request', payload: msg })
+    }
+
+    private sendAction(msg: StateAction) {
+        this.sendMessage({ type: 'state_action', payload: msg })
+    }
+
+    private sendMessage(message: ExtensionAction) {
         this.port.postMessage(message);
     }
 
@@ -61,7 +69,7 @@ class SettingsPage {
                 }
                 break;
             case 'converted_sideberry_export_ready': {
-                this.sendMessage({ type: 'load_bruh_export', payload: { data: message.payload.data } });
+                this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
                 alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
             } break;
             case 'state_update':
@@ -132,12 +140,12 @@ class SettingsPage {
         container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
                 const target = e.target as HTMLInputElement;
-                this.sendMessage({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } } });
+                this.sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } } });
             });
         });
 
         container.querySelector('#export-btn')!.addEventListener('click', () => {
-            this.sendMessage({ type: 'export_data', payload: {} });
+            this.sendRequest({ type: 'export_data', payload: {} });
         });
 
         container.querySelector('#import-btn')!.addEventListener('click', () => {
@@ -167,7 +175,7 @@ class SettingsPage {
         createBtn.onclick = () => {
             const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
             if (name) {
-                this.sendMessage({ type: 'create_snapshot', payload: { name } });
+                this.sendAction({ type: 'create_snapshot', payload: { name } });
             }
         };
 
@@ -241,13 +249,13 @@ class SettingsPage {
                     if (isForSnapshot) {
                         const name = prompt(`Enter a name for the imported snapshot:`, file.name.replace('.json', ''));
                         if (name) {
-                            this.sendMessage({ type: 'import_file_as_snapshot', payload: { data, name } });
+                            this.sendAction({ type: 'import_file_as_snapshot', payload: { data, name } });
                         }
                     } else {
                         if ('id' in data) { // Sideberry
-                            this.sendMessage({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
+                            this.sendRequest({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
                         } else { // Tabruh
-                            this.sendMessage({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
+                            this.sendAction({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
                             alert('Import successful! Your imported windows have been added as closed windows.');
                         }
                     }
@@ -272,7 +280,7 @@ class SettingsPage {
             viewContainer.innerHTML = '<div>Loading...</div>';
             container.appendChild(viewContainer);
 
-            this.sendMessage({
+            this.sendRequest({
                 type: 'get_state_for_snapshot_window',
                 payload: { snapshot_id: snapshot.id, window_index: windowIndex }
             });
@@ -349,12 +357,12 @@ class SettingsPage {
         };
 
         createItem('Restore All Windows', ICON_RESTORE, () => {
-            this.sendMessage({ type: 'load_bruh_export', payload: { data: snapshot.data } });
+            this.sendAction({ type: 'load_bruh_export', payload: { data: snapshot.data } });
             alert(`Restored ${snapshot.data.windows.length} window(s) from snapshot "${snapshot.name}". They are available in your closed windows list.`);
         });
 
         createItem('Export Snapshot', ICON_EXPORT, () => {
-            this.sendMessage({ type: "export_data", payload: {} });
+            this.sendRequest({ type: "export_data", payload: {} });
         });
 
         createSeparator();
@@ -362,7 +370,7 @@ class SettingsPage {
         createItem('Delete Snapshot', ICON_TRASH, () => {
             if (confirm(`Delete snapshot "${snapshot.name}"? This cannot be undone.`)) {
                 if (this.selectedSnapshotId === snapshot.id) this.selectedSnapshotId = null;
-                this.sendMessage({ type: 'delete_snapshot', payload: { id: snapshot.id } });
+                this.sendAction({ type: 'delete_snapshot', payload: { id: snapshot.id } });
             }
         });
 
