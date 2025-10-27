@@ -34,6 +34,7 @@ import * as utils from './utils';
 import manifest from './manifest.jsonc';
 
 class State {
+    rng: utils.Xoshiro256;
     config: Config;
     user_config: UserConfig;
     extension_version: string;
@@ -68,6 +69,7 @@ class State {
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
 
     constructor(version: string) {
+        this.rng = utils.Xoshiro256.from_bigint(BigInt(Math.random()));
         this.extension_version = version;
 
         const session_values = browser.sessions.setWindowValue !== undefined;
@@ -89,7 +91,7 @@ class State {
 
         // just a random number that can uniquely identify the storage data saved by *this* tabruh and not some broken version.
         // TODO: maybe use uuid of some kind
-        this.bruh_session_key = Math.random().toString();
+        this.bruh_session_key = this.rng.nextU32().toString();
     }
 
     is_group_tab(_url: string | undefined): boolean {
@@ -157,8 +159,8 @@ class State {
         const existingNames = new Set(Array.from(this.nodes.values()).filter(node => node.type !== "tab").map(node => node.name.name));
 
         do {
-            const adj = this.adjectives[Math.floor(Math.random() * this.adjectives.length)];
-            const noun = this.nouns[Math.floor(Math.random() * this.nouns.length)];
+            const adj = this.adjectives[Math.floor(this.rng.nextU32() * this.adjectives.length)];
+            const noun = this.nouns[Math.floor(this.rng.nextU32() * this.nouns.length)];
             name = `${adj} ${noun}`;
         } while (existingNames.has(name));
 
@@ -782,7 +784,7 @@ class State {
 
     create_snapshot(name: string): void {
         const snapshot: Snapshot = {
-            id: crypto.randomUUID(),
+            id: this.rng.nextUUID(),
             name,
             timestamp: new Date().toISOString(),
             data: this.get_export_data(),
@@ -1629,7 +1631,7 @@ class State {
                 }
 
                 const newSnapshot: Snapshot = {
-                    id: crypto.randomUUID(),
+                    id: this.rng.nextUUID(),
                     name: action.payload.name,
                     timestamp: new Date().toISOString(),
                     data: bruhData
