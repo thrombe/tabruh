@@ -1765,159 +1765,6 @@ class App {
         }
     }
 
-    _log_event(event: StateManagerEvent) {
-        switch (event.type) {
-            case 'tab_created':
-            case 'tab_removed':
-            case 'tab_moved':
-            case 'tab_attached':
-            case 'tab_detached':
-            case 'window_created':
-            case 'window_removed':
-            case 'sessions_changed':
-                console.log(Date.now(), event.type, event.payload);
-                break;
-            case 'tab_updated':
-            case 'tab_activated':
-            case 'window_focus_changed':
-                break;
-            case 'port_message': {
-                const message = event.payload.message;
-                switch (message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'get_user_config':
-                    case 'get_snapshots':
-                    case 'get_state_for_snapshot_window':
-                        break;
-
-                    case 'toggle_collapse':
-                    case 'handle_drop':
-                    case 'close_tabs':
-                    case 'duplicate_tab':
-                    case 'unload_tabs':
-                    case 'reload_tree':
-                    case 'move_subtree_to_new_window':
-                    case 'create_tab':
-                    case 'close_window':
-                    case 'restore_window':
-                    case 'delete_window_state':
-                    case 'flatten_tree':
-                    case 'create_group':
-                    case 'rename_node':
-                    case 'focus_tab':
-                    case 'load_bruh_export':
-                    case 'convert_sideberry_export':
-                    case 'update_user_config':
-                    case 'create_snapshot':
-                    case 'delete_snapshot':
-                    case 'restore_snapshot_window':
-                    case 'restore_snapshot_subtree':
-                    case 'import_file_as_snapshot':
-                    case 'export_data':
-                    case 'handle_snapshot_drop':
-                    case 'toggle_snapshot_collapse':
-                    case 'toggle_snapshot_window_collapse':
-                        console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
-                        break;
-
-                    default:
-                        throw utils.exhausted(message);
-                }
-            } break;
-            default:
-                throw utils.exhausted(event);
-        }
-    }
-
-    _log_effect(effect: BrowserEffect) {
-        switch (effect.type) {
-            case 'effects':
-            case 'node_removed':
-            case 'tab_created':
-            case 'tab_focused':
-            case 'tabs_moved':
-            case 'tabs_discarded':
-            case 'tabs_reloaded':
-            case 'tabs_closed':
-            case 'window_created':
-            case 'window_closed':
-                console.log(Date.now(), effect.type, effect.payload);
-                break;
-            default:
-                throw utils.exhausted(effect);
-        }
-    }
-
-    _broadcast_updates(event: StateManagerEvent) {
-        switch (event.type) {
-            case 'tab_created':
-            case 'tab_removed':
-            case 'tab_updated':
-            case 'tab_moved':
-            case 'tab_attached':
-            case 'tab_detached':
-            case 'tab_activated':
-            case 'window_created':
-            case 'window_removed':
-                this._broadcast({ type: 'render_all', payload: {} });
-                break;
-
-            case 'sessions_changed':
-            case 'window_focus_changed':
-                break;
-
-            case 'port_message': {
-                const message = event.payload.message;
-                switch (message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'load_bruh_export':
-                    case 'convert_sideberry_export':
-                    case 'get_user_config':
-                    case 'get_snapshots':
-                    case 'get_state_for_snapshot_window':
-                        break;
-
-                    case 'toggle_collapse':
-                    case 'handle_drop':
-                    case 'close_tabs':
-                    case 'duplicate_tab':
-                    case 'unload_tabs':
-                    case 'reload_tree':
-                    case 'move_subtree_to_new_window':
-                    case 'create_tab':
-                    case 'close_window':
-                    case 'restore_window':
-                    case 'delete_window_state':
-                    case 'flatten_tree':
-                    case 'create_group':
-                    case 'rename_node':
-                    case 'focus_tab':
-                    case 'update_user_config':
-                    case 'create_snapshot':
-                    case 'delete_snapshot':
-                    case 'restore_snapshot_window':
-                    case 'restore_snapshot_subtree':
-                    case 'import_file_as_snapshot':
-                    case 'export_data':
-                    case 'handle_snapshot_drop':
-                    case 'toggle_snapshot_collapse':
-                    case 'toggle_snapshot_window_collapse':
-                        this._broadcast({ type: 'render_all', payload: {} });
-                        break;
-
-                    default:
-                        throw utils.exhausted(message);
-                }
-            } break;
-            default:
-                throw utils.exhausted(event);
-        }
-    }
-
     async process_events() {
         const effects = new utils.Deque<BrowserEffect>();
         while (true) {
@@ -2437,11 +2284,329 @@ class App {
         }
     }
 
+    _log_event(event: AppEvent) {
+        switch (event.type) {
+            case 'browser_event':
+                switch (event.payload.type) {
+                    case 'tab_created':
+                    case 'tab_removed':
+                    case 'tab_moved':
+                    case 'tab_attached':
+                    case 'tab_detached':
+                    case 'window_created':
+                    case 'window_removed':
+                    case 'sessions_changed':
+                        console.log(Date.now(), event.payload.type, event.payload.payload);
+                        break;
+                    case 'tab_updated':
+                    case 'tab_activated':
+                    case 'window_focus_changed':
+                        break;
+                    default:
+                        throw utils.exhausted(event.payload);
+                }
+                break;
+            case 'background_request':
+                switch (event.payload.message.type) {
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
+                    case 'get_user_config':
+                    case 'get_snapshots':
+                    case 'get_state_for_snapshot_window':
+                    case 'export_data':
+                        break;
+                    default:
+                        throw utils.exhausted(event.payload.message);
+                }
+                break;
+            case 'background_actions':
+                switch (event.payload.message.type) {
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_tabs':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
+                    case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        console.log(Date.now(), event.payload.message.type, event.payload.message.payload);
+                        break;
+
+                    default:
+                        throw utils.exhausted(event.payload.message);
+                }
+                break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    _log_effect(effect: BrowserEffect) {
+        switch (effect.type) {
+            case 'effects':
+            case 'node_removed':
+            case 'tab_created':
+            case 'tab_focused':
+            case 'tabs_moved':
+            case 'tabs_discarded':
+            case 'tabs_reloaded':
+            case 'tabs_closed':
+            case 'window_created':
+            case 'window_closed':
+                console.log(Date.now(), effect.type, effect.payload);
+                break;
+            default:
+                throw utils.exhausted(effect);
+        }
+    }
+
+    _broadcast_updates(event: AppEvent) {
+        switch (event.type) {
+            case 'browser_event':
+                switch (event.payload.type) {
+                    case 'tab_created':
+                    case 'tab_removed':
+                    case 'tab_updated':
+                    case 'tab_moved':
+                    case 'tab_attached':
+                    case 'tab_detached':
+                    case 'tab_activated':
+                    case 'window_created':
+                    case 'window_removed':
+                        this._broadcast({ type: 'render_all', payload: {} });
+                        break;
+
+                    case 'sessions_changed':
+                    case 'window_focus_changed':
+                        break;
+
+                    default:
+                        throw utils.exhausted(event.payload);
+                }
+                break;
+            case 'background_request':
+                switch (event.payload.message.type) {
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
+                    case 'get_user_config':
+                    case 'get_snapshots':
+                    case 'export_data':
+                    case 'get_state_for_snapshot_window':
+                        break;
+
+                    default:
+                        throw utils.exhausted(event.payload.message);
+                }
+                break;
+            case 'background_actions':
+                switch (event.payload.message.type) {
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_tabs':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
+                    case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        this._broadcast({ type: 'render_all', payload: {} });
+                        break;
+
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
+                        break;
+
+                    default:
+                        throw utils.exhausted(event.payload.message);
+                }
+                break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
     async _process_event(event: AppEvent, effects: utils.Deque<BrowserEffect>) {
         switch (event.type) {
             case 'browser_event': {
+                const msg = event.payload;
+                switch (msg.type) {
+                    case 'tab_created': {
+                        const btab = msg.payload.tab;
+                        if (btab.id === undefined || btab.windowId === undefined) return;
+                        if (!this.window_bids.has(btab.windowId as WindowId)) {
+                            const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
+                            if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                                await this.restore_window(btab.windowId as WindowId, old_wbid, this.browser_restore_cache);
+                            } else {
+                                let new_win_effect = this.create_new_window({});
+                                await this.register_bwindow(btab.windowId as WindowId, new_win_effect.payload.wbid);
+                            }
+                        }
+                        const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
+                        if (old_bid && this.browser_restore_cache.has(old_bid)) {
+                            await this.restore_tab(btab, old_bid, this.browser_restore_cache);
+                            return;
+                        }
+                        if (this.tab_bids.has(btab.id as TabId)) {
+                            this.update_tab_info(btab);
+                            return;
+                        }
+                        const wbid = this.window_bids.get(btab.windowId as WindowId)!;
+                        const pid = (btab.openerTabId !== undefined ? this.tab_bids.get(btab.openerTabId as TabId) : undefined) ?? wbid;
+
+                        let effect;
+                        if (this.is_group_tab(btab)) {
+                            effect = this.create_new_group(pid, { index: btab.index });
+                        } else {
+                            effect = this.create_new_tab(pid, { index: btab.index, url: btab.url, title: btab.title });
+                        }
+                        const tbid = effect.payload.bid;
+                        await this.register_btab(btab, tbid);
+                        await this.update_tab_info(btab);
+                    } break;
+                    case 'tab_removed': {
+                        if (!this.tab_bids.has(msg.payload.tid)) return;
+                        const tbid = this.tab_bids.get(msg.payload.tid)!;
+                        // can't remove the tabs here that are moved to a closed window
+                        if (this.is_node_closed(tbid)) return;
+                        const tab = this.get_tab(tbid);
+                        if (msg.payload.remove_info.isWindowClosing) {
+                            if (!this.closing_window_tabs.has(tab.wbid)) {
+                                this.closing_window_tabs.set(tab.wbid, new Set());
+                            }
+                            this.closing_window_tabs.get(tab.wbid)!.add(tab.bid);
+                        } else {
+                            const tbid = this.tab_bids.get(msg.payload.tid)!;
+                            let _ = this.remove_node_and_reparent_children(tbid);
+                        }
+                    } break;
+                    case 'tab_updated': {
+                        if (!this.tab_bids.has(msg.payload.tid)) return;
+                        await this.update_tab_info(msg.payload.tab);
+                    } break;
+                    case 'tab_moved': {
+                        if (!this.tab_bids.has(msg.payload.tid)) return;
+                        const tbid = this.tab_bids.get(msg.payload.tid)!;
+                        const node = this.get_tab(tbid);
+                        const current_index = this.get_index(tbid);
+                        if (current_index == msg.payload.move_info.toIndex) {
+                            return;
+                        }
+                        if (current_index == msg.payload.move_info.fromIndex) {
+                            this.add_tab_to_window(tbid, node.wbid, msg.payload.move_info.toIndex);
+                        }
+                    } break;
+                    case 'tab_attached': {
+                        if (!this.tab_bids.has(msg.payload.tid)) return;
+                        const tbid = this.tab_bids.get(msg.payload.tid)!;
+                        const node = this.get_tab(tbid);
+                        const wbid = this.window_bids.get(msg.payload.attach_info.newWindowId as WindowId)!;
+                        const current_index = this.get_index(tbid);
+                        if (node.wbid == wbid && current_index == msg.payload.attach_info.newPosition) return;
+                        this.add_tab_to_window(node.bid, wbid, msg.payload.attach_info.newPosition);
+                    } break;
+                    case 'tab_detached': {
+                        // we just rely on 'tab_attached' to do the state changes for detach too
+                    } break;
+                    case 'tab_activated': {
+                        if (!this.tab_bids.has(msg.payload.activated_info.tabId as TabId)) return;
+                        if (!this.window_bids.has(msg.payload.activated_info.windowId as WindowId)) return;
+                        const wbid = this.window_bids.get(msg.payload.activated_info.windowId as WindowId)!;
+                        const tbid = this.tab_bids.get(msg.payload.activated_info.tabId as TabId)!;
+                        const win = this.get_window(wbid);
+                        win.active = tbid;
+                    } break;
+                    case 'window_created': {
+                        const bwin = msg.payload.win;
+                        if (this.window_bids.has(bwin.id as WindowId)) return;
+
+                        const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
+                        if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                            await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
+                        } else {
+                            let new_win_effect = this.create_new_window({});
+                            await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+                        }
+                    } break;
+                    case 'window_removed': {
+                        if (!this.window_bids.has(msg.payload.wid)) return;
+                        const wbid = this.window_bids.get(msg.payload.wid)!;
+                        if (this.closing_window_tabs.has(wbid)) {
+                            let tbids = this.closing_window_tabs.get(wbid)!;
+                            this.closing_window_tabs.delete(wbid);
+
+                            this.mark_window_closed(wbid);
+                        }
+                    } break;
+                    case 'window_focus_changed': {
+                        // nothing to do
+                    } break;
+                    case 'sessions_changed': {
+                        // TODO: completely broken. does not contain ids anywhere. not sure how to even link sessionId to tabs/windows
+                        // NOTE: there's no reasonable way to know what tab/window a session belongs to.
+                        //  - what is possible tho - is to sort of track the tabs/windows that *just* got closed and match them to newly created sessions.
+                        if (true) {
+                            this.forget_tids.clear();
+                            this.forget_wids.clear();
+                        }
+
+                        const sessions = await browser.sessions.getRecentlyClosed();
+                        for (let session of sessions) {
+                            if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
+                                if (this.forget_tids.has(session.tab.id as TabId)) {
+                                    this.forget_tids.delete(session.tab.id as TabId);
+                                    await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
+                                }
+                            }
+                            if (session.window && session.window.id !== undefined && session.window.sessionId !== undefined) {
+                                if (this.forget_wids.has(session.window.id as WindowId)) {
+                                    this.forget_wids.delete(session.window.id as WindowId);
+                                    await browser.sessions.forgetClosedWindow(session.window.sessionId);
+                                }
+                            }
+                        }
+                    } break;
+                    default:
+                        throw utils.exhausted(msg);
+                }
             } break;
             case 'background_actions': {
+                this.state.handle_request(event.payload.message, effects);
             } break;
             case 'background_request': {
                 const msg = event.payload.message;
@@ -2496,156 +2661,6 @@ class App {
                     default:
                         throw utils.exhausted(msg);
                 } break;
-            } break;
-            default:
-                throw utils.exhausted(event);
-        }
-    }
-
-    async __process_event(event: StateManagerEvent, effects: utils.Deque<BrowserEffect>) {
-        switch (event.type) {
-            case 'tab_created': {
-                const btab = event.payload.tab;
-                if (btab.id === undefined || btab.windowId === undefined) return;
-                if (!this.window_bids.has(btab.windowId as WindowId)) {
-                    const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
-                    if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                        await this.restore_window(btab.windowId as WindowId, old_wbid, this.browser_restore_cache);
-                    } else {
-                        let new_win_effect = this.create_new_window({});
-                        await this.register_bwindow(btab.windowId as WindowId, new_win_effect.payload.wbid);
-                    }
-                }
-                const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
-                if (old_bid && this.browser_restore_cache.has(old_bid)) {
-                    await this.restore_tab(btab, old_bid, this.browser_restore_cache);
-                    return;
-                }
-                if (this.tab_bids.has(btab.id as TabId)) {
-                    this.update_tab_info(btab);
-                    return;
-                }
-                const wbid = this.window_bids.get(btab.windowId as WindowId)!;
-                const pid = (btab.openerTabId !== undefined ? this.tab_bids.get(btab.openerTabId as TabId) : undefined) ?? wbid;
-
-                let effect;
-                if (this.is_group_tab(btab)) {
-                    effect = this.create_new_group(pid, { index: btab.index });
-                } else {
-                    effect = this.create_new_tab(pid, { index: btab.index, url: btab.url, title: btab.title });
-                }
-                const tbid = effect.payload.bid;
-                await this.register_btab(btab, tbid);
-                await this.update_tab_info(btab);
-            } break;
-            case 'tab_removed': {
-                if (!this.tab_bids.has(event.payload.tid)) return;
-                const tbid = this.tab_bids.get(event.payload.tid)!;
-                // can't remove the tabs here that are moved to a closed window
-                if (this.is_node_closed(tbid)) return;
-                const tab = this.get_tab(tbid);
-                if (event.payload.remove_info.isWindowClosing) {
-                    if (!this.closing_window_tabs.has(tab.wbid)) {
-                        this.closing_window_tabs.set(tab.wbid, new Set());
-                    }
-                    this.closing_window_tabs.get(tab.wbid)!.add(tab.bid);
-                } else {
-                    const tbid = this.tab_bids.get(event.payload.tid)!;
-                    let _ = this.remove_node_and_reparent_children(tbid);
-                }
-            } break;
-            case 'tab_updated': {
-                if (!this.tab_bids.has(event.payload.tid)) return;
-                await this.update_tab_info(event.payload.tab);
-            } break;
-            case 'tab_moved': {
-                if (!this.tab_bids.has(event.payload.tid)) return;
-                const tbid = this.tab_bids.get(event.payload.tid)!;
-                const node = this.get_tab(tbid);
-                const current_index = this.get_index(tbid);
-                if (current_index == event.payload.move_info.toIndex) {
-                    return;
-                }
-                if (current_index == event.payload.move_info.fromIndex) {
-                    this.add_tab_to_window(tbid, node.wbid, event.payload.move_info.toIndex);
-                }
-            } break;
-            case 'tab_attached': {
-                if (!this.tab_bids.has(event.payload.tid)) return;
-                const tbid = this.tab_bids.get(event.payload.tid)!;
-                const node = this.get_tab(tbid);
-                const wbid = this.window_bids.get(event.payload.attach_info.newWindowId as WindowId)!;
-                const current_index = this.get_index(tbid);
-                if (node.wbid == wbid && current_index == event.payload.attach_info.newPosition) return;
-                this.add_tab_to_window(node.bid, wbid, event.payload.attach_info.newPosition);
-            } break;
-            case 'tab_detached': {
-                // we just rely on 'tab_attached' to do the state changes for detach too
-            } break;
-            case 'tab_activated': {
-                if (!this.tab_bids.has(event.payload.activated_info.tabId as TabId)) return;
-                if (!this.window_bids.has(event.payload.activated_info.windowId as WindowId)) return;
-                const wbid = this.window_bids.get(event.payload.activated_info.windowId as WindowId)!;
-                const tbid = this.tab_bids.get(event.payload.activated_info.tabId as TabId)!;
-                const win = this.get_window(wbid);
-                win.active = tbid;
-            } break;
-            case 'window_created': {
-                const bwin = event.payload.win;
-                if (this.window_bids.has(bwin.id as WindowId)) return;
-
-                const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
-                if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                    await this.restore_window(bwin.id as WindowId, old_wbid, this.browser_restore_cache);
-                } else {
-                    let new_win_effect = this.create_new_window({});
-                    await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
-                }
-            } break;
-            case 'window_removed': {
-                if (!this.window_bids.has(event.payload.wid)) return;
-                const wbid = this.window_bids.get(event.payload.wid)!;
-                if (this.closing_window_tabs.has(wbid)) {
-                    let tbids = this.closing_window_tabs.get(wbid)!;
-                    this.closing_window_tabs.delete(wbid);
-
-                    this.mark_window_closed(wbid);
-                }
-            } break;
-            case 'window_focus_changed': {
-                // nothing to do
-            } break;
-            case 'sessions_changed': {
-                // TODO: completely broken. does not contain ids anywhere. not sure how to even link sessionId to tabs/windows
-                // NOTE: there's no reasonable way to know what tab/window a session belongs to.
-                //  - what is possible tho - is to sort of track the tabs/windows that *just* got closed and match them to newly created sessions.
-                if (true) {
-                    this.forget_tids.clear();
-                    this.forget_wids.clear();
-                }
-
-                const sessions = await browser.sessions.getRecentlyClosed();
-                for (let session of sessions) {
-                    if (session.tab && session.tab.id !== undefined && session.tab.sessionId !== undefined && session.tab.windowId !== undefined) {
-                        if (this.forget_tids.has(session.tab.id as TabId)) {
-                            this.forget_tids.delete(session.tab.id as TabId);
-                            await browser.sessions.forgetClosedTab(session.tab.windowId, session.tab.sessionId);
-                        }
-                    }
-                    if (session.window && session.window.id !== undefined && session.window.sessionId !== undefined) {
-                        if (this.forget_wids.has(session.window.id as WindowId)) {
-                            this.forget_wids.delete(session.window.id as WindowId);
-                            await browser.sessions.forgetClosedWindow(session.window.sessionId);
-                        }
-                    }
-                }
-            } break;
-            case 'port_message': {
-                const msg = event.payload.message;
-
-                // TODO:
-                // this.state.handle_requests(msg);
-
             } break;
             default:
                 throw utils.exhausted(event);
