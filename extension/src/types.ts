@@ -259,6 +259,21 @@ export type StateEffect =
     | Extract<BrowserEvent, { type: 'tab_removed' }>
     | { type: 'window_created', payload: { old_wbid?: BruhId, wid: WindowId } }
     | { type: 'upate_tab_info', payload: { tid: TabId, url?: string, favIconUrl?: string, title?: string, discarded?: boolean } }
+    | {
+        type: 'tab_created', payload: {
+            old_wbid?: BruhId,
+            old_tbid?: BruhId,
+
+            wid: WindowId,
+            tid: TabId,
+            opener_tab_id?: TabId,
+            index?: number,
+            url?: string,
+            favIconUrl?: string,
+            title?: string,
+            discarded?: boolean,
+        }
+    }
     ;
 
 export type StateEvent =

@@ -1184,21 +1184,24 @@ class State {
         return effect;
     }
 
-    restore_tab(btab: browser.Tabs.Tab, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
+    restore_tab(btab: Extract<StateEffect, { type: 'tab_created' }>["payload"], old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
         const cache = restore_cache.get(old_bid);
         restore_cache.delete(old_bid);
         if (!cache || cache.type === "window") {
-            throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.id}`);
+            throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.tid}`);
         }
 
         const node = this.nodes.get(old_bid) as Exclude<Node, { type: "window" }> | undefined;
-        const win = this.get_window(this.window_bids.get(btab.windowId as WindowId)!);
+        const win = this.get_window(this.window_bids.get(btab.wid)!);
         const is_pristine = win.is_archived_pristine ?? false;
 
+        const effects = { type: 'effects', payload: { effects: [] } } as Extract<AppEffect, { type: 'effects' }>;
         if (node && is_pristine) {
             this.add_tab_to_window(node.bid, win.bid, cache.comes_after_bids.length);
-            await this.register_btab(btab, node.bid);
-            await this.update_tab_info(btab);
+            const e1 = this.register_btab(btab.tid, node.bid);
+            effects.payload.effects.push(e1);
+            const e2 = this.update_tab_info(btab);
+            effects.payload.effects.push(e1);
         } else {
             const non_pristine_restore = this.pre_allocated_bids_for_non_pristine_restore.get(win.bid);
             // NOTE: if non_pristine_restore is non-null, we have a complete window restore case - else it's a bunch of tabs being restored on a existing window
@@ -1240,8 +1243,10 @@ class State {
                     this.tab_name_cache.set(bid, cache.cached_group_name);
                 }
             }
-            await this.register_btab(btab, bid);
-            await this.update_tab_info(btab);
+            const e1 = this.register_btab(btab.tid, bid);
+            effects.payload.effects.push(e1);
+            const e2 = this.update_tab_info(btab);
+            if (e2) effects.payload.effects.push(e2);
             const tab = this.get_node(bid);
 
             // for parent reclamation, either the parent is not yet restored, or the parent is restored. (in no case can it just not be restored)
@@ -1272,6 +1277,7 @@ class State {
                 }
             }
         }
+        return effects;
     }
 
     handle_event(event: StateEvent, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
@@ -1406,6 +1412,47 @@ class State {
                 if (e) {
                     app_effects.push_back(e);
                 }
+            } break;
+            case 'tab_created': {
+                const msg = effect.payload;
+                if (!this.window_bids.has(msg.wid)) {
+                    const old_wbid = msg.old_wbid;
+                    if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                        const e = this.restore_window(msg.wid, old_wbid, this.browser_restore_cache);
+                        app_effects.push_back(e);
+                    } else {
+                        let new_win_effect = this.create_new_window({});
+                        const e = this.register_bwindow(msg.wid, new_win_effect.payload.wbid);
+                        app_effects.push_back(e);
+                    }
+                }
+                const old_bid = msg.old_tbid;
+                if (old_bid && this.browser_restore_cache.has(old_bid)) {
+                    const e = this.restore_tab(msg, old_bid, this.browser_restore_cache);
+                    app_effects.push_back(e);
+                    return;
+                }
+                if (this.tab_bids.has(msg.tid)) {
+                    const e = this.update_tab_info(msg);
+                    if (e) app_effects.push_back(e);
+                    return;
+                }
+                const wbid = this.window_bids.get(msg.wid)!;
+                const pid = (msg.opener_tab_id !== undefined ? this.tab_bids.get(msg.opener_tab_id) : undefined) ?? wbid;
+
+                let tbid;
+                if (this.is_group_tab(msg.url)) {
+                    const e = this.create_new_group(pid, { index: msg.index });
+                    tbid = e.payload.bid;
+                } else {
+                    const e = this.create_new_tab(pid, { index: msg.index, url: msg.url, title: msg.title });
+                    tbid = e.payload.bid;
+                }
+
+                const e1 = this.register_btab(msg.tid, tbid);
+                app_effects.push_back(e1);
+                const e2 = this.update_tab_info(msg);
+                if (e2) app_effects.push_back(e2);
             } break;
             default:
                 throw utils.exhausted(effect);
@@ -2544,6 +2591,7 @@ class App {
                 break;
             case 'write_window_session':
             case 'write_tab_session':
+            case 'update_tab_url':
                 break;
             default:
                 throw utils.exhausted(effect);
@@ -2639,50 +2687,37 @@ class App {
                     case 'tab_created': {
                         const btab = msg.payload.tab;
                         if (btab.id === undefined || btab.windowId === undefined) return;
-                        if (!this.window_bids.has(btab.windowId as WindowId)) {
-                            const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
-                            if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
-                                await this.restore_window(btab.windowId as WindowId, old_wbid, this.browser_restore_cache);
-                            } else {
-                                let new_win_effect = this.create_new_window({});
-                                await this.register_bwindow(btab.windowId as WindowId, new_win_effect.payload.wbid);
-                            }
-                        }
-                        const old_bid = await this.read_session_pointer(btab.id as TabId, "tab");
-                        if (old_bid && this.browser_restore_cache.has(old_bid)) {
-                            await this.restore_tab(btab, old_bid, this.browser_restore_cache);
-                            return;
-                        }
-                        if (this.tab_bids.has(btab.id as TabId)) {
-                            this.update_tab_info(btab);
-                            return;
-                        }
-                        const wbid = this.window_bids.get(btab.windowId as WindowId)!;
-                        const pid = (btab.openerTabId !== undefined ? this.tab_bids.get(btab.openerTabId as TabId) : undefined) ?? wbid;
-
-                        let effect;
-                        if (this.is_group_tab(btab)) {
-                            effect = this.create_new_group(pid, { index: btab.index });
-                        } else {
-                            effect = this.create_new_tab(pid, { index: btab.index, url: btab.url, title: btab.title });
-                        }
-                        const tbid = effect.payload.bid;
-                        await this.register_btab(btab, tbid);
-                        await this.update_tab_info(btab);
+                        const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
+                        const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
+                        state_effects.push_back({
+                            type: 'tab_created',
+                            payload: {
+                                old_wbid,
+                                old_tbid,
+                                wid: btab.windowId as WindowId,
+                                tid: btab.id as TabId,
+                                url: btab.url,
+                                favIconUrl: btab.favIconUrl,
+                                title: btab.title,
+                                discarded: btab.discarded,
+                                opener_tab_id: btab.openerTabId as TabId,
+                                index: btab.index,
+                            },
+                        });
                     } break;
                     case 'tab_removed': {
                         state_effects.push_back(msg);
                     } break;
                     case 'tab_updated': {
-                        const tab = msg.payload.tab;
+                        const btab = msg.payload.tab;
                         state_effects.push_back({
                             type: 'upate_tab_info',
                             payload: {
-                                tid: tab.id as TabId,
-                                url: tab.url,
-                                favIconUrl: tab.favIconUrl,
-                                title: tab.title,
-                                discarded: tab.discarded,
+                                tid: btab.id as TabId,
+                                url: btab.url,
+                                favIconUrl: btab.favIconUrl,
+                                title: btab.title,
+                                discarded: btab.discarded,
                             },
                         });
                     } break;
@@ -2700,6 +2735,7 @@ class App {
                     } break;
                     case 'window_created': {
                         const bwin = msg.payload.win;
+                        if (bwin.id === undefined) return;
                         const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
                         state_effects.push_back({ type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } });
                     } break;
