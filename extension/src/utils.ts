@@ -47,6 +47,122 @@ export function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+class SplitMix64 {
+    private state: bigint;
+
+    constructor(seed: bigint) {
+        this.state = seed;
+    }
+
+    public next(): bigint {
+        this.state = (this.state + 0x9e3779b97f4a7c15n) & 0xFFFFFFFFFFFFFFFFn;
+        let z = this.state;
+        z = (z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n & 0xFFFFFFFFFFFFFFFFn;
+        z = (z ^ (z >> 27n)) * 0x94d049bb133111ebn & 0xFFFFFFFFFFFFFFFFn;
+        return z ^ (z >> 31n);
+    }
+}
+
+// gemini 2.5 port of zig's impl of
+// Xoshiro256++ - http://xoroshiro.di.unimi.it/
+export class Xoshiro256 {
+    s: [bigint, bigint, bigint, bigint];
+
+    constructor(init_s: bigint) {
+        this.s = [0n, 0n, 0n, 0n];
+        this.seed(init_s);
+    }
+
+    private static rotl(x: bigint, k: number): bigint {
+        const kBigInt = BigInt(k);
+        return ((x << kBigInt) & 0xFFFFFFFFFFFFFFFFn) | (x >> (64n - kBigInt));
+    }
+
+    public next(): bigint {
+        const r = Xoshiro256.rotl((this.s[0] + this.s[3]) & 0xFFFFFFFFFFFFFFFFn, 23) + this.s[0] & 0xFFFFFFFFFFFFFFFFn;
+
+        const t = this.s[1] << 17n;
+
+        this.s[2] ^= this.s[0];
+        this.s[3] ^= this.s[1];
+        this.s[1] ^= this.s[2];
+        this.s[0] ^= this.s[3];
+
+        this.s[2] ^= t;
+
+        this.s[3] = Xoshiro256.rotl(this.s[3], 45);
+
+        return r;
+    }
+
+    // Skip 2^128 places ahead in the sequence
+    public jump(): void {
+        let s0 = 0n;
+        let s1 = 0n;
+        let s2 = 0n;
+        let s3 = 0n;
+
+        // The jump polynomial for Xoshiro256++ is equivalent to the constants used here.
+        // The Zig code represents it as a single u256, which is iterated bit by bit.
+        // This is a direct translation of that logic.
+        const JUMP_CONSTANTS: bigint[] = [
+            0x180ec6d33cfd0aban,
+            0xd5a61266f0c9392cn,
+            0x76da0083807b036en,
+            0x170265ea15957a55n,
+        ];
+
+        for (const jump_part of JUMP_CONSTANTS) {
+            for (let b = 0; b < 64; b++) {
+                if ((jump_part & (1n << BigInt(b))) !== 0n) {
+                    s0 ^= this.s[0];
+                    s1 ^= this.s[1];
+                    s2 ^= this.s[2];
+                    s3 ^= this.s[3];
+                }
+                this.next();
+            }
+        }
+        this.s[0] = s0;
+        this.s[1] = s1;
+        this.s[2] = s2;
+        this.s[3] = s3;
+    }
+
+    public seed(init_s: bigint): void {
+        // Xoshiro requires 256-bits of seed.
+        const gen = new SplitMix64(init_s);
+
+        this.s[0] = gen.next();
+        this.s[1] = gen.next();
+        this.s[2] = gen.next();
+        this.s[3] = gen.next();
+    }
+
+    public fill(buf: Uint8Array): void {
+        let i = 0;
+        const aligned_len = buf.length - (buf.length % 8);
+        const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+        // Complete 8 byte segments.
+        while (i < aligned_len) {
+            const n = this.next();
+            view.setBigUint64(i, n, true); // true for little-endian
+            i += 8;
+        }
+
+        // Remaining. (cuts the stream)
+        if (i < buf.length) {
+            let n = this.next();
+            while (i < buf.length) {
+                buf[i] = Number(n & 0xFFn);
+                n >>= 8n;
+                i += 1;
+            }
+        }
+    }
+}
+
 export class Deque<T> {
     private buffer: (T | undefined)[];
     private capacity: number;
