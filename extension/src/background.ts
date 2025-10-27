@@ -30,21 +30,15 @@ import type {
 import * as utils from './utils';
 import manifest from './manifest.jsonc';
 
-class App {
-    ports: Set<browser.Runtime.Port> = new Set();
-    eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
-
+class State {
     config: Config;
     user_config: UserConfig;
     extension_version: string;
     bruh_session_key: string;
+
     bruhid: BruhId = 1 as BruhId;
     hierarchy_generation_id: HierarchyGenerationId = 1 as HierarchyGenerationId;
 
-    window_ids: Map<BruhId, WindowId> = new Map();
-    tab_ids: Map<BruhId, TabId> = new Map();
-    window_bids: Map<WindowId, BruhId> = new Map();
-    tab_bids: Map<TabId, BruhId> = new Map();
     nodes: Map<BruhId, Node> = new Map();
     tab_name_cache: Map<BruhId, GroupName> = new Map();
     browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
@@ -56,14 +50,8 @@ class App {
         ids: Map<BruhId, BruhId>,
         left_to_restore: Set<BruhId>,
     }> = new Map();
-    forget_tids: Set<TabId> = new Set();
-    forget_wids: Set<WindowId> = new Set();
 
     snapshots: Snapshot[] = [];
-
-    private session_pointer_key = "tabruh-bruh-id";
-    private storage_state_key = "tabruh-app-state";
-    private storage_config_key = "tabruh-app-config";
 
     private adjectives = ["Agile", "Azure", "Blue", "Bold", "Bright", "Calm", "Clever", "Cool", "Crimson", "Eager", "Emerald", "Golden", "Green", "Happy", "Jade", "Jolly", "Keen", "Light", "Lime", "Lucky", "Magic", "Mega", "Navy", "New", "Noble", "Olive", "Orange", "Ornate", "Proud", "Purple", "Quick", "Quiet", "Red", "Regal", "Rose", "Ruby", "Silver", "Sky", "Solar", "Teal", "Topaz", "Urban", "Vivid", "Warm", "White", "Wise", "Yellow", "Zen"];
     private nouns = ["Alpaca", "Ant", "Ape", "Bear", "Bee", "Bird", "Bison", "Cat", "Clam", "Cobra", "Crane", "Crow", "Deer", "Dog", "Dove", "Duck", "Eagle", "Elk", "Emu", "Finch", "Fish", "Fly", "Fox", "Frog", "Goat", "Goose", "Hawk", "Hen", "Heron", "Ibex", "Ibis", "Jay", "Kite", "Kiwi", "Lark", "Lion", "Llama", "Mole", "Moth", "Mouse", "Mule", "Newt", "Owl", "Panda", "Puma", "Quail", "Rabbit", "Ram", "Rat", "Raven", "Rhino", "Rook", "Seal", "Shark", "Skunk", "Sloth", "Snail", "Stork", "Swan", "Tiger", "Toad", "Tuna", "Viper", "Wasp", "Wolf", "Wren", "Yak", "Zebra"];
@@ -93,115 +81,10 @@ class App {
         this.bruh_session_key = Math.random().toString();
     }
 
-    static init() {
-        const version = manifest["version"];
-        console.log(`tabruh loaded: v${version}`);
-
-        let self = new App(version);
-        return self;
-    }
-
-    attach_listeners() {
-        browser.runtime.onInstalled.addListener(async () => {
-            browser.menus.create({
-                id: "open-overview",
-                title: "Overview Page",
-                contexts: ["browser_action"],
-            });
-            browser.menus.create({
-                id: "open-settings",
-                title: "Open Settings",
-                contexts: ["browser_action"],
-            });
-            browser.menus.create({
-                id: "clear-state",
-                title: "Clear state",
-                contexts: ["all"],
-            });
-        });
-        browser.menus.onClicked.addListener(async (info, tab) => {
-            switch (info.menuItemId) {
-                case "open-overview": {
-                    await browser.tabs.create({
-                        url: browser.runtime.getURL("overview.html"),
-                    });
-                } break;
-                case "open-settings": {
-                    await browser.tabs.create({
-                        url: browser.runtime.getURL("settings.html"),
-                    });
-                } break;
-                case "clear-state": {
-                    await browser.storage.local.remove(this.storage_config_key);
-                    await browser.storage.local.remove(this.storage_state_key);
-                } break;
-                default:
-                    console.warn("unknown menu item id " + info.menuItemId);
-            }
-        });
-
-        browser.browserAction.onClicked.addListener(async (tab, info) => {
-            if (info?.button == 0) {
-                await browser.sidebarAction.toggle();
-            } else if (info?.button == 1) {
-                await browser.tabs.create({
-                    url: browser.runtime.getURL("overview.html"),
-                });
-            }
-        });
-
-        browser.runtime.onConnect.addListener((port) => {
-            this.ports.add(port);
-
-            port.onMessage.addListener(async (message) => {
-                await this.eventChannel.send({
-                    type: 'port_message',
-                    payload: { message: message as BackgroundRequest, port }
-                });
-            });
-            port.onDisconnect.addListener(() => {
-                this.ports.delete(port);
-            });
-        });
-        browser.tabs.onCreated.addListener(async (tab) => {
-            let _ = await this.eventChannel.send({ type: 'tab_created', payload: { tab: tab } });
-        });
-        browser.tabs.onRemoved.addListener(async (tid, remove_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_removed', payload: { tid: tid as TabId, remove_info } });
-        });
-        browser.tabs.onUpdated.addListener(async (tid, change_info, tab) => {
-            let _ = await this.eventChannel.send({ type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } });
-        });
-        browser.tabs.onMoved.addListener(async (tid, move_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_moved', payload: { tid: tid as TabId, move_info } });
-        });
-        browser.tabs.onAttached.addListener(async (tid, attach_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_attached', payload: { tid: tid as TabId, attach_info } });
-        });
-        browser.tabs.onDetached.addListener(async (tid, detach_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_detached', payload: { tid: tid as TabId, detach_info } });
-        });
-        browser.tabs.onActivated.addListener(async (activated_info) => {
-            let _ = await this.eventChannel.send({ type: 'tab_activated', payload: { activated_info } });
-        });
-        browser.windows.onCreated.addListener(async (win) => {
-            let _ = await this.eventChannel.send({ type: 'window_created', payload: { win } });
-        });
-        browser.windows.onRemoved.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({ type: 'window_removed', payload: { wid: wid as WindowId } });
-        });
-        browser.windows.onFocusChanged.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({ type: 'window_focus_changed', payload: { wid: wid as WindowId } });
-        });
-        browser.sessions.onChanged.addListener(async () => {
-            let _ = await this.eventChannel.send({ type: 'sessions_changed', payload: {} });
-        });
-    }
-
-    is_group_tab(tab: browser.Tabs.Tab): boolean {
-        if (!tab.url) return false;
+    is_group_tab(_url: string | undefined): boolean {
+        if (!_url) return false;
         try {
-            const url = new URL(tab.url);
+            const url = new URL(_url);
             return url.protocol === 'moz-extension:' &&
                 url.pathname.endsWith('/overview.html') &&
                 url.searchParams.has('view') &&
@@ -269,203 +152,6 @@ class App {
         } while (existingNames.has(name));
 
         return name;
-    }
-
-    _post(port: browser.Runtime.Port, message: BackgroundResponse) {
-        try {
-            port.postMessage(message);
-        } catch (e) {
-            this.ports.delete(port);
-        }
-    }
-
-    _broadcast(message: BackgroundResponse) {
-        for (const port of this.ports) {
-            this._post(port, message);
-        }
-    }
-
-    _log_event(event: StateManagerEvent) {
-        switch (event.type) {
-            case 'tab_created':
-            case 'tab_removed':
-            case 'tab_moved':
-            case 'tab_attached':
-            case 'tab_detached':
-            case 'window_created':
-            case 'window_removed':
-            case 'sessions_changed':
-                console.log(Date.now(), event.type, event.payload);
-                break;
-            case 'tab_updated':
-            case 'tab_activated':
-            case 'window_focus_changed':
-                break;
-            case 'port_message': {
-                const message = event.payload.message;
-                switch (message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'get_user_config':
-                    case 'get_snapshots':
-                    case 'get_state_for_snapshot_window':
-                        break;
-
-                    case 'toggle_collapse':
-                    case 'handle_drop':
-                    case 'close_tabs':
-                    case 'duplicate_tab':
-                    case 'unload_tabs':
-                    case 'reload_tree':
-                    case 'move_subtree_to_new_window':
-                    case 'create_tab':
-                    case 'close_window':
-                    case 'restore_window':
-                    case 'delete_window_state':
-                    case 'flatten_tree':
-                    case 'create_group':
-                    case 'rename_node':
-                    case 'focus_tab':
-                    case 'load_bruh_export':
-                    case 'convert_sideberry_export':
-                    case 'update_user_config':
-                    case 'create_snapshot':
-                    case 'delete_snapshot':
-                    case 'restore_snapshot_window':
-                    case 'restore_snapshot_subtree':
-                    case 'import_file_as_snapshot':
-                    case 'export_data':
-                    case 'handle_snapshot_drop':
-                    case 'toggle_snapshot_collapse':
-                    case 'toggle_snapshot_window_collapse':
-                        console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
-                        break;
-
-                    default:
-                        throw utils.exhausted(message);
-                }
-            } break;
-            default:
-                throw utils.exhausted(event);
-        }
-    }
-
-    _log_effect(effect: BrowserEffect) {
-        switch (effect.type) {
-            case 'effects':
-            case 'node_removed':
-            case 'tab_created':
-            case 'tab_focused':
-            case 'tabs_moved':
-            case 'tabs_discarded':
-            case 'tabs_reloaded':
-            case 'tabs_closed':
-            case 'window_created':
-            case 'window_closed':
-                console.log(Date.now(), effect.type, effect.payload);
-                break;
-            default:
-                throw utils.exhausted(effect);
-        }
-    }
-
-    _broadcast_updates(event: StateManagerEvent) {
-        switch (event.type) {
-            case 'tab_created':
-            case 'tab_removed':
-            case 'tab_updated':
-            case 'tab_moved':
-            case 'tab_attached':
-            case 'tab_detached':
-            case 'tab_activated':
-            case 'window_created':
-            case 'window_removed':
-                this._broadcast({ type: 'render_all', payload: {} });
-                break;
-
-            case 'sessions_changed':
-            case 'window_focus_changed':
-                break;
-
-            case 'port_message': {
-                const message = event.payload.message;
-                switch (message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'load_bruh_export':
-                    case 'convert_sideberry_export':
-                    case 'get_user_config':
-                    case 'get_snapshots':
-                    case 'get_state_for_snapshot_window':
-                        break;
-
-                    case 'toggle_collapse':
-                    case 'handle_drop':
-                    case 'close_tabs':
-                    case 'duplicate_tab':
-                    case 'unload_tabs':
-                    case 'reload_tree':
-                    case 'move_subtree_to_new_window':
-                    case 'create_tab':
-                    case 'close_window':
-                    case 'restore_window':
-                    case 'delete_window_state':
-                    case 'flatten_tree':
-                    case 'create_group':
-                    case 'rename_node':
-                    case 'focus_tab':
-                    case 'update_user_config':
-                    case 'create_snapshot':
-                    case 'delete_snapshot':
-                    case 'restore_snapshot_window':
-                    case 'restore_snapshot_subtree':
-                    case 'import_file_as_snapshot':
-                    case 'export_data':
-                    case 'handle_snapshot_drop':
-                    case 'toggle_snapshot_collapse':
-                    case 'toggle_snapshot_window_collapse':
-                        this._broadcast({ type: 'render_all', payload: {} });
-                        break;
-
-                    default:
-                        throw utils.exhausted(message);
-                }
-            } break;
-            default:
-                throw utils.exhausted(event);
-        }
-    }
-
-    async process_events() {
-        const effects = new utils.Deque<BrowserEffect>();
-        while (true) {
-            const event = await this.eventChannel.wait_recv();
-            if (!event) break;
-
-            if (this.user_config.dbg_log_events) {
-                this._log_event(event);
-            }
-
-            await this._process_event(event, effects).catch(console.error);
-            await this.process_effects(effects);
-            await this.save_state().catch(console.error);
-
-            this._broadcast_updates(event);
-        }
-    }
-
-    async process_effects(effects: utils.Deque<BrowserEffect>) {
-        while (true) {
-            const effect = effects.pop_front();
-            if (!effect) break;
-
-            if (this.user_config.dbg_log_effects) {
-                this._log_effect(effect);
-            }
-            await this._process_effect(effects, effect).catch(console.error);
-        }
     }
 
     get_tab(bid: BruhId): TabData {
@@ -615,123 +301,6 @@ class App {
 
     increment_hgid(): HierarchyGenerationId {
         return this.hierarchy_generation_id++ as HierarchyGenerationId;
-    }
-
-    build_ui_state_for_render(wbid: BruhId, root_bid?: BruhId): UiStateForRender {
-        const win = this.get_window(wbid);
-
-        const root_bids: BruhId[] = [];
-        const uiTree: Map<BruhId, UiNode> = new Map();
-
-        const rootId = root_bid || wbid;
-        let nodeIdsToIterate: BruhId[];
-        if (root_bid) {
-            nodeIdsToIterate = this.get_subtree(root_bid).slice(1);
-        } else {
-            nodeIdsToIterate = win.tab_bids;
-        }
-
-        for (const bruhId of nodeIdsToIterate) {
-            const node = this.get_tab(bruhId);
-            const win = this.get_window(node.wbid);
-
-            uiTree.set(node.bid, {
-                id: node.bid,
-                tid: this.tab_ids.get(node.bid),
-                tab_index: this.get_index(node.bid),
-                title: this.get_node_name(node.bid),
-                url: this.get_node_url(node.bid),
-                favIconUrl: node.type == "tab" ? node.fav_icon_url : undefined,
-                isGroup: node.type === 'group',
-                isDiscarded: node.discarded,
-                isActive: win.active === node.bid,
-                isCollapsed: node.collapsed,
-                children: this.get_immediate_children(node.bid),
-            });
-
-            if (node.parent_bid === rootId) {
-                root_bids.push(node.bid);
-            }
-        }
-
-        const rootNode = this.get_node(rootId);
-        if (rootNode.type == "tab") throw new Error(`root_bid ${rootId} expected to be 'window' or 'group'`);
-
-        return {
-            id: rootNode.bid,
-            wbid: wbid,
-            name: rootNode.name.name,
-            is_custom_named: rootNode.name.is_custom,
-            is_closed: win.closed,
-            generation: rootNode.name.generation,
-            tree: uiTree,
-            root_bids,
-        };
-    }
-
-    build_ui_state_for_snapshot_window(snapshot_id: string, window_index: number): UiStateForRender | null {
-        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
-        if (!snapshot) return null;
-
-        const winData = snapshot.data.windows[window_index];
-        if (!winData) return null;
-
-        const uiTree: Map<BruhId, UiNode> = new Map();
-        const root_bids: BruhId[] = [];
-
-        // We need fake BruhIds for the nodes. Let's just use array indices.
-        const fakeWindowBid = -1 as BruhId;
-
-        for (let i = 0; i < winData.tabs.length; i++) {
-            const tabData = winData.tabs[i]!;
-            const fakeTabBid = i as BruhId;
-
-            const isGroup = this.parse_group_url_id(tabData.url) !== null;
-
-            uiTree.set(fakeTabBid, {
-                id: fakeTabBid,
-                tab_index: i,
-                title: tabData.title,
-                url: tabData.url,
-                isGroup: isGroup,
-                isDiscarded: false,
-                isActive: false,
-                isCollapsed: tabData.collapsed ?? false,
-                children: [], // We'll populate this next
-            });
-
-            if (tabData.parent_index === null) {
-                root_bids.push(fakeTabBid);
-            }
-        }
-
-        // Populate children arrays
-        for (let i = 0; i < winData.tabs.length; i++) {
-            const tabData = winData.tabs[i]!;
-            const parentIndex = tabData.parent_index;
-
-            if (parentIndex !== null) {
-                const parentUiNode = uiTree.get(parentIndex as BruhId);
-                if (parentUiNode) {
-                    parentUiNode.children.push(i as BruhId);
-                }
-            }
-        }
-
-        return {
-            id: fakeWindowBid,
-            wbid: fakeWindowBid,
-            name: winData.name || "Unnamed Window",
-            is_custom_named: !!winData.name,
-            is_closed: false,
-            generation: 0,
-            tree: uiTree,
-            root_bids,
-            collapsed: winData.collapsed ?? false,
-            is_read_only: true,
-            snapshot_id: snapshot_id,
-            window_index: window_index,
-        };
     }
 
     remove_tab_from_window(tbid: BruhId, wbid: BruhId) {
@@ -1343,6 +912,449 @@ class App {
             return effect;
         }
         return null;
+    }
+}
+
+class App {
+    ports: Set<browser.Runtime.Port> = new Set();
+    eventChannel: utils.Channel<StateManagerEvent> = new utils.Channel();
+
+    state: State;
+
+    window_ids: Map<BruhId, WindowId> = new Map();
+    tab_ids: Map<BruhId, TabId> = new Map();
+    window_bids: Map<WindowId, BruhId> = new Map();
+    tab_bids: Map<TabId, BruhId> = new Map();
+
+    forget_tids: Set<TabId> = new Set();
+    forget_wids: Set<WindowId> = new Set();
+
+    private session_pointer_key = "tabruh-bruh-id";
+    private storage_state_key = "tabruh-app-state";
+    private storage_config_key = "tabruh-app-config";
+
+    static init() {
+        const version: string = manifest["version"];
+        console.log(`tabruh loaded: v${version}`);
+
+        let state = new State(version);
+        let self = new App(state);
+        return self;
+    }
+
+    constructor(state: State) {
+        this.state = state;
+    }
+
+    attach_listeners() {
+        browser.runtime.onInstalled.addListener(async () => {
+            browser.menus.create({
+                id: "open-overview",
+                title: "Overview Page",
+                contexts: ["browser_action"],
+            });
+            browser.menus.create({
+                id: "open-settings",
+                title: "Open Settings",
+                contexts: ["browser_action"],
+            });
+            browser.menus.create({
+                id: "clear-state",
+                title: "Clear state",
+                contexts: ["all"],
+            });
+        });
+        browser.menus.onClicked.addListener(async (info, tab) => {
+            switch (info.menuItemId) {
+                case "open-overview": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("overview.html"),
+                    });
+                } break;
+                case "open-settings": {
+                    await browser.tabs.create({
+                        url: browser.runtime.getURL("settings.html"),
+                    });
+                } break;
+                case "clear-state": {
+                    await browser.storage.local.remove(this.storage_config_key);
+                    await browser.storage.local.remove(this.storage_state_key);
+                } break;
+                default:
+                    console.warn("unknown menu item id " + info.menuItemId);
+            }
+        });
+
+        browser.browserAction.onClicked.addListener(async (tab, info) => {
+            if (info?.button == 0) {
+                await browser.sidebarAction.toggle();
+            } else if (info?.button == 1) {
+                await browser.tabs.create({
+                    url: browser.runtime.getURL("overview.html"),
+                });
+            }
+        });
+
+        browser.runtime.onConnect.addListener((port) => {
+            this.ports.add(port);
+
+            port.onMessage.addListener(async (message) => {
+                await this.eventChannel.send({
+                    type: 'port_message',
+                    payload: { message: message as BackgroundRequest, port }
+                });
+            });
+            port.onDisconnect.addListener(() => {
+                this.ports.delete(port);
+            });
+        });
+        browser.tabs.onCreated.addListener(async (tab) => {
+            let _ = await this.eventChannel.send({ type: 'tab_created', payload: { tab: tab } });
+        });
+        browser.tabs.onRemoved.addListener(async (tid, remove_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_removed', payload: { tid: tid as TabId, remove_info } });
+        });
+        browser.tabs.onUpdated.addListener(async (tid, change_info, tab) => {
+            let _ = await this.eventChannel.send({ type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } });
+        });
+        browser.tabs.onMoved.addListener(async (tid, move_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_moved', payload: { tid: tid as TabId, move_info } });
+        });
+        browser.tabs.onAttached.addListener(async (tid, attach_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_attached', payload: { tid: tid as TabId, attach_info } });
+        });
+        browser.tabs.onDetached.addListener(async (tid, detach_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_detached', payload: { tid: tid as TabId, detach_info } });
+        });
+        browser.tabs.onActivated.addListener(async (activated_info) => {
+            let _ = await this.eventChannel.send({ type: 'tab_activated', payload: { activated_info } });
+        });
+        browser.windows.onCreated.addListener(async (win) => {
+            let _ = await this.eventChannel.send({ type: 'window_created', payload: { win } });
+        });
+        browser.windows.onRemoved.addListener(async (wid) => {
+            let _ = await this.eventChannel.send({ type: 'window_removed', payload: { wid: wid as WindowId } });
+        });
+        browser.windows.onFocusChanged.addListener(async (wid) => {
+            let _ = await this.eventChannel.send({ type: 'window_focus_changed', payload: { wid: wid as WindowId } });
+        });
+        browser.sessions.onChanged.addListener(async () => {
+            let _ = await this.eventChannel.send({ type: 'sessions_changed', payload: {} });
+        });
+    }
+
+    _post(port: browser.Runtime.Port, message: BackgroundResponse) {
+        try {
+            port.postMessage(message);
+        } catch (e) {
+            this.ports.delete(port);
+        }
+    }
+
+    _broadcast(message: BackgroundResponse) {
+        for (const port of this.ports) {
+            this._post(port, message);
+        }
+    }
+
+    _log_event(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tab_created':
+            case 'tab_removed':
+            case 'tab_moved':
+            case 'tab_attached':
+            case 'tab_detached':
+            case 'window_created':
+            case 'window_removed':
+            case 'sessions_changed':
+                console.log(Date.now(), event.type, event.payload);
+                break;
+            case 'tab_updated':
+            case 'tab_activated':
+            case 'window_focus_changed':
+                break;
+            case 'port_message': {
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
+                    case 'get_user_config':
+                    case 'get_snapshots':
+                    case 'get_state_for_snapshot_window':
+                        break;
+
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_tabs':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
+                    case 'export_data':
+                    case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        console.log(Date.now(), event.type, event.payload.message.type, event.payload.message.payload);
+                        break;
+
+                    default:
+                        throw utils.exhausted(message);
+                }
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    _log_effect(effect: BrowserEffect) {
+        switch (effect.type) {
+            case 'effects':
+            case 'node_removed':
+            case 'tab_created':
+            case 'tab_focused':
+            case 'tabs_moved':
+            case 'tabs_discarded':
+            case 'tabs_reloaded':
+            case 'tabs_closed':
+            case 'window_created':
+            case 'window_closed':
+                console.log(Date.now(), effect.type, effect.payload);
+                break;
+            default:
+                throw utils.exhausted(effect);
+        }
+    }
+
+    _broadcast_updates(event: StateManagerEvent) {
+        switch (event.type) {
+            case 'tab_created':
+            case 'tab_removed':
+            case 'tab_updated':
+            case 'tab_moved':
+            case 'tab_attached':
+            case 'tab_detached':
+            case 'tab_activated':
+            case 'window_created':
+            case 'window_removed':
+                this._broadcast({ type: 'render_all', payload: {} });
+                break;
+
+            case 'sessions_changed':
+            case 'window_focus_changed':
+                break;
+
+            case 'port_message': {
+                const message = event.payload.message;
+                switch (message.type) {
+                    case 'get_state_for_window':
+                    case 'get_state_for_group_view':
+                    case 'get_all_window_states':
+                    case 'load_bruh_export':
+                    case 'convert_sideberry_export':
+                    case 'get_user_config':
+                    case 'get_snapshots':
+                    case 'get_state_for_snapshot_window':
+                        break;
+
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'close_tabs':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'focus_tab':
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'import_file_as_snapshot':
+                    case 'export_data':
+                    case 'handle_snapshot_drop':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        this._broadcast({ type: 'render_all', payload: {} });
+                        break;
+
+                    default:
+                        throw utils.exhausted(message);
+                }
+            } break;
+            default:
+                throw utils.exhausted(event);
+        }
+    }
+
+    async process_events() {
+        const effects = new utils.Deque<BrowserEffect>();
+        while (true) {
+            const event = await this.eventChannel.wait_recv();
+            if (!event) break;
+
+            if (this.user_config.dbg_log_events) {
+                this._log_event(event);
+            }
+
+            await this._process_event(event, effects).catch(console.error);
+            await this.process_effects(effects);
+            await this.save_state().catch(console.error);
+
+            this._broadcast_updates(event);
+        }
+    }
+
+    async process_effects(effects: utils.Deque<BrowserEffect>) {
+        while (true) {
+            const effect = effects.pop_front();
+            if (!effect) break;
+
+            if (this.user_config.dbg_log_effects) {
+                this._log_effect(effect);
+            }
+            await this._process_effect(effects, effect).catch(console.error);
+        }
+    }
+
+    build_ui_state_for_render(wbid: BruhId, root_bid?: BruhId): UiStateForRender {
+        const win = this.get_window(wbid);
+
+        const root_bids: BruhId[] = [];
+        const uiTree: Map<BruhId, UiNode> = new Map();
+
+        const rootId = root_bid || wbid;
+        let nodeIdsToIterate: BruhId[];
+        if (root_bid) {
+            nodeIdsToIterate = this.get_subtree(root_bid).slice(1);
+        } else {
+            nodeIdsToIterate = win.tab_bids;
+        }
+
+        for (const bruhId of nodeIdsToIterate) {
+            const node = this.get_tab(bruhId);
+            const win = this.get_window(node.wbid);
+
+            uiTree.set(node.bid, {
+                id: node.bid,
+                tid: this.tab_ids.get(node.bid),
+                tab_index: this.get_index(node.bid),
+                title: this.get_node_name(node.bid),
+                url: this.get_node_url(node.bid),
+                favIconUrl: node.type == "tab" ? node.fav_icon_url : undefined,
+                isGroup: node.type === 'group',
+                isDiscarded: node.discarded,
+                isActive: win.active === node.bid,
+                isCollapsed: node.collapsed,
+                children: this.get_immediate_children(node.bid),
+            });
+
+            if (node.parent_bid === rootId) {
+                root_bids.push(node.bid);
+            }
+        }
+
+        const rootNode = this.get_node(rootId);
+        if (rootNode.type == "tab") throw new Error(`root_bid ${rootId} expected to be 'window' or 'group'`);
+
+        return {
+            id: rootNode.bid,
+            wbid: wbid,
+            name: rootNode.name.name,
+            is_custom_named: rootNode.name.is_custom,
+            is_closed: win.closed,
+            generation: rootNode.name.generation,
+            tree: uiTree,
+            root_bids,
+        };
+    }
+
+    build_ui_state_for_snapshot_window(snapshot_id: string, window_index: number): UiStateForRender | null {
+        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
+        if (!snapshot) return null;
+
+        const winData = snapshot.data.windows[window_index];
+        if (!winData) return null;
+
+        const uiTree: Map<BruhId, UiNode> = new Map();
+        const root_bids: BruhId[] = [];
+
+        // We need fake BruhIds for the nodes. Let's just use array indices.
+        const fakeWindowBid = -1 as BruhId;
+
+        for (let i = 0; i < winData.tabs.length; i++) {
+            const tabData = winData.tabs[i]!;
+            const fakeTabBid = i as BruhId;
+
+            const isGroup = this.parse_group_url_id(tabData.url) !== null;
+
+            uiTree.set(fakeTabBid, {
+                id: fakeTabBid,
+                tab_index: i,
+                title: tabData.title,
+                url: tabData.url,
+                isGroup: isGroup,
+                isDiscarded: false,
+                isActive: false,
+                isCollapsed: tabData.collapsed ?? false,
+                children: [], // We'll populate this next
+            });
+
+            if (tabData.parent_index === null) {
+                root_bids.push(fakeTabBid);
+            }
+        }
+
+        // Populate children arrays
+        for (let i = 0; i < winData.tabs.length; i++) {
+            const tabData = winData.tabs[i]!;
+            const parentIndex = tabData.parent_index;
+
+            if (parentIndex !== null) {
+                const parentUiNode = uiTree.get(parentIndex as BruhId);
+                if (parentUiNode) {
+                    parentUiNode.children.push(i as BruhId);
+                }
+            }
+        }
+
+        return {
+            id: fakeWindowBid,
+            wbid: fakeWindowBid,
+            name: winData.name || "Unnamed Window",
+            is_custom_named: !!winData.name,
+            is_closed: false,
+            generation: 0,
+            tree: uiTree,
+            root_bids,
+            collapsed: winData.collapsed ?? false,
+            is_read_only: true,
+            snapshot_id: snapshot_id,
+            window_index: window_index,
+        };
     }
 
     async save_state() {
