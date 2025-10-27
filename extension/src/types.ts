@@ -246,6 +246,7 @@ export type AppEffect =
     | { type: 'window_closed', payload: { wid: WindowId } }
     | { type: 'write_window_session', payload: { wid: WindowId, bid: BruhId } }
     | { type: 'write_tab_session', payload: { tid: TabId, bid: BruhId } }
+    | { type: 'update_tab_url', payload: { tid: TabId, url: string } }
     ;
 
 export type StateEffect =
@@ -257,6 +258,7 @@ export type StateEffect =
     | Extract<BrowserEvent, { type: 'tab_moved' }>
     | Extract<BrowserEvent, { type: 'tab_removed' }>
     | { type: 'window_created', payload: { old_wbid?: BruhId, wid: WindowId } }
+    | { type: 'upate_tab_info', payload: { tid: TabId, url?: string, favIconUrl?: string, title?: string, discarded?: boolean } }
     ;
 
 export type StateEvent =

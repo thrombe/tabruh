@@ -1090,8 +1090,8 @@ class State {
         return JSON.parse(JSON.stringify(state)) as typeof state;
     }
 
-    update_tab_info(btab: browser.Tabs.Tab) {
-        const tbid = this.tab_bids.get(btab.id as TabId)!;
+    update_tab_info(btab: Extract<StateEffect, { type: 'upate_tab_info' }>["payload"]) {
+        const tbid = this.tab_bids.get(btab.tid)!;
         const tab = this.get_tab(tbid);
         tab.discarded = btab.discarded ?? false;
 
@@ -1108,7 +1108,8 @@ class State {
         }
 
         if (btab.url == "about:blank") return;
-        if (this.is_group_tab(btab)) {
+        let tab_update_effect;
+        if (this.is_group_tab(btab.url)) {
             if (tab.type === "tab") {
                 const name = this.tab_name_cache.get(tab.bid);
                 this.tab_name_cache.delete(tab.bid);
@@ -1123,7 +1124,10 @@ class State {
             if (btab.url) {
                 const url_bid = this.parse_group_url_id(btab.url);
                 if (url_bid != tab.bid) {
-                    await browser.tabs.update(btab.id!, { url: this.get_group_url(tab.bid) });
+                    tab_update_effect = {
+                        type: 'update_tab_url',
+                        payload: { tid: btab.tid, url: this.get_group_url(tab.bid) },
+                    } as Extract<AppEffect, { type: 'update_tab_url' }>;
                 }
             }
         } else {
@@ -1137,6 +1141,8 @@ class State {
                 });
             }
         }
+
+        return tab_update_effect;
     }
 
     restore_window(wid: WindowId, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
@@ -1392,6 +1398,14 @@ class State {
                     e = this.register_bwindow(wid, new_win_effect.payload.wbid);
                 }
                 app_effects.push_back(e);
+            } break;
+            case 'upate_tab_info': {
+                const msg = effect.payload;
+                if (!this.tab_bids.has(msg.tid)) return;
+                const e = this.update_tab_info(msg);
+                if (e) {
+                    app_effects.push_back(e);
+                }
             } break;
             default:
                 throw utils.exhausted(effect);
@@ -2091,7 +2105,7 @@ class App {
             }
 
             await this.process_event(event, state_effects, app_effects).catch(console.error);
-            this.process_state_effects(state_effects);
+            this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(app_effects);
             await this.save_state().catch(console.error);
 
@@ -2099,16 +2113,16 @@ class App {
         }
     }
 
-    async process_state_effects(effects: utils.Deque<StateEffect>) {
+    async process_state_effects(state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
         while (true) {
-            const effect = effects.pop_front();
+            const effect = state_effects.pop_front();
             if (!effect) break;
 
             if (this.state.user_config.dbg_log_effects) {
                 // TODO:
                 // this._log_effect(effect);
             }
-            this.state.handle_effect(effect, effects);
+            this.state.handle_effect(effect, state_effects, app_effects);
         }
     }
 
@@ -2660,8 +2674,17 @@ class App {
                         state_effects.push_back(msg);
                     } break;
                     case 'tab_updated': {
-                        if (!this.tab_bids.has(msg.payload.tid)) return;
-                        await this.update_tab_info(msg.payload.tab);
+                        const tab = msg.payload.tab;
+                        state_effects.push_back({
+                            type: 'upate_tab_info',
+                            payload: {
+                                tid: tab.id as TabId,
+                                url: tab.url,
+                                favIconUrl: tab.favIconUrl,
+                                title: tab.title,
+                                discarded: tab.discarded,
+                            },
+                        });
                     } break;
                     case 'tab_moved': {
                         state_effects.push_back(msg);
@@ -2883,6 +2906,9 @@ class App {
             } break;
             case 'write_tab_session': {
                 await this.write_session_pointer(effect.payload.bid, effect.payload.tid, "tab");
+            } break;
+            case 'update_tab_url': {
+                await browser.tabs.update(effect.payload.tid, { url: effect.payload.url });
             } break;
             default:
                 throw utils.exhausted(effect);
