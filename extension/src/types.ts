@@ -174,7 +174,7 @@ export type SnapshotDragData = {
 
 export type DragData = LiveDragData | SnapshotDragData;
 
-export type UiStateForRender = {
+export type _UiStateForRender = {
     id: BruhId,
     wbid: BruhId,
     name: string,
@@ -191,7 +191,7 @@ export type UiStateForRender = {
     window_index?: number,
 };
 
-export type UiNode = {
+export type _UiNode = {
     id: BruhId,
     tid?: TabId,
     tab_index: number,
@@ -206,6 +206,7 @@ export type UiNode = {
 };
 
 export type AppRequest =
+    | { type: 'get_initial_state', payload: {} }
     | { type: 'get_state_for_window', payload: { wid: WindowId } }
     | { type: 'get_all_window_states', payload: {} }
     | { type: 'get_state_for_group_view', payload: { bid: BruhId } }
@@ -217,6 +218,7 @@ export type AppRequest =
     ;
 
 export type AppResponse =
+    | { type: 'initial_state', payload: ClonableState }
     | { type: 'state_update', payload: { state: UiStateForRender, } }
     | { type: 'all_states_update', payload: { states: UiStateForRender[] } }
     | { type: 'render_all', payload: {} }
@@ -319,6 +321,12 @@ export type AppEvent =
     | { type: 'browser_event', payload: BrowserEvent }
     | { type: 'app_request', payload: { message: AppRequest, port: browser.Runtime.Port } }
     | { type: 'state_action', payload: { message: StateAction, port: browser.Runtime.Port } }
+    ;
+
+export type BruhUiEvent =
+    | { type: 'state_effect', payload: StateEffect }
+    | { type: 'state_action', payload: StateAction }
+    | { type: 'app_response', payload: AppResponse }
     ;
 
 export type ExtensionAction =

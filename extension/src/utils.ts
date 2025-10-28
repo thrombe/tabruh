@@ -296,6 +296,12 @@ export class Deque<T> {
         return this.size === 0;
     }
 
+    public clear() {
+        this.size = 0;
+        this.front = 0;
+        this.back = 0;
+    }
+
     private resize(): void {
         const newCapacity = this.capacity * 2;
         const newBuffer = new Array<T | undefined>(newCapacity);

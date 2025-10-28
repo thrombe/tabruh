@@ -1117,7 +1117,7 @@ export class State {
         });
     }
 
-    from_clonable_state(state: ClonableState): State {
+    static from_clonable_state(state: ClonableState): State {
         const self = new State("huh");
         self.config = state.config;
         self.user_config = state.user_config;

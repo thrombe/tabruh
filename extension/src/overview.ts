@@ -1,9 +1,28 @@
 import './overview.css';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './tab_tree_view';
-import type { BruhId, AppRequest, AppResponse, UiStateForRender, BruhExport, SideberryExport, ExtensionAction, StateAction } from './types';
+import * as utils from './utils';
+import type {
+    BruhId,
+    AppRequest,
+    AppResponse,
+    BruhExport,
+    SideberryExport,
+    ExtensionAction,
+    StateAction,
+    StateEvent,
+    StateEffect,
+    AppEffect,
+    BruhUiEvent,
+} from './types';
+import { State } from './state';
 
 class OverviewPage {
+    state: State;
+    ui_events: utils.Channel<BruhUiEvent>;
+    state_effects: utils.Deque<StateEffect>;
+    app_effects: utils.Deque<AppEffect>
+
     private port: browser.Runtime.Port | null = null;
     private container: HTMLElement;
     private views: Map<number, TabTreeView> = new Map();
@@ -13,6 +32,11 @@ class OverviewPage {
     private action?: string;
 
     constructor(containerId: string) {
+        this.state = new State("0.0");
+        this.ui_events = new utils.Channel();
+        this.state_effects = new utils.Deque();
+        this.app_effects = new utils.Deque();
+
         const el = document.getElementById(containerId);
         if (!el) throw new Error(`Overview container #${containerId} not found.`);
         this.container = el;
@@ -39,6 +63,16 @@ class OverviewPage {
         this.setupConnectionListener();
     }
 
+    handle_event(event: StateEvent) {
+        this.state.handle_event(event, this.state_effects, this.app_effects);
+        while (true) {
+            const effect = this.state_effects.pop_front();
+            if (!effect) break;
+            this.state.handle_effect(effect, this.state_effects, this.app_effects);
+        }
+        this.app_effects.clear();
+    }
+
     private setupConnectionListener() {
         if (document.visibilityState === 'visible') {
             this.connectAndInit();
@@ -59,7 +93,7 @@ class OverviewPage {
         this.hasConnected = true;
 
         this.port = browser.runtime.connect({ name: 'overview-connection' });
-        this.port.onMessage.addListener(message => this.handleMessage(message as AppResponse));
+        this.port.onMessage.addListener(async message => await this.ui_events.send(message as BruhUiEvent));
         this.port.onDisconnect.addListener(() => console.error("Overview page disconnected from background script."));
 
         if (this.action === 'import') {
@@ -89,12 +123,62 @@ class OverviewPage {
         }
     }
 
-    private requestInitialState() {
-        if (this.viewMode === 'group' && this.groupViewNodeId) {
-            this.sendRequest({ type: 'get_state_for_group_view', payload: { bid: this.groupViewNodeId } });
-        } else {
-            this.sendRequest({ type: 'get_all_window_states', payload: {} });
+    async handle_events() {
+        while (true) {
+            const event = await this.ui_events.wait_recv();
+            if (!event) break;
+            this.handleMessage(event);
         }
+    }
+
+    private handleMessage(message: BruhUiEvent) {
+        switch (message.type) {
+            case 'state_effect': {
+                this.state.handle_effect(message.payload, this.state_effects, this.app_effects);
+            } break;
+            case 'state_action': {
+                this.state.handle_action(message.payload, this.app_effects);
+            } break;
+            case 'app_response': {
+                switch (message.payload.type) {
+                    case 'initial_state': {
+                        this.state = State.from_clonable_state(message.payload.payload);
+                    } break;
+                    case 'all_states_update': {
+                        if (this.viewMode === 'overview') {
+                            this.renderOverviewLayout(message.payload.payload.states);
+                        }
+                        break;
+                    }
+                    case 'state_update': {
+                        if (this.viewMode === 'group') {
+                            document.title = message.payload.payload.state.name;
+                            this.renderGroupLayout(message.payload.payload.state);
+                        } else {
+                            // This can happen if a RENAME action triggers a RENDER_ALL, but the background only sends a STATE_UPDATE for the affected window.
+                            // To ensure correct sorting, we should just refresh everything.
+                            this.requestInitialState();
+                        }
+                    } break;
+                    case 'render_all': {
+                        if (!this.action) {
+                            this.requestInitialState();
+                        }
+                    } break;
+                    case 'converted_sideberry_export_ready': {
+                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
+                        alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+                        window.close();
+                    } break;
+                }
+            } break;
+            default:
+                throw utils.exhausted(message);
+        }
+    }
+
+    private requestInitialState() {
+        this.sendRequest({ type: 'get_initial_state', payload: {} });
     }
 
     private sortWindowStates(states: UiStateForRender[]): UiStateForRender[] {
@@ -204,41 +288,9 @@ class OverviewPage {
             document.body.removeChild(input);
         });
     }
-
-    private handleMessage(message: AppResponse) {
-        switch (message.type) {
-            case 'all_states_update': {
-                if (this.viewMode === 'overview') {
-                    this.renderOverviewLayout(message.payload.states);
-                }
-                break;
-            }
-            case 'state_update': {
-                if (this.viewMode === 'group') {
-                    document.title = message.payload.state.name;
-                    this.renderGroupLayout(message.payload.state);
-                } else {
-                    // This can happen if a RENAME action triggers a RENDER_ALL, but the background only sends a STATE_UPDATE for the affected window.
-                    // To ensure correct sorting, we should just refresh everything.
-                    this.requestInitialState();
-                }
-                break;
-            }
-            case 'render_all': {
-                if (!this.action) {
-                    this.requestInitialState();
-                }
-                break;
-            }
-            case 'converted_sideberry_export_ready': {
-                this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
-                alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
-                window.close();
-            } break;
-        }
-    }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    new OverviewPage('overview-container');
+document.addEventListener('DOMContentLoaded', async () => {
+    const page = new OverviewPage('overview-container');
+    await page.handle_events();
 });

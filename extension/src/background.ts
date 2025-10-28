@@ -609,6 +609,7 @@ class App {
                     case 'get_state_for_snapshot_window':
                     case 'export_data':
                     case 'convert_sideberry_export':
+                    case 'get_initial_state':
                         break;
                     default:
                         throw utils.exhausted(event.payload.message);
@@ -710,6 +711,7 @@ class App {
                     case 'export_data':
                     case 'get_state_for_snapshot_window':
                     case 'convert_sideberry_export':
+                    case 'get_initial_state':
                         break;
 
                     default:
@@ -887,6 +889,10 @@ class App {
                     case 'convert_sideberry_export': {
                         const data = State.convert_sideberry_export_to_bruh(msg.payload.data);
                         this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
+                    } break;
+                    case 'get_initial_state': {
+                        const data = this.state.clonable_state();
+                        this._post(event.payload.port, { type: 'initial_state', payload: data });
                     } break;
                     default:
                         throw utils.exhausted(msg);

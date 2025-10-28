@@ -1,14 +1,27 @@
 import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
 import * as svg from './svg';
-import type { DragData, AppRequest, UiStateForRender, DropAction, BruhId, UiNode, WindowId, SnapshotDragData, ExtensionAction, StateAction } from './types';
+import { State } from './state';
+import * as utils from './utils';
+import type {
+    DragData,
+    AppRequest,
+    DropAction,
+    BruhId,
+    WindowId,
+    SnapshotDragData,
+    ExtensionAction,
+    StateAction,
+    StateEffect,
+    AppEffect,
+    StateEvent,
+} from './types';
 
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(svg.default_favicon)}`;
 
 export class TabTreeView {
     private container: HTMLElement;
     private port: browser.Runtime.Port;
-    private currentRenderState: UiStateForRender | null = null;
     private currentDragData: DragData | null = null;
     private treeType: "sidebar" | "overview" | "snapshot";
     private viewType: 'window' | 'group';
