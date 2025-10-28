@@ -15,7 +15,8 @@ import type {
     WindowData,
     DropAction,
     AppEffect,
-    StorageState,
+    StateStorage,
+    SerializableState,
     BruhExport,
     SideberryExport,
     Config,
@@ -23,6 +24,7 @@ import type {
     Snapshot,
     ConfigStorage,
     StateEffect,
+    ClonableState,
 } from './types';
 import * as utils from './utils';
 
@@ -1063,7 +1065,7 @@ export class State {
             cache[bid.toString()] = storage;
         }
 
-        const state_to_save: StorageState = {
+        const state_to_save: StateStorage = {
             rng_state: this.rng.s,
             state_version: this.extension_version,
             bruh_session_key: this.bruh_session_key,
@@ -1080,8 +1082,67 @@ export class State {
             user_config: this.user_config,
         };
 
-        const state = { state: state_to_save, config };
+        const state: SerializableState = { state: state_to_save, config };
         return structuredClone(state);
+    }
+
+    clonable_state(): ClonableState {
+        return structuredClone({
+            config: this.config,
+            user_config: this.user_config,
+            rng_state: this.rng.s,
+            extension_version: this.extension_version,
+            bruh_session_key: this.bruh_session_key,
+            bruhid: this.bruhid,
+            hgid: this.hierarchy_generation_id,
+            nodes: Object.fromEntries([...this.nodes.entries()].map(([k, v]) => [String(k), v])),
+            browser_restore_cache: Object.fromEntries([...this.browser_restore_cache.entries()].map(([k, v]) => [String(k), v])),
+            snapshots: this.snapshots,
+            tab_name_cache: Object.fromEntries([...this.tab_name_cache.entries()].map(([k, v]) => [String(k), v])),
+            closing_window_tabs: Object.fromEntries([...this.closing_window_tabs.entries()].map(([k, v]) => [String(k), [...v.values()]])),
+            pre_allocated_bids_for_non_pristine_restore: Object.fromEntries([...this.pre_allocated_bids_for_non_pristine_restore.entries()].map(
+                ([k, v]) => [String(k), {
+                    ids: Object.fromEntries([...v.ids.entries()].map(([k, v]) => [String(k), v])),
+                    left_to_restore: [...v.left_to_restore.values()]
+                }]
+            )),
+
+            window_ids: Object.fromEntries([...this.window_ids.entries()].map(([k, v]) => [String(k), v])),
+            tab_ids: Object.fromEntries([...this.tab_ids.entries()].map(([k, v]) => [String(k), v])),
+            window_bids: Object.fromEntries([...this.window_bids.entries()].map(([k, v]) => [String(k), v])),
+            tab_bids: Object.fromEntries([...this.tab_bids.entries()].map(([k, v]) => [String(k), v])),
+
+            forget_tids: [...this.forget_tids.values()],
+            forget_wids: [...this.forget_wids.values()],
+        });
+    }
+
+    from_clonable_state(state: ClonableState): State {
+        const self = new State("huh");
+        self.config = state.config;
+        self.user_config = state.user_config;
+        self.rng.s = state.rng_state;
+        self.extension_version = state.extension_version;
+        self.bruh_session_key = state.bruh_session_key;
+        self.bruhid = state.bruhid;
+        self.hierarchy_generation_id = state.hgid;
+        self.nodes = new Map(Object.entries(state.nodes).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.browser_restore_cache = new Map(Object.entries(state.browser_restore_cache).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.snapshots = state.snapshots;
+        self.tab_name_cache = new Map(Object.entries(state.tab_name_cache).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.closing_window_tabs = new Map(Object.entries(state.closing_window_tabs).map(([k, v]) => [Number(k) as BruhId, new Set(v)]));
+        self.pre_allocated_bids_for_non_pristine_restore = new Map(Object.entries(state.pre_allocated_bids_for_non_pristine_restore)
+            .map(([k, v]) => [Number(k) as BruhId, {
+                ids: new Map(Object.entries(v.ids).map(([k, v]) => [Number(k) as BruhId, v])),
+                left_to_restore: new Set(v.left_to_restore),
+            }]));
+        self.window_ids = new Map(Object.entries(state.window_ids).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.tab_ids = new Map(Object.entries(state.tab_ids).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.window_bids = new Map(Object.entries(state.window_bids).map(([k, v]) => [Number(k) as WindowId, v]));
+        self.tab_bids = new Map(Object.entries(state.tab_bids).map(([k, v]) => [Number(k) as TabId, v]));
+        self.forget_tids = new Set(state.forget_tids);
+        self.forget_wids = new Set(state.forget_wids);
+        return self;
     }
 
     update_tab_info(btab: Extract<StateEffect, { type: 'upate_tab_info' }>["payload"]) {

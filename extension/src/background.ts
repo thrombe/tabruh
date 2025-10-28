@@ -10,7 +10,7 @@ import type {
     BruhId,
     NodeStorageData,
     AppEffect,
-    StorageState,
+    StateStorage,
     ConfigStorage,
     StateEffect,
     ExtensionAction,
@@ -265,7 +265,7 @@ class App {
 
     async load_state(key: string) {
         const result = await browser.storage.local.get(key);
-        const state = result[key] as StorageState;
+        const state = result[key] as StateStorage;
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
             const node_storage: Map<BruhId, NodeStorageData> = new Map();

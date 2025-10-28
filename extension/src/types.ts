@@ -15,7 +15,7 @@ export type Snapshot = {
     data: BruhExport,
 };
 
-export type StorageState = {
+export type StateStorage = {
     rng_state: utils.Xoshiro256State,
     state_version: string,
     bruh_session_key: string,
@@ -25,6 +25,58 @@ export type StorageState = {
     node_storage_data: Record<string, NodeStorageData>,
     browser_restore_cache: Record<string, NodeStorageData>,
     snapshots: Snapshot[],
+};
+
+export type Config = {
+    available_apis: {
+        session_values: boolean,
+    },
+    features: {
+        restore_strategy: "SessionsValues" | "SessionHistory",
+    },
+};
+export type UserConfig = {
+    dbg_reset_state_on_load: boolean,
+    dbg_log_events: boolean,
+    dbg_log_effects: boolean,
+    open_sidebar_on_new_windows: boolean,
+};
+export type ConfigStorage = {
+    config_version: string,
+    user_config: UserConfig,
+};
+
+export type SerializableState = {
+    state: StateStorage,
+    config: ConfigStorage,
+};
+
+// state that can be used to clone State
+export type ClonableState = {
+    config: Config;
+    user_config: UserConfig,
+    rng_state: utils.Xoshiro256State,
+    extension_version: string,
+    bruh_session_key: string,
+    bruhid: BruhId,
+    hgid: HierarchyGenerationId,
+    nodes: Record<string, Node>,
+    browser_restore_cache: Record<string, NodeStorageData>,
+    snapshots: Snapshot[],
+    tab_name_cache: Record<string, GroupName>;
+    closing_window_tabs: Record<string, BruhId[]>;
+    pre_allocated_bids_for_non_pristine_restore: Record<string, {
+        ids: Record<string, BruhId>,
+        left_to_restore: BruhId[],
+    }>;
+
+    window_ids: Record<string, WindowId>;
+    tab_ids: Record<string, TabId>;
+    window_bids: Record<string, BruhId>;
+    tab_bids: Record<string, BruhId>;
+
+    forget_tids: TabId[];
+    forget_wids: WindowId[];
 };
 
 export type NodeStorageData = {
@@ -151,25 +203,6 @@ export type UiNode = {
     isActive: boolean,
     isCollapsed: boolean,
     children: BruhId[],
-};
-
-export type Config = {
-    available_apis: {
-        session_values: boolean,
-    },
-    features: {
-        restore_strategy: "SessionsValues" | "SessionHistory",
-    },
-};
-export type UserConfig = {
-    dbg_reset_state_on_load: boolean,
-    dbg_log_events: boolean,
-    dbg_log_effects: boolean,
-    open_sidebar_on_new_windows: boolean,
-};
-export type ConfigStorage = {
-    config_version: string,
-    user_config: UserConfig,
 };
 
 export type AppRequest =
