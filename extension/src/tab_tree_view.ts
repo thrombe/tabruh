@@ -1,24 +1,9 @@
 import './tab_tree_view.css';
 import browser from 'webextension-polyfill';
+import * as svg from './svg';
 import type { DragData, AppRequest, UiStateForRender, DropAction, BruhId, UiNode, WindowId, SnapshotDragData, ExtensionAction, StateAction } from './types';
 
-const DEFAULT_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
-const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(DEFAULT_FAVICON)}`;
-
-const ICON_DUPLICATE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-const ICON_LOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
-const ICON_UNLOAD = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>`;
-const ICON_CLOSE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
-const ICON_COPY = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"></path></svg>`;
-const ICON_WINDOW = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
-const ICON_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18h4"/><path d="M12 10v8"/><path d="M12 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M19 3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M5 10v3a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2v-3"/><path d="M19 10v3a2 2 0 0 1-2 2h0a2 2 0 0 1-2-2v-3"/></svg>`;
-const ICON_RESTORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>`;
-const ICON_TRASH = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`;
-const ICON_FLATTEN_IMMEDIATE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="14 9 9 4 4 9"/><path d="M20 20h-7a4 4 0 0 1-4-4V4"/></svg>`;
-const ICON_FLATTEN_TREE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 1 9 9"/></svg>`;
-const ICON_GROUP = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
-const ICON_EDIT = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
-
+const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(svg.default_favicon)}`;
 
 export class TabTreeView {
     private container: HTMLElement;
@@ -309,7 +294,7 @@ export class TabTreeView {
         contentWrapper.className = 'tree-node-content';
         const icon = document.createElement('img');
         if (node.isGroup) {
-            icon.src = `data:image/svg+xml;base64,${btoa(ICON_GROUP)}`;
+            icon.src = `data:image/svg+xml;base64,${btoa(svg.icon_group)}`;
         } else {
             icon.src = node.favIconUrl || DEFAULT_FAVICON_URL;
             icon.onerror = () => { if (icon.src !== DEFAULT_FAVICON_URL) icon.src = DEFAULT_FAVICON_URL; };
@@ -333,7 +318,7 @@ export class TabTreeView {
         } else {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
-            closeButton.innerHTML = ICON_CLOSE;
+            closeButton.innerHTML = svg.icon_close;
             closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         }
@@ -596,12 +581,12 @@ export class TabTreeView {
         };
 
         if (this.treeType === "snapshot") {
-            createItem('Restore as New Window', ICON_RESTORE, () => {
+            createItem('Restore as New Window', svg.icon_restore, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined) {
                     this.sendAction({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
                 }
             });
-            createItem('Restore to Current Window', ICON_RESTORE, () => {
+            createItem('Restore to Current Window', svg.icon_restore, () => {
                 if (state.snapshot_id !== undefined && state.window_index !== undefined && this.currentWindowId) {
                     const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: state.snapshot_id, windowIndex: state.window_index };
                     // We send a dummy target_bid and action because target_wid takes precedence in the background script.
@@ -617,13 +602,13 @@ export class TabTreeView {
                 }
             }, !this.currentWindowId);
         } else if (state.is_closed) {
-            createItem('Restore Window', ICON_RESTORE, () => this.sendAction({ type: 'restore_window', payload: { wbid: state.wbid } }));
+            createItem('Restore Window', svg.icon_restore, () => this.sendAction({ type: 'restore_window', payload: { wbid: state.wbid } }));
             createSeparator();
-            createItem('Delete State', ICON_TRASH, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
+            createItem('Delete State', svg.icon_trash, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
         } else {
-            createItem('New Group', ICON_GROUP, () => this.sendAction({ type: 'create_group', payload: { parent_bid: state.id } }));
+            createItem('New Group', svg.icon_group, () => this.sendAction({ type: 'create_group', payload: { parent_bid: state.id } }));
             createSeparator();
-            createItem('Close Window', ICON_CLOSE, () => this.sendAction({ type: 'close_window', payload: { wbid: state.wbid } }));
+            createItem('Close Window', svg.icon_close, () => this.sendAction({ type: 'close_window', payload: { wbid: state.wbid } }));
         }
     }
 
@@ -697,13 +682,13 @@ export class TabTreeView {
         if (!node) return;
 
         if (this.treeType === "snapshot") {
-            createItem('Restore as New Window', ICON_RESTORE, () => {
+            createItem('Restore as New Window', svg.icon_restore, () => {
                 const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined) {
                     this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
                 }
             });
-            createItem('Restore to Current Window', ICON_RESTORE, () => {
+            createItem('Restore to Current Window', svg.icon_restore, () => {
                 const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined && this.currentWindowId) {
                     const dragData: SnapshotDragData = {
@@ -724,48 +709,48 @@ export class TabTreeView {
                 }
             }, !this.currentWindowId);
             createSeparator();
-            createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
+            createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeId));
             return;
         }
 
         const isNodeClosed = node.isDiscarded || this.currentRenderState.is_closed;
 
         if (node.isGroup) {
-            createItem('Rename Group', ICON_EDIT, () => this.startNodeRename(nodeId));
+            createItem('Rename Group', svg.icon_edit, () => this.startNodeRename(nodeId));
             createSeparator();
         }
 
-        createItem('New Group Here', ICON_GROUP, () => {
+        createItem('New Group Here', svg.icon_group, () => {
             if (this.currentRenderState?.wbid) {
                 this.sendAction({ type: 'create_group', payload: { parent_bid: nodeId } })
             }
         });
-        createItem('Duplicate Tab', ICON_DUPLICATE, () => this.sendAction({ type: 'duplicate_tab', payload: { bid: nodeId } }));
+        createItem('Duplicate Tab', svg.icon_duplicate, () => this.sendAction({ type: 'duplicate_tab', payload: { bid: nodeId } }));
         createSeparator();
 
         if (!isNodeClosed) {
-            createItem('Load Tree', ICON_LOAD, () => this.sendAction({ type: 'reload_tree', payload: { bid: nodeId } }));
-            createItem('Unload Tab', ICON_UNLOAD, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
+            createItem('Load Tree', svg.icon_load, () => this.sendAction({ type: 'reload_tree', payload: { bid: nodeId } }));
+            createItem('Unload Tab', svg.icon_unload, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
 
             if (node.children.length > 0) {
-                createItem('Unload Tree', ICON_UNLOAD, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
+                createItem('Unload Tree', svg.icon_unload, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
             }
             createSeparator();
         }
 
-        createItem('Close Tab Only', ICON_CLOSE, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
+        createItem('Close Tab Only', svg.icon_close, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
         if (node.children.length > 0) {
-            createItem('Close Tree', ICON_TREE, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
+            createItem('Close Tree', svg.icon_tree, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
         }
-        createItem('Move to New Window', ICON_WINDOW, () => this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
+        createItem('Move to New Window', svg.icon_window, () => this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
         createSeparator();
 
         if (node.children.length > 0) {
-            createItem('Flatten Immediate Children', ICON_FLATTEN_IMMEDIATE, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
-            createItem('Flatten Tree', ICON_FLATTEN_TREE, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
+            createItem('Flatten Immediate Children', svg.icon_flatten_immediate, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
+            createItem('Flatten Tree', svg.icon_flatten_tree, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
             createSeparator();
         }
 
-        createItem('Copy URL', ICON_COPY, () => this.copyUrl(nodeId));
+        createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeId));
     }
 }
