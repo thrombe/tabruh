@@ -609,13 +609,8 @@ class App {
                 break;
             case 'app_request':
                 switch (event.payload.message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'get_user_config':
-                    case 'get_snapshots':
-                    case 'get_state_for_snapshot_window':
                     case 'export_data':
+
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
                         break;
@@ -698,7 +693,6 @@ class App {
                     case 'tab_activated':
                     case 'window_created':
                     case 'window_removed':
-                        this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
                     case 'sessions_changed':
@@ -711,13 +705,7 @@ class App {
                 break;
             case 'app_request':
                 switch (event.payload.message.type) {
-                    case 'get_state_for_window':
-                    case 'get_state_for_group_view':
-                    case 'get_all_window_states':
-                    case 'get_user_config':
-                    case 'get_snapshots':
                     case 'export_data':
-                    case 'get_state_for_snapshot_window':
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
                         break;
@@ -752,7 +740,6 @@ class App {
                     case 'handle_snapshot_drop':
                     case 'toggle_snapshot_collapse':
                     case 'toggle_snapshot_window_collapse':
-                        this._broadcast({ type: 'render_all', payload: {} });
                         break;
 
                     case 'load_bruh_export':
@@ -862,33 +849,6 @@ class App {
             case 'app_request': {
                 const msg = event.payload.message;
                 switch (msg.type) {
-                    case 'get_state_for_window': {
-                        const wid = msg.payload.wid;
-                        if (!this.state.window_bids.has(wid)) {
-                            return;
-                        }
-                        const wbid = this.state.window_bids.get(wid)!;
-                        const state = this.state.build_ui_state_for_render(wbid);
-                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                    } break;
-                    case 'get_all_window_states': {
-                        const states = this.state.nodes
-                            .values()
-                            .filter(n => n.type == "window")
-                            .map(n => this.state.build_ui_state_for_render(n.wbid));
-                        this._post(event.payload.port, { type: 'all_states_update', payload: { states: [...states] } });
-                    } break;
-                    case 'get_state_for_group_view': {
-                        const root = this.state.get_tab(msg.payload.bid);
-                        const state = this.state.build_ui_state_for_render(root.wbid, root.bid);
-                        this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                    } break;
-                    case 'get_user_config': {
-                        this._post(event.payload.port, { type: 'user_config_update', payload: { config: this.state.user_config } });
-                    } break;
-                    case 'get_snapshots': {
-                        this._post(event.payload.port, { type: 'snapshots_list_update', payload: { snapshots: this.state.snapshots } });
-                    } break;
                     case 'export_data': {
                         const data = this.state.get_export_data(true);
                         const jsonData = JSON.stringify(data, null, 2);
@@ -901,13 +861,6 @@ class App {
                         let _ = await browser.downloads.download({ url, filename, saveAs: true });
 
                         setTimeout(() => URL.revokeObjectURL(url), 5000);
-                    } break;
-                    case 'get_state_for_snapshot_window': {
-                        const { snapshot_id, window_index } = msg.payload;
-                        const state = this.state.build_ui_state_for_snapshot_window(snapshot_id, window_index);
-                        if (state) {
-                            this._post(event.payload.port, { type: 'state_update', payload: { state } });
-                        }
                     } break;
                     case 'convert_sideberry_export': {
                         const data = State.convert_sideberry_export_to_bruh(msg.payload.data);

@@ -144,27 +144,6 @@ class OverviewPage {
                     case 'initial_state': {
                         this.state = State.from_clonable_state(message.payload.payload);
                     } break;
-                    case 'all_states_update': {
-                        if (this.viewMode === 'overview') {
-                            this.renderOverviewLayout(message.payload.payload.states);
-                        }
-                        break;
-                    }
-                    case 'state_update': {
-                        if (this.viewMode === 'group') {
-                            document.title = message.payload.payload.state.name;
-                            this.renderGroupLayout(message.payload.payload.state);
-                        } else {
-                            // This can happen if a RENAME action triggers a RENDER_ALL, but the background only sends a STATE_UPDATE for the affected window.
-                            // To ensure correct sorting, we should just refresh everything.
-                            this.requestInitialState();
-                        }
-                    } break;
-                    case 'render_all': {
-                        if (!this.action) {
-                            this.requestInitialState();
-                        }
-                    } break;
                     case 'converted_sideberry_export_ready': {
                         this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
                         alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');

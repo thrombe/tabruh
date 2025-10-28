@@ -5,8 +5,6 @@ import type {
     Node,
     TabId,
     HierarchyGenerationId,
-    UiNode,
-    UiStateForRender,
     WindowId,
     BruhId,
     NodeStorageData,
@@ -932,123 +930,6 @@ export class State {
             return effect;
         }
         return null;
-    }
-
-    build_ui_state_for_render(wbid: BruhId, root_bid?: BruhId): UiStateForRender {
-        const win = this.get_window(wbid);
-
-        const root_bids: BruhId[] = [];
-        const uiTree: Map<BruhId, UiNode> = new Map();
-
-        const rootId = root_bid || wbid;
-        let nodeIdsToIterate: BruhId[];
-        if (root_bid) {
-            nodeIdsToIterate = this.get_subtree(root_bid).slice(1);
-        } else {
-            nodeIdsToIterate = win.tab_bids;
-        }
-
-        for (const bruhId of nodeIdsToIterate) {
-            const node = this.get_tab(bruhId);
-            const win = this.get_window(node.wbid);
-
-            uiTree.set(node.bid, {
-                id: node.bid,
-                tid: this.tab_ids.get(node.bid),
-                tab_index: this.get_index(node.bid),
-                title: this.get_node_name(node.bid),
-                url: this.get_node_url(node.bid),
-                favIconUrl: node.type == "tab" ? node.fav_icon_url : undefined,
-                isGroup: node.type === 'group',
-                isDiscarded: node.discarded,
-                isActive: win.active === node.bid,
-                isCollapsed: node.collapsed,
-                children: this.get_immediate_children(node.bid),
-            });
-
-            if (node.parent_bid === rootId) {
-                root_bids.push(node.bid);
-            }
-        }
-
-        const rootNode = this.get_node(rootId);
-        if (rootNode.type == "tab") throw new Error(`root_bid ${rootId} expected to be 'window' or 'group'`);
-
-        return {
-            id: rootNode.bid,
-            wbid: wbid,
-            name: rootNode.name.name,
-            is_custom_named: rootNode.name.is_custom,
-            is_closed: win.closed,
-            generation: rootNode.name.generation,
-            tree: uiTree,
-            root_bids,
-        };
-    }
-
-    build_ui_state_for_snapshot_window(snapshot_id: string, window_index: number): UiStateForRender | null {
-        const snapshot = this.snapshots.find(s => s.id === snapshot_id);
-        if (!snapshot) return null;
-
-        const winData = snapshot.data.windows[window_index];
-        if (!winData) return null;
-
-        const uiTree: Map<BruhId, UiNode> = new Map();
-        const root_bids: BruhId[] = [];
-
-        // We need fake BruhIds for the nodes. Let's just use array indices.
-        const fakeWindowBid = -1 as BruhId;
-
-        for (let i = 0; i < winData.tabs.length; i++) {
-            const tabData = winData.tabs[i]!;
-            const fakeTabBid = i as BruhId;
-
-            const isGroup = this.parse_group_url_id(tabData.url) !== null;
-
-            uiTree.set(fakeTabBid, {
-                id: fakeTabBid,
-                tab_index: i,
-                title: tabData.title,
-                url: tabData.url,
-                isGroup: isGroup,
-                isDiscarded: false,
-                isActive: false,
-                isCollapsed: tabData.collapsed ?? false,
-                children: [], // We'll populate this next
-            });
-
-            if (tabData.parent_index === null) {
-                root_bids.push(fakeTabBid);
-            }
-        }
-
-        // Populate children arrays
-        for (let i = 0; i < winData.tabs.length; i++) {
-            const tabData = winData.tabs[i]!;
-            const parentIndex = tabData.parent_index;
-
-            if (parentIndex !== null) {
-                const parentUiNode = uiTree.get(parentIndex as BruhId);
-                if (parentUiNode) {
-                    parentUiNode.children.push(i as BruhId);
-                }
-            }
-        }
-
-        return {
-            id: fakeWindowBid,
-            wbid: fakeWindowBid,
-            name: winData.name || "Unnamed Window",
-            is_custom_named: !!winData.name,
-            is_closed: false,
-            generation: 0,
-            tree: uiTree,
-            root_bids,
-            collapsed: winData.collapsed ?? false,
-            is_read_only: true,
-            snapshot_id: snapshot_id,
-            window_index: window_index,
-        };
     }
 
     serialize_state() {
