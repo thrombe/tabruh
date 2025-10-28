@@ -14,6 +14,8 @@ import type {
     ConfigStorage,
     StateEffect,
     ExtensionAction,
+    ClonableState,
+    StateEvent,
 } from './types';
 import * as utils from './utils';
 import { State } from './state';
@@ -24,6 +26,8 @@ class App {
     eventChannel: utils.Channel<AppEvent> = new utils.Channel();
 
     state: State;
+    clonable_state: ClonableState;
+    state_events: StateEvent[] = [];
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_state_key = "tabruh-app-state";
@@ -40,6 +44,7 @@ class App {
 
     constructor(state: State) {
         this.state = state;
+        this.clonable_state = state.clonable_state();
     }
 
     attach_listeners() {
@@ -575,6 +580,9 @@ class App {
                 this.state.nodes.set(tnode.bid, tnode);
             }
         }
+
+        this.clonable_state = this.state.clonable_state();
+        this.state_events = [];
     }
 
     _log_event(event: AppEvent) {
@@ -769,7 +777,8 @@ class App {
                         if (btab.id === undefined || btab.windowId === undefined) return;
                         const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
                         const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
-                        state_effects.push_back({
+
+                        const effect: StateEffect = {
                             type: 'tab_created',
                             payload: {
                                 old_wbid,
@@ -783,14 +792,17 @@ class App {
                                 opener_tab_id: btab.openerTabId as TabId,
                                 index: btab.index,
                             },
-                        });
+                        };
+                        state_effects.push_back(effect);
+                        this.state_events.push({ type: 'state_effect', payload: effect });
                     } break;
                     case 'tab_removed': {
                         state_effects.push_back(msg);
+                        this.state_events.push({ type: 'state_effect', payload: msg });
                     } break;
                     case 'tab_updated': {
                         const btab = msg.payload.tab;
-                        state_effects.push_back({
+                        const effect: StateEffect = {
                             type: 'upate_tab_info',
                             payload: {
                                 tid: btab.id as TabId,
@@ -799,41 +811,52 @@ class App {
                                 title: btab.title,
                                 discarded: btab.discarded,
                             },
-                        });
+                        };
+                        state_effects.push_back(effect);
+                        this.state_events.push({ type: 'state_effect', payload: effect });
                     } break;
                     case 'tab_moved': {
                         state_effects.push_back(msg);
+                        this.state_events.push({ type: 'state_effect', payload: msg });
                     } break;
                     case 'tab_attached': {
                         state_effects.push_back(msg);
+                        this.state_events.push({ type: 'state_effect', payload: msg });
                     } break;
                     case 'tab_detached': {
                         // we just rely on 'tab_attached' to do the state changes for detach too
                     } break;
                     case 'tab_activated': {
                         state_effects.push_back(msg);
+                        this.state_events.push({ type: 'state_effect', payload: msg });
                     } break;
                     case 'window_created': {
                         const bwin = msg.payload.win;
                         if (bwin.id === undefined) return;
                         const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
-                        state_effects.push_back({ type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } });
+                        const effect: StateEffect = { type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } };
+                        state_effects.push_back(effect);
+                        this.state_events.push({ type: 'state_effect', payload: effect });
                     } break;
                     case 'window_removed': {
                         state_effects.push_back(msg);
+                        this.state_events.push({ type: 'state_effect', payload: msg });
                     } break;
                     case 'window_focus_changed': {
                         // nothing to do
                     } break;
                     case 'sessions_changed': {
                         const sessions = await browser.sessions.getRecentlyClosed();
-                        state_effects.push_back({ type: 'sessions_changed', payload: { sessions } });
+                        const effect: StateEffect = { type: 'sessions_changed', payload: { sessions } };
+                        state_effects.push_back(effect);
+                        this.state_events.push({ type: 'state_effect', payload: effect });
                     } break;
                     default:
                         throw utils.exhausted(msg);
                 }
             } break;
             case 'state_action': {
+                this.state_events.push({ type: event.type, payload: event.payload.message });
                 this.state.handle_action(event.payload.message, app_effects);
             } break;
             case 'app_request': {
