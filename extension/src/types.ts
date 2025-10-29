@@ -250,6 +250,7 @@ export type StateEffect =
     | { type: 'sessions_changed', payload: { sessions: Awaited<ReturnType<typeof browser.sessions.getRecentlyClosed>> } }
     | Extract<BrowserEvent, { type: 'tab_activated' }>
     | Extract<BrowserEvent, { type: 'tab_attached' }>
+    | Extract<BrowserEvent, { type: 'tab_detached' }>
     | Extract<BrowserEvent, { type: 'tab_moved' }>
     | Extract<BrowserEvent, { type: 'tab_removed' }>
     | { type: 'window_created', payload: { old_wbid: BruhId | undefined, wid: WindowId } }

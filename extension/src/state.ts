@@ -1287,15 +1287,37 @@ export class State {
                 const win = this.get_window(wbid);
                 win.active = tbid;
             } break;
+            case 'tab_detached': {
+                // const msg = effect.payload;
+                // const wid = msg.detach_info.oldWindowId as WindowId;
+                // if (!this.window_bids.has(wid)) return;
+                // const wbid = this.window_bids.get(wid)!;
+                // const tbid = this.tab_bids.get(msg.tid)!;
+                // const win = this.get_window(wbid);
+                // const node = this.get_tab(tbid);
+                // this.remove_tab_from_window(node.bid, win.bid);
+
+                // if (win.tab_bids.length == 0) {
+                //     // TODO: maybe save this thing in cache
+                //     let _ = this.remove_node(win.bid);
+                // }
+            } break;
             case 'tab_attached': {
                 const msg = effect.payload;
                 if (!this.tab_bids.has(msg.tid)) return;
+                const wid = msg.attach_info.newWindowId as WindowId;
+                if (!this.window_bids.has(wid)) {
+                    let new_win_effect = this.create_new_window({});
+                    const e = this.register_bwindow(wid, new_win_effect.payload.wbid);
+                    app_effects.push_back(e);
+                }
                 const tbid = this.tab_bids.get(msg.tid)!;
                 const node = this.get_tab(tbid);
-                const wbid = this.window_bids.get(msg.attach_info.newWindowId as WindowId)!;
-                const current_index = this.get_index(tbid);
-                if (node.wbid == wbid && current_index == msg.attach_info.newPosition) return;
-                this.add_tab_to_window(node.bid, wbid, msg.attach_info.newPosition);
+                const wbid = this.window_bids.get(wid)!;
+                if (node.wbid != wbid) {
+                    let e = this.reparent_node(node.bid, wbid, msg.attach_info.newPosition);
+                    app_effects.push_back(e);
+                }
             } break;
             case 'tab_moved': {
                 const msg = effect.payload;

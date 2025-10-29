@@ -737,7 +737,8 @@ class App {
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_detached': {
-                        // we just rely on 'tab_attached' to do the state changes for detach too
+                        state_effects.push_back(msg);
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_activated': {
                         state_effects.push_back(msg);
