@@ -28,8 +28,6 @@ class App {
     event_channel: utils.Channel<AppEvent> = new utils.Channel();
 
     state: State;
-    clonable_state: ClonableState;
-    state_events: StateEvent[] = [];
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_state_key = "tabruh-app-state";
@@ -46,7 +44,6 @@ class App {
 
     constructor(state: State) {
         this.state = state;
-        this.clonable_state = state.clonable_state();
     }
 
     attach_listeners() {
@@ -586,9 +583,6 @@ class App {
                 this.state.nodes.set(tnode.bid, tnode);
             }
         }
-
-        this.clonable_state = this.state.clonable_state();
-        this.state_events = [];
     }
 
     _log_event(event: AppEvent) {
@@ -713,12 +707,10 @@ class App {
                             },
                         };
                         state_effects.push_back(effect);
-                        this.state_events.push({ type: 'state_effect', payload: effect });
                         this._broadcast_state_effect(effect);
                     } break;
                     case 'tab_removed': {
                         state_effects.push_back(msg);
-                        this.state_events.push({ type: 'state_effect', payload: msg });
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_updated': {
@@ -734,17 +726,14 @@ class App {
                             },
                         };
                         state_effects.push_back(effect);
-                        this.state_events.push({ type: 'state_effect', payload: effect });
                         this._broadcast_state_effect(effect);
                     } break;
                     case 'tab_moved': {
                         state_effects.push_back(msg);
-                        this.state_events.push({ type: 'state_effect', payload: msg });
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_attached': {
                         state_effects.push_back(msg);
-                        this.state_events.push({ type: 'state_effect', payload: msg });
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_detached': {
@@ -752,7 +741,6 @@ class App {
                     } break;
                     case 'tab_activated': {
                         state_effects.push_back(msg);
-                        this.state_events.push({ type: 'state_effect', payload: msg });
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'window_created': {
@@ -761,12 +749,10 @@ class App {
                         const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
                         const effect: StateEffect = { type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } };
                         state_effects.push_back(effect);
-                        this.state_events.push({ type: 'state_effect', payload: effect });
                         this._broadcast_state_effect(effect);
                     } break;
                     case 'window_removed': {
                         state_effects.push_back(msg);
-                        this.state_events.push({ type: 'state_effect', payload: msg });
                         this._broadcast_state_effect(msg);
                     } break;
                     case 'window_focus_changed': {
@@ -776,7 +762,6 @@ class App {
                         const sessions = await browser.sessions.getRecentlyClosed();
                         const effect: StateEffect = { type: 'sessions_changed', payload: { sessions } };
                         state_effects.push_back(effect);
-                        this.state_events.push({ type: 'state_effect', payload: effect });
                         this._broadcast_state_effect(effect);
                     } break;
                     default:
@@ -784,7 +769,6 @@ class App {
                 }
             } break;
             case 'state_action': {
-                this.state_events.push({ type: event.type, payload: event.payload.message });
                 this.state.handle_action(event.payload.message, app_effects);
                 this._broadcast_state_action(event.payload.message);
             } break;
@@ -811,9 +795,6 @@ class App {
                     case 'get_initial_state': {
                         const data = this.state.clonable_state();
                         this._post(event.payload.port, { type: 'app_response', payload: { type: 'initial_state', payload: data } });
-                        for (const e of this.state_events) {
-                            this._post(event.payload.port, e);
-                        }
                         this.state_listeners.add(event.payload.port);
                     } break;
                     default:
@@ -866,7 +847,6 @@ class App {
 
                 const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: node.bid } };
                 state_effects.push_back(e);
-                this.state_events.push({ type: 'state_effect', payload: e });
                 this._broadcast_state_effect(e);
             } break;
             case 'tab_focused': {
@@ -928,14 +908,12 @@ class App {
 
                     const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: active } };
                     state_effects.push_back(e);
-                    this.state_events.push({ type: 'state_effect', payload: e });
                     this._broadcast_state_effect(e);
                 }
                 await this.write_session_pointer(win.bid, bwin.id as WindowId, "window");
 
                 const e: StateEffect = { type: 'register_window', payload: { wid: bwin.id as WindowId, bid: win.bid } };
                 state_effects.push_back(e);
-                this.state_events.push({ type: 'state_effect', payload: e });
                 this._broadcast_state_effect(e);
 
                 let i = 0;
@@ -958,7 +936,6 @@ class App {
 
                         const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: tbid } };
                         state_effects.push_back(e);
-                        this.state_events.push({ type: 'state_effect', payload: e });
                         this._broadcast_state_effect(e);
                     }
                     i += 1;
