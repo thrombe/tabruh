@@ -147,7 +147,7 @@ class OverviewPage {
                         this.state = State.from_clonable_state(message.payload.payload);
                     } break;
                     case 'converted_sideberry_export_ready': {
-                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
+                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
                         alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
                         window.close();
                     } break;

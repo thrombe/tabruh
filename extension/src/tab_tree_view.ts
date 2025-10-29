@@ -125,7 +125,7 @@ export class TabTreeView {
     private renderNode(nodeId: BruhId, state: State, childrenMap: Map<BruhId, BruhId[]>, options: RenderOptions): HTMLDivElement {
         const node = state.get_node(nodeId)!;
         const nodeWrapper = document.createElement('div');
-        nodeWrapper.dataset.nodeId = String(node.id);
+        nodeWrapper.dataset.nodeId = String(node.bid);
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
@@ -151,7 +151,7 @@ export class TabTreeView {
                 }
             });
         }
-        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.id); });
+        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, node.bid); });
 
         nodeElement.addEventListener('dragstart', (event) => {
             event.stopPropagation();
@@ -165,10 +165,10 @@ export class TabTreeView {
                     tabIndex: tab_index,
                 };
             } else {
-                const movedNodeIds = this.getNodeSubtreeIds(node.id, state);
+                const movedNodeIds = this.getNodeSubtreeIds(node.bid, state);
                 dragData = {
                     type: 'tabs',
-                    draggedNodeId: node.id,
+                    draggedNodeId: node.bid,
                     sourceWindowId: node.wbid,
                     movedNodeIds,
                 };
@@ -208,7 +208,7 @@ export class TabTreeView {
                 const dragDataStr = event.dataTransfer?.getData('application/json');
                 if (dragDataStr) {
                     const dragData: DragData = JSON.parse(dragDataStr);
-                    if (dragData.type === 'tabs' && dragData.movedNodeIds.includes(node.id)) {
+                    if (dragData.type === 'tabs' && dragData.movedNodeIds.includes(node.bid)) {
                         return;
                     }
                 }
@@ -253,17 +253,17 @@ export class TabTreeView {
                 this.currentDragData = null;
 
                 if (dragData.type === 'snapshot_item') {
-                    this.sendAction({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                    this.sendAction({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.bid, action } });
                 } else if ((dragData.type === 'tabs' || dragData.type === 'window')) {
                     const movedNodeIds = state.get_subtree(dragData.draggedNodeId);
-                    if (!movedNodeIds.includes(node.id)) {
-                        this.sendAction({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                    if (!movedNodeIds.includes(node.bid)) {
+                        this.sendAction({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.bid, action } });
                     }
                 }
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
-                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: node.id, action } });
+                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: node.bid, action } });
             }
         });
 
@@ -278,7 +278,7 @@ export class TabTreeView {
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (this.treeType !== "snapshot") {
-                    this.sendAction({ type: 'toggle_collapse', payload: { bid: node.id } });
+                    this.sendAction({ type: 'toggle_collapse', payload: { bid: node.bid } });
                 } else {
                     if (options.snapshot_id !== undefined && options.window_index !== undefined) {
                         const tab_index = state.get_index(nodeId);
@@ -329,14 +329,14 @@ export class TabTreeView {
             menuButton.innerHTML = '&#x22EE;';
             menuButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.showContextMenu(e.clientX, e.clientY, node.id);
+                this.showContextMenu(e.clientX, e.clientY, node.bid);
             });
             nodeElement.append(collapseContainer, contentWrapper, menuButton);
         } else {
             const closeButton = document.createElement('button');
             closeButton.className = 'close-tab-button';
             closeButton.innerHTML = svg.icon_close;
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.id, recursive: false } }); });
+            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.bid, recursive: false } }); });
             nodeElement.append(collapseContainer, contentWrapper, closeButton);
         }
 
