@@ -2,23 +2,48 @@ import './settings.css';
 import browser from 'webextension-polyfill';
 import * as svg from './svg';
 import { TabTreeView } from './tab_tree_view';
-import type { AppRequest, AppResponse, BruhExport, StateAction, SideberryExport, Snapshot, UiStateForRender, UserConfig, WindowId, ExtensionAction } from './types';
+import * as utils from './utils';
+import { State } from './state';
+import type {
+    AppRequest,
+    AppResponse,
+    BruhExport,
+    StateAction,
+    SideberryExport,
+    Snapshot,
+    UserConfig,
+    WindowId,
+    ExtensionAction,
+    BruhUiEvent,
+    StateEvent,
+    StateEffect,
+    AppEffect
+} from './types';
 
 
 class SettingsPage {
     private port: browser.Runtime.Port;
     private contentContainer: HTMLElement;
     private currentView: 'settings' | 'snapshots' = 'settings';
-    private snapshots: Snapshot[] = [];
     private selectedSnapshotId: string | null = null;
-    private userConfig: UserConfig | null = null;
     private currentWindowId?: WindowId;
+
+    private state: State;
+    private ui_events: utils.Channel<BruhUiEvent>;
+    private state_effects: utils.Deque<StateEffect>;
+    private app_effects: utils.Deque<AppEffect>;
+
 
     constructor() {
         this.contentContainer = document.getElementById('content')!;
         this.port = browser.runtime.connect({ name: 'settings-page' });
 
-        this.port.onMessage.addListener(msg => this.handleMessage(msg as AppResponse));
+        this.state = new State("0.0");
+        this.ui_events = new utils.Channel();
+        this.state_effects = new utils.Deque();
+        this.app_effects = new utils.Deque();
+
+        this.port.onMessage.addListener(async msg => await this.ui_events.send(msg as BruhUiEvent));
         this.port.onDisconnect.addListener(() => console.error("Settings page disconnected."));
 
         browser.windows.getCurrent().then(win => {
@@ -34,10 +59,12 @@ class SettingsPage {
             });
         });
 
-        this.sendRequest({ type: 'get_user_config', payload: {} });
-        this.sendRequest({ type: 'get_snapshots', payload: {} });
+        this.requestInitialState();
+        this.handle_events();
+    }
 
-        this.render();
+    private requestInitialState() {
+        this.sendRequest({ type: 'get_initial_state', payload: {} });
     }
 
     private sendRequest(msg: AppRequest) {
@@ -52,29 +79,49 @@ class SettingsPage {
         this.port.postMessage(message);
     }
 
-    private handleMessage(message: AppResponse) {
+    private handle_event(event: StateEvent) {
+        this.state.handle_event(event, this.state_effects, this.app_effects);
+        while (true) {
+            const effect = this.state_effects.pop_front();
+            if (!effect) break;
+            this.state.handle_effect(effect, this.state_effects, this.app_effects);
+        }
+        this.app_effects.clear();
+    }
+
+    private async handle_events() {
+        while (true) {
+            const event = await this.ui_events.wait_recv();
+            if (!event) break;
+            this.handleMessage(event);
+            this.render();
+        }
+    }
+
+    private handleMessage(message: BruhUiEvent) {
         switch (message.type) {
-            case 'snapshots_list_update':
-                this.snapshots = message.payload.snapshots.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-                if (this.currentView === 'snapshots') {
-                    this.render();
-                }
-                break;
-            case 'user_config_update':
-                this.userConfig = message.payload.config;
-                if (this.currentView === 'settings') {
-                    this.render();
-                }
-                break;
-            case 'converted_sideberry_export_ready': {
-                this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
-                alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+            case 'state_effect': {
+                this.handle_event({ type: 'state_effect', payload: message.payload });
             } break;
-            case 'state_update':
-                if (message.payload.state.is_read_only) {
-                    this.renderSingleSnapshotWindow(message.payload.state);
+            case 'state_action': {
+                this.handle_event({ type: 'state_action', payload: message.payload });
+            } break;
+            case 'app_response': {
+                switch (message.payload.type) {
+                    case 'initial_state':
+                        this.state = State.from_clonable_state(message.payload.payload);
+                        break;
+                    case 'converted_sideberry_export_ready': {
+                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
+                        alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+                    } break;
+                    case 'snapshots_list_update':
+                        this.state.snapshots = message.payload.snapshots;
+                        break;
                 }
-                break;
+            } break;
+            default:
+                throw utils.exhausted(message);
         }
     }
 
@@ -88,7 +135,8 @@ class SettingsPage {
     }
 
     private renderSettingsView() {
-        if (!this.userConfig) return;
+        const userConfig = this.state.user_config;
+        if (!userConfig) return;
 
         const container = document.createElement('div');
         container.className = 'settings-view-container';
@@ -98,7 +146,7 @@ class SettingsPage {
                 <h2 class="settings-title">General</h2>
                 <div class="setting-item">
                     <label for="open_sidebar_on_new_windows">Open sidebar automatically on new windows</label>
-                    <input type="checkbox" id="open_sidebar_on_new_windows" ${this.userConfig.open_sidebar_on_new_windows ? 'checked' : ''}>
+                    <input type="checkbox" id="open_sidebar_on_new_windows" ${userConfig.open_sidebar_on_new_windows ? 'checked' : ''}>
                 </div>
             </div>
             <div class="settings-section">
@@ -122,15 +170,15 @@ class SettingsPage {
                 <h2 class="settings-title">Debugging</h2>
                 <div class="setting-item">
                     <label for="dbg_reset_state_on_load">Reset state on every extension load (DANGEROUS)</label>
-                    <input type="checkbox" id="dbg_reset_state_on_load" ${this.userConfig.dbg_reset_state_on_load ? 'checked' : ''}>
+                    <input type="checkbox" id="dbg_reset_state_on_load" ${userConfig.dbg_reset_state_on_load ? 'checked' : ''}>
                 </div>
                 <div class="setting-item">
                     <label for="dbg_log_events">Log browser events to console</label>
-                    <input type="checkbox" id="dbg_log_events" ${this.userConfig.dbg_log_events ? 'checked' : ''}>
+                    <input type="checkbox" id="dbg_log_events" ${userConfig.dbg_log_events ? 'checked' : ''}>
                 </div>
                 <div class="setting-item">
                     <label for="dbg_log_effects">Log extension effects to console</label>
-                    <input type="checkbox" id="dbg_log_effects" ${this.userConfig.dbg_log_effects ? 'checked' : ''}>
+                    <input type="checkbox" id="dbg_log_effects" ${userConfig.dbg_log_effects ? 'checked' : ''}>
                 </div>
             </div>
         `;
@@ -138,7 +186,7 @@ class SettingsPage {
         container.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             checkbox.addEventListener('change', (e) => {
                 const target = e.target as HTMLInputElement;
-                this.sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } } });
+                this.sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } as Partial<UserConfig> } });
             });
         });
 
@@ -188,7 +236,8 @@ class SettingsPage {
         header.appendChild(buttonGroup);
         listPane.appendChild(header);
 
-        this.snapshots.forEach(snapshot => {
+        const snapshots = [...this.state.snapshots].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        snapshots.forEach(snapshot => {
             const item = document.createElement('div');
             item.className = 'snapshot-item';
             if (snapshot.id === this.selectedSnapshotId) item.classList.add('selected');
@@ -214,7 +263,7 @@ class SettingsPage {
             listPane.appendChild(item);
         });
 
-        const selectedSnapshot = this.snapshots.find(s => s.id === this.selectedSnapshotId);
+        const selectedSnapshot = snapshots.find(s => s.id === this.selectedSnapshotId);
         if (selectedSnapshot) {
             this.renderSnapshotDetail(detailPane, selectedSnapshot);
         } else {
@@ -270,34 +319,28 @@ class SettingsPage {
 
     private renderSnapshotDetail(container: HTMLElement, snapshot: Snapshot) {
         container.innerHTML = '';
-        snapshot.data.windows.forEach((_, windowIndex) => {
+        snapshot.data.windows.forEach((windowData, windowIndex) => {
             const viewContainer = document.createElement('div');
             viewContainer.className = 'snapshot-window-view';
-            viewContainer.dataset.snapshotId = snapshot.id;
-            viewContainer.dataset.windowIndex = String(windowIndex);
-            viewContainer.innerHTML = '<div>Loading...</div>';
             container.appendChild(viewContainer);
 
-            this.sendRequest({
-                type: 'get_state_for_snapshot_window',
-                payload: { snapshot_id: snapshot.id, window_index: windowIndex }
+            const tempState = new State("snapshot-viewer");
+            tempState.load_export_data({
+                ...snapshot.data,
+                windows: [windowData],
             });
+
+            const loadedWindow = Array.from(tempState.nodes.values()).find(n => n.type === 'window');
+
+            if (loadedWindow) {
+                const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
+                treeView.render(tempState, loadedWindow.bid, {
+                    is_read_only: true,
+                    snapshot_id: snapshot.id,
+                    window_index: windowIndex,
+                });
+            }
         });
-    }
-
-    private renderSingleSnapshotWindow(state: UiStateForRender) {
-        const { snapshot_id, window_index } = state;
-        if (snapshot_id === undefined || window_index === undefined) return;
-
-        const viewContainer = this.contentContainer.querySelector<HTMLElement>(
-            `.snapshot-window-view[data-snapshot-id="${snapshot_id}"][data-window-index="${window_index}"]`
-        );
-
-        if (viewContainer) {
-            viewContainer.innerHTML = '';
-            const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
-            treeView.render(state);
-        }
     }
 
 

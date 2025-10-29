@@ -14,6 +14,7 @@ import type {
     StateEffect,
     AppEffect,
     BruhUiEvent,
+    WindowData,
 } from './types';
 import { State } from './state';
 
@@ -25,7 +26,7 @@ class OverviewPage {
 
     private port: browser.Runtime.Port | null = null;
     private container: HTMLElement;
-    private views: Map<number, TabTreeView> = new Map();
+    private views: Map<BruhId, TabTreeView> = new Map();
     private viewMode: 'overview' | 'group' = 'overview';
     private groupViewNodeId?: BruhId;
     private hasConnected = false;
@@ -128,16 +129,17 @@ class OverviewPage {
             const event = await this.ui_events.wait_recv();
             if (!event) break;
             this.handleMessage(event);
+            this.render();
         }
     }
 
     private handleMessage(message: BruhUiEvent) {
         switch (message.type) {
             case 'state_effect': {
-                this.state.handle_effect(message.payload, this.state_effects, this.app_effects);
+                this.handle_event({ type: 'state_effect', payload: message.payload });
             } break;
             case 'state_action': {
-                this.state.handle_action(message.payload, this.app_effects);
+                this.handle_event({ type: 'state_action', payload: message.payload });
             } break;
             case 'app_response': {
                 switch (message.payload.type) {
@@ -145,10 +147,13 @@ class OverviewPage {
                         this.state = State.from_clonable_state(message.payload.payload);
                     } break;
                     case 'converted_sideberry_export_ready': {
-                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
+                        this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.data } });
                         alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
                         window.close();
                     } break;
+                    case 'snapshots_list_update':
+                        // overview page does not care about this
+                        break;
                 }
             } break;
             default:
@@ -160,47 +165,59 @@ class OverviewPage {
         this.sendRequest({ type: 'get_initial_state', payload: {} });
     }
 
-    private sortWindowStates(states: UiStateForRender[]): UiStateForRender[] {
-        return states.sort((a, b) => {
-            if (a.is_closed !== b.is_closed) {
-                return a.is_closed ? 1 : -1;
+    private render() {
+        if (this.action === 'import') {
+            return;
+        }
+        if (this.viewMode === 'group' && this.groupViewNodeId) {
+            const groupNode = this.state.nodes.get(this.groupViewNodeId);
+            if (groupNode) {
+                this.renderGroupLayout(groupNode.bid);
             }
-            if (a.is_custom_named !== b.is_custom_named) {
-                return a.is_custom_named ? -1 : 1;
-            }
-            return a.generation - b.generation;
-        });
-    }
-
-    private renderOverviewLayout(states: UiStateForRender[]) {
-        this.container.innerHTML = '';
-        this.views.clear();
-        const sortedStates = this.sortWindowStates(states);
-
-        for (const state of sortedStates) {
-            this.addOrUpdateStateView(state);
+        } else {
+            const windowNodes = (Array.from(this.state.nodes.values())
+                .filter(n => n.type === 'window') as WindowData[])
+                .sort((a, b) => {
+                    if (a.closed !== b.closed) {
+                        return a.closed ? 1 : -1;
+                    }
+                    if (a.name.is_custom !== b.name.is_custom) {
+                        return a.name.is_custom ? -1 : 1;
+                    }
+                    return a.name.generation - b.name.generation;
+                });
+            this.renderOverviewLayout(windowNodes);
         }
     }
 
-    private renderGroupLayout(state: UiStateForRender) {
+    private renderOverviewLayout(windowNodes: WindowData[]) {
         this.container.innerHTML = '';
         this.views.clear();
-        this.addOrUpdateStateView(state);
+
+        for (const node of windowNodes) {
+            this.addOrUpdateStateView(node.bid);
+        }
     }
 
-    private addOrUpdateStateView(state: UiStateForRender) {
-        let view = this.views.get(state.id);
+    private renderGroupLayout(nodeId: BruhId) {
+        this.container.innerHTML = '';
+        this.views.clear();
+        this.addOrUpdateStateView(nodeId);
+    }
+
+    private addOrUpdateStateView(nodeId: BruhId) {
+        let view = this.views.get(nodeId);
         if (!view) {
             const windowViewWrapper = document.createElement('div');
             windowViewWrapper.className = 'window-view';
-            windowViewWrapper.dataset.stateId = state.id.toString();
+            windowViewWrapper.dataset.stateId = nodeId.toString();
             this.container.appendChild(windowViewWrapper);
             if (!this.port) return;
             const viewType = this.viewMode === 'group' ? 'group' : 'window';
             view = new TabTreeView(windowViewWrapper, this.port, "overview", viewType);
-            this.views.set(state.id, view);
+            this.views.set(nodeId, view);
         }
-        view.render(state);
+        view.render(this.state, nodeId);
     }
 
     private handleImport() {

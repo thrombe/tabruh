@@ -12,12 +12,17 @@ import type {
     SnapshotDragData,
     ExtensionAction,
     StateAction,
-    StateEffect,
-    AppEffect,
-    StateEvent,
+    Node,
+    WindowData,
 } from './types';
 
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(svg.default_favicon)}`;
+
+type RenderOptions = {
+    is_read_only?: boolean,
+    snapshot_id?: string,
+    window_index?: number,
+};
 
 export class TabTreeView {
     private container: HTMLElement;
@@ -26,6 +31,7 @@ export class TabTreeView {
     private treeType: "sidebar" | "overview" | "snapshot";
     private viewType: 'window' | 'group';
     private currentWindowId?: WindowId;
+    private currentState?: { state: State, rootId: BruhId, options: RenderOptions };
 
     constructor(
         container: HTMLElement,
@@ -58,18 +64,22 @@ export class TabTreeView {
         }
     }
 
-    public render(state: UiStateForRender) {
-        this.currentRenderState = state;
+    public render(state: State, rootId: BruhId, options: RenderOptions = {}) {
+        this.currentState = { state, rootId, options };
         this.container.innerHTML = '';
-        if (state.is_closed && this.treeType !== "snapshot") {
+
+        const rootNode = state.get_node(rootId);
+        const is_closed = state.is_node_closed(rootId);
+
+        if (is_closed && this.treeType !== "snapshot") {
             this.container.classList.add('closed-group');
         } else {
             this.container.classList.remove('closed-group');
         }
 
-        this.container.appendChild(this.renderHeader(state));
+        this.container.appendChild(this.renderHeader(state, rootNode, is_closed, options));
 
-        if (state.collapsed) return;
+        if (rootNode.collapsed && this.treeType !== 'sidebar') return;
 
         const treeContainer = document.createElement('div');
         treeContainer.className = 'tab-tree-scroll-container';
@@ -77,48 +87,34 @@ export class TabTreeView {
         const rootContainer = document.createElement('div');
         rootContainer.className = 'flex flex-col';
 
-        for (const rootId of state.root_bids) {
-            const nodeElement = this.renderNode(rootId, state);
+        const childrenMap = new Map<BruhId, BruhId[]>();
+        const window = state.get_window(rootNode.wbid);
+        for (const tbid of window.tab_bids) {
+            const tab = state.get_tab(tbid);
+            if (!childrenMap.has(tab.parent_bid)) {
+                childrenMap.set(tab.parent_bid, []);
+            }
+            childrenMap.get(tab.parent_bid)!.push(tbid);
+        }
+
+        const rootChildren = childrenMap.get(rootId) || [];
+        for (const childId of rootChildren) {
+            const nodeElement = this.renderNode(childId, state, childrenMap, options);
             rootContainer.appendChild(nodeElement);
         }
         treeContainer.appendChild(rootContainer);
 
-        treeContainer.appendChild(this.renderAddButton(state));
+        treeContainer.appendChild(this.renderAddButton(state, rootId));
 
         this.container.appendChild(treeContainer);
     }
 
-    private getNodeSubtreeIds(rootId: BruhId, tree: Map<BruhId, UiNode>): BruhId[] {
-        const subtreeIds: BruhId[] = [];
-        const queue: BruhId[] = [rootId];
-        const visited = new Set<BruhId>();
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            if (visited.has(currentId)) continue;
-            visited.add(currentId);
-            subtreeIds.push(currentId);
-            const node = tree.get(currentId);
-            if (node) {
-                queue.push(...node.children);
-            }
-        }
-        return subtreeIds;
+    private getNodeSubtreeIds(rootId: BruhId, state: State): BruhId[] {
+        return state.get_subtree(rootId);
     }
 
-    private countAllDescendants(nodeId: BruhId, tree: Map<BruhId, UiNode>): number {
-        const node = tree.get(nodeId);
-        if (!node) return 0;
-        let count = 0;
-        const queue = [...node.children];
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            count++;
-            const currentNode = tree.get(currentId);
-            if (currentNode && currentNode.children.length > 0) {
-                queue.push(...currentNode.children);
-            }
-        }
-        return count;
+    private countAllDescendants(nodeId: BruhId, state: State): number {
+        return state.get_subtree(nodeId).length - 1;
     }
 
     private getUrlFromDataTransfer(dataTransfer: DataTransfer): string | null {
@@ -126,30 +122,32 @@ export class TabTreeView {
         return url ? url.trim() : null;
     }
 
-    private renderNode(nodeId: BruhId, state: UiStateForRender): HTMLDivElement {
-        const { tree, is_closed } = state;
-        const node = tree.get(nodeId)!;
+    private renderNode(nodeId: BruhId, state: State, childrenMap: Map<BruhId, BruhId[]>, options: RenderOptions): HTMLDivElement {
+        const node = state.get_node(nodeId)!;
         const nodeWrapper = document.createElement('div');
         nodeWrapper.dataset.nodeId = String(node.id);
 
         const nodeElement = document.createElement('div');
         nodeElement.className = 'tree-node';
-        if (node.isGroup) {
+        if (node.type === 'group') {
             nodeElement.classList.add('group-node');
         }
         nodeElement.draggable = true;
 
-        if ((node.isDiscarded || is_closed) && this.treeType !== "snapshot") nodeElement.classList.add('discarded-tab');
-        if (node.isActive && this.treeType !== "snapshot") nodeElement.classList.add('focused-tab');
+        const is_closed = state.is_node_closed(nodeId);
+        const window = state.get_window(node.wbid);
+
+        if ((node.type !== 'window' && node.discarded || is_closed) && this.treeType !== "snapshot") nodeElement.classList.add('discarded-tab');
+        if (window.active === node.bid && this.treeType !== "snapshot") nodeElement.classList.add('focused-tab');
 
         if (this.treeType !== "snapshot") {
             if (!is_closed) {
-                nodeElement.addEventListener('click', () => this.sendAction({ type: 'focus_tab', payload: { bid: node.id } }));
+                nodeElement.addEventListener('click', () => this.sendAction({ type: 'focus_tab', payload: { bid: node.bid } }));
             }
             nodeElement.addEventListener('mousedown', (event) => {
                 if (event.button === 1) {
                     event.preventDefault();
-                    this.sendAction({ type: 'close_tabs', payload: { bid: node.id, recursive: false } });
+                    this.sendAction({ type: 'close_tabs', payload: { bid: node.bid, recursive: false } });
                 }
             });
         }
@@ -158,19 +156,20 @@ export class TabTreeView {
         nodeElement.addEventListener('dragstart', (event) => {
             event.stopPropagation();
             let dragData: DragData;
-            if (state.is_read_only) {
+            const tab_index = window.tab_bids.indexOf(node.bid);
+            if (options.is_read_only) {
                 dragData = {
                     type: 'snapshot_item',
-                    snapshotId: state.snapshot_id!,
-                    windowIndex: state.window_index!,
-                    tabIndex: node.tab_index,
+                    snapshotId: options.snapshot_id!,
+                    windowIndex: options.window_index!,
+                    tabIndex: tab_index,
                 };
             } else {
-                const movedNodeIds = this.getNodeSubtreeIds(node.id, tree);
+                const movedNodeIds = this.getNodeSubtreeIds(node.id, state);
                 dragData = {
                     type: 'tabs',
                     draggedNodeId: node.id,
-                    sourceWindowId: state.wbid,
+                    sourceWindowId: node.wbid,
                     movedNodeIds,
                 };
             }
@@ -244,7 +243,7 @@ export class TabTreeView {
             delete nodeElement.dataset.dropAction;
 
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !state.wbid) return;
+            if (!dataTransfer || !this.currentState) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -255,8 +254,11 @@ export class TabTreeView {
 
                 if (dragData.type === 'snapshot_item') {
                     this.sendAction({ type: 'handle_snapshot_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
-                } else if ((dragData.type === 'tabs' || dragData.type === 'window') && !dragData.movedNodeIds.includes(node.id)) {
-                    this.sendAction({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                } else if ((dragData.type === 'tabs' || dragData.type === 'window')) {
+                    const movedNodeIds = state.get_subtree(dragData.draggedNodeId);
+                    if (!movedNodeIds.includes(node.id)) {
+                        this.sendAction({ type: 'handle_drop', payload: { drag_data: dragData, target_bid: node.id, action } });
+                    }
                 }
             } else if (types.includes('text/uri-list') || types.includes('text/plain')) {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
@@ -268,7 +270,8 @@ export class TabTreeView {
         const collapseContainer = document.createElement('div');
         collapseContainer.className = 'collapse-container';
 
-        if (node.children.length > 0) {
+        const children = childrenMap.get(nodeId) || [];
+        if (children.length > 0) {
             const collapseButton = document.createElement('button');
             collapseButton.className = 'collapse-button';
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
@@ -277,22 +280,23 @@ export class TabTreeView {
                 if (this.treeType !== "snapshot") {
                     this.sendAction({ type: 'toggle_collapse', payload: { bid: node.id } });
                 } else {
-                    if (this.currentRenderState?.snapshot_id !== undefined && this.currentRenderState?.window_index !== undefined) {
+                    if (options.snapshot_id !== undefined && options.window_index !== undefined) {
+                        const tab_index = state.get_index(nodeId);
                         this.sendAction({
                             type: 'toggle_snapshot_collapse',
                             payload: {
-                                snapshot_id: this.currentRenderState.snapshot_id,
-                                window_index: this.currentRenderState.window_index,
-                                tab_index: node.tab_index,
+                                snapshot_id: options.snapshot_id,
+                                window_index: options.window_index,
+                                tab_index: tab_index,
                             }
                         });
                     }
                 }
             });
 
-            if (node.isCollapsed) {
+            if (node.collapsed) {
                 collapseButton.classList.add('collapsed');
-                const descendantCount = this.countAllDescendants(nodeId, tree);
+                const descendantCount = this.countAllDescendants(nodeId, state);
                 if (descendantCount > 0) {
                     const countSpan = document.createElement('span');
                     countSpan.className = 'collapsed-count';
@@ -306,17 +310,17 @@ export class TabTreeView {
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'tree-node-content';
         const icon = document.createElement('img');
-        if (node.isGroup) {
+        if (node.type === 'group') {
             icon.src = `data:image/svg+xml;base64,${btoa(svg.icon_group)}`;
-        } else {
-            icon.src = node.favIconUrl || DEFAULT_FAVICON_URL;
+        } else if (node.type === 'tab') {
+            icon.src = node.fav_icon_url || DEFAULT_FAVICON_URL;
             icon.onerror = () => { if (icon.src !== DEFAULT_FAVICON_URL) icon.src = DEFAULT_FAVICON_URL; };
         }
         icon.className = 'tree-node-icon';
 
         const title = document.createElement('span');
         title.className = 'tree-node-title';
-        title.textContent = node.title;
+        title.textContent = state.get_node_name(nodeId);
         contentWrapper.append(icon, title);
 
         if (this.treeType === "snapshot") {
@@ -338,11 +342,11 @@ export class TabTreeView {
 
         nodeWrapper.appendChild(nodeElement);
 
-        if (node.children.length > 0 && !node.isCollapsed) {
+        if (children.length > 0 && !node.collapsed) {
             const childrenContainer = document.createElement('div');
             childrenContainer.className = 'children-container';
-            for (const childId of node.children) {
-                childrenContainer.appendChild(this.renderNode(childId, state));
+            for (const childId of children) {
+                childrenContainer.appendChild(this.renderNode(childId, state, childrenMap, options));
             }
             nodeWrapper.appendChild(childrenContainer);
         }
@@ -350,40 +354,40 @@ export class TabTreeView {
         return nodeWrapper;
     }
 
-    private renderHeader(state: UiStateForRender): HTMLDivElement {
+    private renderHeader(state: State, rootNode: Node, is_closed: boolean, options: RenderOptions): HTMLDivElement {
         const header = document.createElement('div');
         header.className = 'tab-tree-header';
         header.draggable = true;
 
         const collapseButton = document.createElement('button');
-        if (state.is_read_only) {
+        if (options.is_read_only) {
             collapseButton.className = 'group-menu-button header-collapse-button'; // Use similar style
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
-            if (state.collapsed) {
+            if (rootNode.type === 'window' && rootNode.collapsed) {
                 collapseButton.classList.add('collapsed');
             }
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.sendAction({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: state.snapshot_id!, window_index: state.window_index! } });
+                this.sendAction({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: options.snapshot_id!, window_index: options.window_index! } });
             });
         }
 
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
             let dragData: DragData;
-            if (state.is_read_only) {
+            if (options.is_read_only) {
                 dragData = {
                     type: 'snapshot_item',
-                    snapshotId: state.snapshot_id!,
-                    windowIndex: state.window_index!,
+                    snapshotId: options.snapshot_id!,
+                    windowIndex: options.window_index!,
                     tabIndex: undefined, // undefined means whole window
                 };
             } else {
-                const movedNodeIds = Array.from(state.tree.keys());
+                const movedNodeIds = Array.from(state.nodes.keys());
                 dragData = {
                     type: 'window',
-                    draggedNodeId: state.id,
-                    sourceWindowId: state.wbid,
+                    draggedNodeId: rootNode.bid,
+                    sourceWindowId: rootNode.wbid,
                     movedNodeIds,
                 };
             }
@@ -407,10 +411,11 @@ export class TabTreeView {
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
-        if (state.is_closed && this.treeType !== "snapshot") {
-            nameSpan.textContent = `[Closed] ${state.name}`;
+        const nodeName = state.get_node_name(rootNode.bid);
+        if (is_closed && this.treeType !== "snapshot") {
+            nameSpan.textContent = `[Closed] ${nodeName}`;
         } else {
-            nameSpan.textContent = state.name;
+            nameSpan.textContent = nodeName;
         }
 
         if (this.treeType !== "snapshot") {
@@ -418,13 +423,13 @@ export class TabTreeView {
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'group-name-input';
-                input.value = state.name;
+                input.value = nodeName;
                 header.replaceChild(input, nameSpan);
                 input.focus();
                 input.select();
                 const save = () => {
                     if (input.value.trim()) {
-                        this.sendAction({ type: 'rename_node', payload: { bid: state.id, new_name: input.value.trim() } });
+                        this.sendAction({ type: 'rename_node', payload: { bid: rootNode.bid, new_name: input.value.trim() } });
                     }
                     header.replaceChild(nameSpan, input);
                 };
@@ -443,14 +448,14 @@ export class TabTreeView {
         menuButton.innerHTML = '&#x22EE;';
         menuButton.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.showGroupContextMenu(e.clientX, e.clientY, state);
+            this.showGroupContextMenu(e.clientX, e.clientY, rootNode.bid, is_closed, options);
         });
 
         header.append(collapseButton, nameSpan, menuButton);
         return header;
     }
 
-    private renderAddButton(state: UiStateForRender): HTMLDivElement {
+    private renderAddButton(state: State, rootId: BruhId): HTMLDivElement {
         if (this.treeType === "snapshot") {
             return document.createElement('div');
         }
@@ -460,7 +465,7 @@ export class TabTreeView {
         button.addEventListener('click', () => {
             this.sendAction({
                 type: 'create_tab',
-                payload: { parent_bid: state.id, action: "inside" }
+                payload: { parent_bid: rootId, action: "inside" }
             });
         });
 
@@ -477,7 +482,7 @@ export class TabTreeView {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !this.currentRenderState) return;
+            if (!dataTransfer || !this.currentState) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -491,7 +496,7 @@ export class TabTreeView {
                         type: 'handle_snapshot_drop',
                         payload: {
                             drag_data: dragData,
-                            target_bid: state.id,
+                            target_bid: rootId,
                             action: 'inside',
                         },
                     });
@@ -500,7 +505,7 @@ export class TabTreeView {
                         type: 'handle_drop',
                         payload: {
                             drag_data: dragData,
-                            target_bid: state.id,
+                            target_bid: rootId,
                             action: `inside`,
                         }
                     });
@@ -509,7 +514,7 @@ export class TabTreeView {
                 const url = this.getUrlFromDataTransfer(dataTransfer);
                 if (!url) return;
 
-                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: state.id, action: "inside" } });
+                this.sendAction({ type: 'create_tab', payload: { url, parent_bid: rootId, action: "inside" } });
             }
         });
         return button;
@@ -523,10 +528,11 @@ export class TabTreeView {
     }
 
     private async copyUrl(nodeId: BruhId) {
+        if (!this.currentState) return;
         try {
-            const node = this.currentRenderState?.tree.get(nodeId);
-            if (node?.url) {
-                await navigator.clipboard.writeText(node.url);
+            const url = this.currentState.state.get_node_url(nodeId);
+            if (url) {
+                await navigator.clipboard.writeText(url);
             }
         } catch (e) {
             console.error('Failed to copy URL:', e);
@@ -568,7 +574,7 @@ export class TabTreeView {
         return menu;
     }
 
-    private showGroupContextMenu(x: number, y: number, state: UiStateForRender) {
+    private showGroupContextMenu(x: number, y: number, rootId: BruhId, is_closed: boolean, options: RenderOptions) {
         const menu = this.createContextMenu(x, y);
 
         const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
@@ -595,14 +601,13 @@ export class TabTreeView {
 
         if (this.treeType === "snapshot") {
             createItem('Restore as New Window', svg.icon_restore, () => {
-                if (state.snapshot_id !== undefined && state.window_index !== undefined) {
-                    this.sendAction({ type: 'restore_snapshot_window', payload: { id: state.snapshot_id, window_index: state.window_index } });
+                if (options.snapshot_id !== undefined && options.window_index !== undefined) {
+                    this.sendAction({ type: 'restore_snapshot_window', payload: { id: options.snapshot_id, window_index: options.window_index } });
                 }
             });
             createItem('Restore to Current Window', svg.icon_restore, () => {
-                if (state.snapshot_id !== undefined && state.window_index !== undefined && this.currentWindowId) {
-                    const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: state.snapshot_id, windowIndex: state.window_index };
-                    // We send a dummy target_bid and action because target_wid takes precedence in the background script.
+                if (options.snapshot_id !== undefined && options.window_index !== undefined && this.currentWindowId) {
+                    const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: options.snapshot_id, windowIndex: options.window_index };
                     this.sendAction({
                         type: 'handle_snapshot_drop',
                         payload: {
@@ -614,30 +619,32 @@ export class TabTreeView {
                     });
                 }
             }, !this.currentWindowId);
-        } else if (state.is_closed) {
-            createItem('Restore Window', svg.icon_restore, () => this.sendAction({ type: 'restore_window', payload: { wbid: state.wbid } }));
+        } else if (is_closed) {
+            createItem('Restore Window', svg.icon_restore, () => this.sendAction({ type: 'restore_window', payload: { wbid: rootId } }));
             createSeparator();
-            createItem('Delete State', svg.icon_trash, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: state.wbid } }));
+            createItem('Delete State', svg.icon_trash, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: rootId } }));
         } else {
-            createItem('New Group', svg.icon_group, () => this.sendAction({ type: 'create_group', payload: { parent_bid: state.id } }));
+            createItem('New Group', svg.icon_group, () => this.sendAction({ type: 'create_group', payload: { parent_bid: rootId } }));
             createSeparator();
-            createItem('Close Window', svg.icon_close, () => this.sendAction({ type: 'close_window', payload: { wbid: state.wbid } }));
+            createItem('Close Window', svg.icon_close, () => this.sendAction({ type: 'close_window', payload: { wbid: rootId } }));
         }
     }
 
     private startNodeRename(nodeId: BruhId) {
+        if (!this.currentState) return;
         const nodeElementWrapper = this.container.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`);
         if (!nodeElementWrapper) return;
         const nodeElement = nodeElementWrapper.querySelector<HTMLElement>('.tree-node-content');
         const titleElement = nodeElement?.querySelector<HTMLElement>('.tree-node-title');
-        const node = this.currentRenderState?.tree.get(nodeId);
+        const node = this.currentState.state.get_node(nodeId);
 
         if (!nodeElement || !titleElement || !node) return;
+        const nodeTitle = this.currentState.state.get_node_name(nodeId);
 
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'node-rename-input';
-        input.value = node.title;
+        input.value = nodeTitle;
 
         const save = () => {
             const newName = input.value.trim();
@@ -645,7 +652,7 @@ export class TabTreeView {
             if (nodeElement.contains(input)) {
                 nodeElement.replaceChild(titleElement, input);
             }
-            if (newName !== node.title) {
+            if (newName !== nodeTitle) {
                 this.sendAction({ type: 'rename_node', payload: { bid: nodeId, new_name: newName } });
             }
         };
@@ -666,8 +673,9 @@ export class TabTreeView {
     }
 
     private showContextMenu(x: number, y: number, nodeId: BruhId) {
-        if (!this.currentRenderState) return;
+        if (!this.currentState) return;
         const menu = this.createContextMenu(x, y);
+        const state = this.currentState.state;
 
         const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
             const item = document.createElement('div');
@@ -691,24 +699,24 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        const node = this.currentRenderState.tree.get(nodeId);
+        const node = state.get_node(nodeId);
         if (!node) return;
 
         if (this.treeType === "snapshot") {
+            const { snapshot_id, window_index } = this.currentState.options;
+            const tab_index = state.get_index(nodeId);
             createItem('Restore as New Window', svg.icon_restore, () => {
-                const { snapshot_id, window_index } = this.currentRenderState!;
-                if (snapshot_id !== undefined && window_index !== undefined) {
-                    this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index: node.tab_index } });
+                if (snapshot_id !== undefined && window_index !== undefined && tab_index !== -1) {
+                    this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index } });
                 }
             });
             createItem('Restore to Current Window', svg.icon_restore, () => {
-                const { snapshot_id, window_index } = this.currentRenderState!;
                 if (snapshot_id !== undefined && window_index !== undefined && this.currentWindowId) {
                     const dragData: SnapshotDragData = {
                         type: 'snapshot_item',
                         snapshotId: snapshot_id,
                         windowIndex: window_index,
-                        tabIndex: node.tab_index,
+                        tabIndex: tab_index,
                     };
                     this.sendAction({
                         type: 'handle_snapshot_drop',
@@ -726,17 +734,15 @@ export class TabTreeView {
             return;
         }
 
-        const isNodeClosed = node.isDiscarded || this.currentRenderState.is_closed;
+        const isNodeClosed = state.is_node_closed(nodeId);
 
-        if (node.isGroup) {
+        if (node.type === 'group') {
             createItem('Rename Group', svg.icon_edit, () => this.startNodeRename(nodeId));
             createSeparator();
         }
 
         createItem('New Group Here', svg.icon_group, () => {
-            if (this.currentRenderState?.wbid) {
-                this.sendAction({ type: 'create_group', payload: { parent_bid: nodeId } })
-            }
+            this.sendAction({ type: 'create_group', payload: { parent_bid: nodeId } })
         });
         createItem('Duplicate Tab', svg.icon_duplicate, () => this.sendAction({ type: 'duplicate_tab', payload: { bid: nodeId } }));
         createSeparator();
@@ -745,20 +751,20 @@ export class TabTreeView {
             createItem('Load Tree', svg.icon_load, () => this.sendAction({ type: 'reload_tree', payload: { bid: nodeId } }));
             createItem('Unload Tab', svg.icon_unload, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: false } }));
 
-            if (node.children.length > 0) {
+            if (state.get_immediate_children(nodeId).length > 0) {
                 createItem('Unload Tree', svg.icon_unload, () => this.sendAction({ type: 'unload_tabs', payload: { bid: nodeId, recursive: true } }));
             }
             createSeparator();
         }
 
         createItem('Close Tab Only', svg.icon_close, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: false } }));
-        if (node.children.length > 0) {
+        if (state.get_immediate_children(nodeId).length > 0) {
             createItem('Close Tree', svg.icon_tree, () => this.sendAction({ type: 'close_tabs', payload: { bid: nodeId, recursive: true } }));
         }
         createItem('Move to New Window', svg.icon_window, () => this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: nodeId } }));
         createSeparator();
 
-        if (node.children.length > 0) {
+        if (state.get_immediate_children(nodeId).length > 0) {
             createItem('Flatten Immediate Children', svg.icon_flatten_immediate, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: false } }));
             createItem('Flatten Tree', svg.icon_flatten_tree, () => this.sendAction({ type: 'flatten_tree', payload: { bid: nodeId, recursive: true } }));
             createSeparator();
