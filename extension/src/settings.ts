@@ -319,26 +319,10 @@ class SettingsPage {
             const viewContainer = document.createElement('div');
             viewContainer.className = 'snapshot-window-view';
             container.appendChild(viewContainer);
-
-            const tempState = new State("snapshot-viewer");
-            tempState.load_export_data({
-                ...snapshot.data,
-                windows: [windowData],
-            });
-
-            const loadedWindow = Array.from(tempState.nodes.values()).find(n => n.type === 'window');
-
-            if (loadedWindow) {
-                const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
-                treeView.render(tempState, loadedWindow.bid, {
-                    is_read_only: true,
-                    snapshot_id: snapshot.id,
-                    window_index: windowIndex,
-                });
-            }
+            const treeView = new TabTreeView(viewContainer, this.port, "snapshot", 'window', this.currentWindowId);
+            treeView.renderSnapshot(windowData, snapshot.id, windowIndex);
         });
     }
-
 
     // Context Menu Logic
     private removeContextMenu = () => {

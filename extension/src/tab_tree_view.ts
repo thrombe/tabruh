@@ -13,7 +13,7 @@ import type {
     ExtensionAction,
     StateAction,
     Node,
-    WindowData,
+    BruhExport,
 } from './types';
 
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(svg.default_favicon)}`;
@@ -31,7 +31,9 @@ export class TabTreeView {
     private treeType: "sidebar" | "overview" | "snapshot";
     private viewType: 'window' | 'group';
     private currentWindowId?: WindowId;
-    private currentState?: { state: State, rootId: BruhId, options: RenderOptions };
+
+    private currentLiveData?: { state: State, rootId: BruhId, options: RenderOptions };
+    private currentSnapshotData?: { window: BruhExport['windows'][number], snapshotId: string, windowIndex: number };
 
     constructor(
         container: HTMLElement,
@@ -65,7 +67,8 @@ export class TabTreeView {
     }
 
     public render(state: State, rootId: BruhId, options: RenderOptions = {}) {
-        this.currentState = { state, rootId, options };
+        this.currentLiveData = { state, rootId, options };
+        this.currentSnapshotData = undefined;
         this.container.innerHTML = '';
 
         const rootNode = state.get_node(rootId);
@@ -107,6 +110,52 @@ export class TabTreeView {
         treeContainer.appendChild(this.renderAddButton(state, rootId));
 
         this.container.appendChild(treeContainer);
+    }
+
+    public renderSnapshot(snapshotWindow: BruhExport['windows'][number], snapshotId: string, windowIndex: number) {
+        this.currentSnapshotData = { window: snapshotWindow, snapshotId, windowIndex };
+        this.currentLiveData = undefined;
+        this.container.innerHTML = '';
+        this.container.classList.remove('closed-group');
+
+        this.container.appendChild(this.renderSnapshotHeader(snapshotWindow, snapshotId, windowIndex));
+
+        if (snapshotWindow.collapsed) return;
+
+        const treeContainer = document.createElement('div');
+        treeContainer.className = 'tab-tree-scroll-container';
+
+        const rootContainer = document.createElement('div');
+        rootContainer.className = 'flex flex-col';
+
+        const childrenMap = new Map<number | null, number[]>();
+        snapshotWindow.tabs.forEach((tab, index) => {
+            const parentIndex = tab.parent_index;
+            if (!childrenMap.has(parentIndex)) {
+                childrenMap.set(parentIndex, []);
+            }
+            childrenMap.get(parentIndex)!.push(index);
+        });
+
+        const rootIndices = childrenMap.get(null) || [];
+        for (const tabIndex of rootIndices) {
+            rootContainer.appendChild(this.renderSnapshotNode(tabIndex, snapshotWindow, snapshotId, windowIndex, childrenMap));
+        }
+
+        treeContainer.appendChild(rootContainer);
+        this.container.appendChild(treeContainer);
+    }
+
+    private is_group_tab_snapshot(url: string | undefined): boolean {
+        if (!url) return false;
+        try {
+            const parsedUrl = new URL(url);
+            return parsedUrl.protocol === 'moz-extension:' &&
+                parsedUrl.pathname.endsWith('/overview.html') &&
+                parsedUrl.searchParams.get('view') === 'group';
+        } catch (e) {
+            return false;
+        }
     }
 
     private getNodeSubtreeIds(rootId: BruhId, state: State): BruhId[] {
@@ -155,46 +204,29 @@ export class TabTreeView {
 
         nodeElement.addEventListener('dragstart', (event) => {
             event.stopPropagation();
-            let dragData: DragData;
-            const tab_index = window.tab_bids.indexOf(node.bid);
-            if (options.is_read_only) {
-                dragData = {
-                    type: 'snapshot_item',
-                    snapshotId: options.snapshot_id!,
-                    windowIndex: options.window_index!,
-                    tabIndex: tab_index,
-                };
-            } else {
-                const movedNodeIds = this.getNodeSubtreeIds(node.bid, state);
-                dragData = {
-                    type: 'tabs',
-                    draggedNodeId: node.bid,
-                    sourceWindowId: node.wbid,
-                    movedNodeIds,
-                };
-            }
+            const movedNodeIds = this.getNodeSubtreeIds(node.bid, state);
+            const dragData: DragData = {
+                type: 'tabs',
+                draggedNodeId: node.bid,
+                sourceWindowId: node.wbid,
+                movedNodeIds,
+            };
             this.currentDragData = dragData;
             event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
             event.dataTransfer!.effectAllowed = 'move';
             setTimeout(() => nodeElement.classList.add('dragging'), 0);
         });
 
-        if (this.treeType !== "snapshot") {
-            nodeElement.addEventListener('dragend', (event) => {
-                nodeElement.classList.remove('dragging');
-                const dragData = this.currentDragData;
-                // Type guard to ensure we are dealing with a live drag
-                if (event.dataTransfer?.dropEffect === 'none' && dragData && dragData.type !== 'snapshot_item') {
-                    this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: dragData.draggedNodeId } });
-                }
-                this.currentDragData = null;
-            });
-        } else {
-            nodeElement.addEventListener('dragend', () => {
-                nodeElement.classList.remove('dragging');
-                this.currentDragData = null;
-            });
-        }
+        nodeElement.addEventListener('dragend', (event) => {
+            nodeElement.classList.remove('dragging');
+            const dragData = this.currentDragData;
+            // Type guard to ensure we are dealing with a live drag
+            if (event.dataTransfer?.dropEffect === 'none' && dragData && dragData.type !== 'snapshot_item') {
+                this.sendAction({ type: 'move_subtree_to_new_window', payload: { bid: dragData.draggedNodeId } });
+            }
+            this.currentDragData = null;
+        });
+
 
         nodeElement.addEventListener('dragover', (event) => {
             event.preventDefault();
@@ -202,7 +234,6 @@ export class TabTreeView {
             if (!types || !(types.includes('application/json') || types.includes('text/uri-list') || types.includes('text/plain'))) {
                 return;
             }
-            if (this.treeType === "snapshot") return; // Don't allow dropping onto snapshot views
 
             if (types.includes('application/json')) {
                 const dragDataStr = event.dataTransfer?.getData('application/json');
@@ -237,13 +268,12 @@ export class TabTreeView {
 
         nodeElement.addEventListener('drop', async (event) => {
             event.preventDefault(); event.stopPropagation();
-            if (this.treeType === "snapshot") return; // Safety check
             nodeElement.classList.remove('drag-over-above', 'drag-over-below', 'drag-over-inside');
             const action = nodeElement.dataset.dropAction as DropAction;
             delete nodeElement.dataset.dropAction;
 
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !this.currentState) return;
+            if (!dataTransfer || !this.currentLiveData) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -277,21 +307,7 @@ export class TabTreeView {
             collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
             collapseButton.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (this.treeType !== "snapshot") {
-                    this.sendAction({ type: 'toggle_collapse', payload: { bid: node.bid } });
-                } else {
-                    if (options.snapshot_id !== undefined && options.window_index !== undefined) {
-                        const tab_index = state.get_index(nodeId);
-                        this.sendAction({
-                            type: 'toggle_snapshot_collapse',
-                            payload: {
-                                snapshot_id: options.snapshot_id,
-                                window_index: options.window_index,
-                                tab_index: tab_index,
-                            }
-                        });
-                    }
-                }
+                this.sendAction({ type: 'toggle_collapse', payload: { bid: node.bid } });
             });
 
             if (node.collapsed) {
@@ -323,22 +339,11 @@ export class TabTreeView {
         title.textContent = state.get_node_name(nodeId);
         contentWrapper.append(icon, title);
 
-        if (this.treeType === "snapshot") {
-            const menuButton = document.createElement('button');
-            menuButton.className = 'close-tab-button'; // Re-use style for positioning
-            menuButton.innerHTML = '&#x22EE;';
-            menuButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.showContextMenu(e.clientX, e.clientY, node.bid);
-            });
-            nodeElement.append(collapseContainer, contentWrapper, menuButton);
-        } else {
-            const closeButton = document.createElement('button');
-            closeButton.className = 'close-tab-button';
-            closeButton.innerHTML = svg.icon_close;
-            closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.bid, recursive: false } }); });
-            nodeElement.append(collapseContainer, contentWrapper, closeButton);
-        }
+        const closeButton = document.createElement('button');
+        closeButton.className = 'close-tab-button';
+        closeButton.innerHTML = svg.icon_close;
+        closeButton.addEventListener('click', (e) => { e.stopPropagation(); this.sendAction({ type: 'close_tabs', payload: { bid: node.bid, recursive: false } }); });
+        nodeElement.append(collapseContainer, contentWrapper, closeButton);
 
         nodeWrapper.appendChild(nodeElement);
 
@@ -359,55 +364,26 @@ export class TabTreeView {
         header.className = 'tab-tree-header';
         header.draggable = true;
 
-        const collapseButton = document.createElement('button');
-        if (options.is_read_only) {
-            collapseButton.className = 'group-menu-button header-collapse-button'; // Use similar style
-            collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
-            if (rootNode.type === 'window' && rootNode.collapsed) {
-                collapseButton.classList.add('collapsed');
-            }
-            collapseButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.sendAction({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: options.snapshot_id!, window_index: options.window_index! } });
-            });
-        }
-
         header.addEventListener('dragstart', (event) => {
             event.stopPropagation();
-            let dragData: DragData;
-            if (options.is_read_only) {
-                dragData = {
-                    type: 'snapshot_item',
-                    snapshotId: options.snapshot_id!,
-                    windowIndex: options.window_index!,
-                    tabIndex: undefined, // undefined means whole window
-                };
-            } else {
-                const movedNodeIds = Array.from(state.nodes.keys());
-                dragData = {
-                    type: 'window',
-                    draggedNodeId: rootNode.bid,
-                    sourceWindowId: rootNode.wbid,
-                    movedNodeIds,
-                };
-            }
+            const movedNodeIds = Array.from(state.nodes.keys());
+            const dragData: DragData = {
+                type: 'window',
+                draggedNodeId: rootNode.bid,
+                sourceWindowId: rootNode.wbid,
+                movedNodeIds,
+            };
+
             this.currentDragData = dragData;
             event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
             event.dataTransfer!.effectAllowed = 'move';
             setTimeout(() => this.container.classList.add('dragging'), 0);
         });
 
-        if (this.treeType !== "snapshot") {
-            header.addEventListener('dragend', () => {
-                this.container.classList.remove('dragging');
-                this.currentDragData = null;
-            });
-        } else {
-            header.addEventListener('dragend', () => {
-                this.container.classList.remove('dragging');
-                this.currentDragData = null;
-            });
-        }
+        header.addEventListener('dragend', () => {
+            this.container.classList.remove('dragging');
+            this.currentDragData = null;
+        });
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'group-name';
@@ -418,47 +394,206 @@ export class TabTreeView {
             nameSpan.textContent = nodeName;
         }
 
-        if (this.treeType !== "snapshot") {
-            nameSpan.addEventListener('click', () => {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'group-name-input';
-                input.value = nodeName;
-                header.replaceChild(input, nameSpan);
-                input.focus();
-                input.select();
-                const save = () => {
-                    if (input.value.trim()) {
-                        this.sendAction({ type: 'rename_node', payload: { bid: rootNode.bid, new_name: input.value.trim() } });
-                    }
-                    header.replaceChild(nameSpan, input);
-                };
-                input.addEventListener('blur', save);
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') save();
-                    if (e.key === 'Escape') header.replaceChild(nameSpan, input);
-                });
+        nameSpan.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'group-name-input';
+            input.value = nodeName;
+            header.replaceChild(input, nameSpan);
+            input.focus();
+            input.select();
+            const save = () => {
+                if (input.value.trim()) {
+                    this.sendAction({ type: 'rename_node', payload: { bid: rootNode.bid, new_name: input.value.trim() } });
+                }
+                header.replaceChild(nameSpan, input);
+            };
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') header.replaceChild(nameSpan, input);
             });
-        } else {
-            nameSpan.classList.remove('cursor-pointer');
-        }
+        });
 
         const menuButton = document.createElement('button');
         menuButton.className = 'group-menu-button';
         menuButton.innerHTML = '&#x22EE;';
         menuButton.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.showGroupContextMenu(e.clientX, e.clientY, rootNode.bid, is_closed, options);
+            this.showGroupContextMenu(e.clientX, e.clientY, rootNode.bid, is_closed);
+        });
+
+        header.append(nameSpan, menuButton);
+        return header;
+    }
+
+    private renderSnapshotHeader(snapshotWindow: BruhExport['windows'][number], snapshotId: string, windowIndex: number): HTMLDivElement {
+        const header = document.createElement('div');
+        header.className = 'tab-tree-header';
+        header.draggable = true;
+
+        const collapseButton = document.createElement('button');
+        collapseButton.className = 'group-menu-button header-collapse-button';
+        collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+        if (snapshotWindow.collapsed) {
+            collapseButton.classList.add('collapsed');
+        }
+        collapseButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.sendAction({ type: 'toggle_snapshot_window_collapse', payload: { snapshot_id: snapshotId, window_index: windowIndex } });
+        });
+
+        header.addEventListener('dragstart', (event) => {
+            event.stopPropagation();
+            const dragData: SnapshotDragData = {
+                type: 'snapshot_item',
+                snapshotId: snapshotId,
+                windowIndex: windowIndex,
+                tabIndex: undefined, // undefined means whole window
+            };
+            this.currentDragData = dragData;
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+            event.dataTransfer!.effectAllowed = 'move';
+            setTimeout(() => this.container.classList.add('dragging'), 0);
+        });
+
+        header.addEventListener('dragend', () => {
+            this.container.classList.remove('dragging');
+            this.currentDragData = null;
+        });
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'group-name';
+        nameSpan.textContent = snapshotWindow.name ?? "Unnamed Window";
+
+        const menuButton = document.createElement('button');
+        menuButton.className = 'group-menu-button';
+        menuButton.innerHTML = '&#x22EE;';
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showGroupContextMenu(e.clientX, e.clientY, windowIndex as any, false);
         });
 
         header.append(collapseButton, nameSpan, menuButton);
         return header;
     }
 
-    private renderAddButton(state: State, rootId: BruhId): HTMLDivElement {
-        if (this.treeType === "snapshot") {
-            return document.createElement('div');
+    private renderSnapshotNode(tabIndex: number, snapshotWindow: BruhExport['windows'][number], snapshotId: string, windowIndex: number, childrenMap: Map<number | null, number[]>): HTMLDivElement {
+        const tab = snapshotWindow.tabs[tabIndex]!;
+        const nodeWrapper = document.createElement('div');
+        nodeWrapper.dataset.nodeId = String(tabIndex);
+
+        const nodeElement = document.createElement('div');
+        nodeElement.className = 'tree-node';
+        const isGroup = this.is_group_tab_snapshot(tab.url);
+        if (isGroup) {
+            nodeElement.classList.add('group-node');
         }
+        nodeElement.draggable = true;
+
+        nodeElement.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContextMenu(e.clientX, e.clientY, tabIndex as any); });
+
+        nodeElement.addEventListener('dragstart', (event) => {
+            event.stopPropagation();
+            const dragData: SnapshotDragData = {
+                type: 'snapshot_item',
+                snapshotId: snapshotId,
+                windowIndex: windowIndex,
+                tabIndex: tabIndex,
+            };
+            this.currentDragData = dragData;
+            event.dataTransfer!.setData('application/json', JSON.stringify(dragData));
+            event.dataTransfer!.effectAllowed = 'move';
+            setTimeout(() => nodeElement.classList.add('dragging'), 0);
+        });
+
+        nodeElement.addEventListener('dragend', () => {
+            nodeElement.classList.remove('dragging');
+            this.currentDragData = null;
+        });
+
+        const collapseContainer = document.createElement('div');
+        collapseContainer.className = 'collapse-container';
+
+        const children = childrenMap.get(tabIndex) || [];
+        if (children.length > 0) {
+            const collapseButton = document.createElement('button');
+            collapseButton.className = 'collapse-button';
+            collapseButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="arrow-svg"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+            collapseButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.sendAction({
+                    type: 'toggle_snapshot_collapse',
+                    payload: {
+                        snapshot_id: snapshotId,
+                        window_index: windowIndex,
+                        tab_index: tabIndex,
+                    }
+                });
+            });
+
+            if (tab.collapsed) {
+                collapseButton.classList.add('collapsed');
+                const queue = [...children];
+                let descendantCount = 0;
+                while (queue.length > 0) {
+                    const childIndex = queue.shift()!;
+                    descendantCount++;
+                    const grandChildren = childrenMap.get(childIndex);
+                    if (grandChildren) {
+                        queue.push(...grandChildren);
+                    }
+                }
+
+                if (descendantCount > 0) {
+                    const countSpan = document.createElement('span');
+                    countSpan.className = 'collapsed-count';
+                    countSpan.textContent = String(descendantCount);
+                    collapseButton.appendChild(countSpan);
+                }
+            }
+            collapseContainer.appendChild(collapseButton);
+        }
+
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'tree-node-content';
+        const icon = document.createElement('img');
+        if (isGroup) {
+            icon.src = `data:image/svg+xml;base64,${btoa(svg.icon_group)}`;
+        } else {
+            icon.src = DEFAULT_FAVICON_URL; // Snapshots don't store favicons
+        }
+        icon.className = 'tree-node-icon';
+
+        const title = document.createElement('span');
+        title.className = 'tree-node-title';
+        title.textContent = tab.title;
+        contentWrapper.append(icon, title);
+
+        const menuButton = document.createElement('button');
+        menuButton.className = 'close-tab-button';
+        menuButton.innerHTML = '&#x22EE;';
+        menuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.showContextMenu(e.clientX, e.clientY, tabIndex as any);
+        });
+        nodeElement.append(collapseContainer, contentWrapper, menuButton);
+
+        nodeWrapper.appendChild(nodeElement);
+
+        if (children.length > 0 && !tab.collapsed) {
+            const childrenContainer = document.createElement('div');
+            childrenContainer.className = 'children-container';
+            for (const childIndex of children) {
+                childrenContainer.appendChild(this.renderSnapshotNode(childIndex, snapshotWindow, snapshotId, windowIndex, childrenMap));
+            }
+            nodeWrapper.appendChild(childrenContainer);
+        }
+
+        return nodeWrapper;
+    }
+
+    private renderAddButton(state: State, rootId: BruhId): HTMLDivElement {
         const button = document.createElement('div');
         button.className = 'add-tab-button';
         button.textContent = '+';
@@ -482,7 +617,7 @@ export class TabTreeView {
             event.preventDefault();
             button.classList.remove('drag-over-target');
             const dataTransfer = event.dataTransfer;
-            if (!dataTransfer || !this.currentState) return;
+            if (!dataTransfer || !this.currentLiveData) return;
 
             const types = dataTransfer.types;
             if (types.includes('application/json')) {
@@ -527,10 +662,16 @@ export class TabTreeView {
         window.removeEventListener('blur', this.removeContextMenu);
     }
 
-    private async copyUrl(nodeId: BruhId) {
-        if (!this.currentState) return;
+    private async copyUrl(nodeIdentifier: BruhId | number) {
+        let url: string | undefined;
+        if (this.currentSnapshotData) {
+            const tab = this.currentSnapshotData.window.tabs[nodeIdentifier as number];
+            url = tab?.url;
+        } else if (this.currentLiveData) {
+            url = this.currentLiveData.state.get_node_url(nodeIdentifier as BruhId);
+        }
+
         try {
-            const url = this.currentState.state.get_node_url(nodeId);
             if (url) {
                 await navigator.clipboard.writeText(url);
             }
@@ -574,7 +715,7 @@ export class TabTreeView {
         return menu;
     }
 
-    private showGroupContextMenu(x: number, y: number, rootId: BruhId, is_closed: boolean, options: RenderOptions) {
+    private showGroupContextMenu(x: number, y: number, identifier: BruhId | number, is_closed: boolean) {
         const menu = this.createContextMenu(x, y);
 
         const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
@@ -599,15 +740,15 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        if (this.treeType === "snapshot") {
+        if (this.treeType === "snapshot" && this.currentSnapshotData) {
+            const { snapshotId } = this.currentSnapshotData;
+            const windowIndex = identifier as number;
             createItem('Restore as New Window', svg.icon_restore, () => {
-                if (options.snapshot_id !== undefined && options.window_index !== undefined) {
-                    this.sendAction({ type: 'restore_snapshot_window', payload: { id: options.snapshot_id, window_index: options.window_index } });
-                }
+                this.sendAction({ type: 'restore_snapshot_window', payload: { id: snapshotId, window_index: windowIndex } });
             });
             createItem('Restore to Current Window', svg.icon_restore, () => {
-                if (options.snapshot_id !== undefined && options.window_index !== undefined && this.currentWindowId) {
-                    const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: options.snapshot_id, windowIndex: options.window_index };
+                if (this.currentWindowId) {
+                    const dragData: SnapshotDragData = { type: 'snapshot_item', snapshotId: snapshotId, windowIndex: windowIndex };
                     this.sendAction({
                         type: 'handle_snapshot_drop',
                         payload: {
@@ -620,26 +761,28 @@ export class TabTreeView {
                 }
             }, !this.currentWindowId);
         } else if (is_closed) {
-            createItem('Restore Window', svg.icon_restore, () => this.sendAction({ type: 'restore_window', payload: { wbid: rootId } }));
+            const wbid = identifier as BruhId;
+            createItem('Restore Window', svg.icon_restore, () => this.sendAction({ type: 'restore_window', payload: { wbid } }));
             createSeparator();
-            createItem('Delete State', svg.icon_trash, () => this.sendAction({ type: 'delete_window_state', payload: { wbid: rootId } }));
+            createItem('Delete State', svg.icon_trash, () => this.sendAction({ type: 'delete_window_state', payload: { wbid } }));
         } else {
-            createItem('New Group', svg.icon_group, () => this.sendAction({ type: 'create_group', payload: { parent_bid: rootId } }));
+            const bid = identifier as BruhId;
+            createItem('New Group', svg.icon_group, () => this.sendAction({ type: 'create_group', payload: { parent_bid: bid } }));
             createSeparator();
-            createItem('Close Window', svg.icon_close, () => this.sendAction({ type: 'close_window', payload: { wbid: rootId } }));
+            createItem('Close Window', svg.icon_close, () => this.sendAction({ type: 'close_window', payload: { wbid: bid } }));
         }
     }
 
     private startNodeRename(nodeId: BruhId) {
-        if (!this.currentState) return;
+        if (!this.currentLiveData) return;
         const nodeElementWrapper = this.container.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`);
         if (!nodeElementWrapper) return;
         const nodeElement = nodeElementWrapper.querySelector<HTMLElement>('.tree-node-content');
         const titleElement = nodeElement?.querySelector<HTMLElement>('.tree-node-title');
-        const node = this.currentState.state.get_node(nodeId);
+        const node = this.currentLiveData.state.get_node(nodeId);
 
         if (!nodeElement || !titleElement || !node) return;
-        const nodeTitle = this.currentState.state.get_node_name(nodeId);
+        const nodeTitle = this.currentLiveData.state.get_node_name(nodeId);
 
         const input = document.createElement('input');
         input.type = 'text';
@@ -672,10 +815,8 @@ export class TabTreeView {
         input.select();
     }
 
-    private showContextMenu(x: number, y: number, nodeId: BruhId) {
-        if (!this.currentState) return;
+    private showContextMenu(x: number, y: number, nodeIdentifier: BruhId | number) {
         const menu = this.createContextMenu(x, y);
-        const state = this.currentState.state;
 
         const createItem = (label: string, icon: string, action: () => void, disabled: boolean = false) => {
             const item = document.createElement('div');
@@ -699,24 +840,19 @@ export class TabTreeView {
             menu.appendChild(separator);
         };
 
-        const node = state.get_node(nodeId);
-        if (!node) return;
-
-        if (this.treeType === "snapshot") {
-            const { snapshot_id, window_index } = this.currentState.options;
-            const tab_index = state.get_index(nodeId);
+        if (this.treeType === "snapshot" && this.currentSnapshotData) {
+            const { snapshotId, windowIndex } = this.currentSnapshotData;
+            const tabIndex = nodeIdentifier as number;
             createItem('Restore as New Window', svg.icon_restore, () => {
-                if (snapshot_id !== undefined && window_index !== undefined && tab_index !== -1) {
-                    this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshot_id, window_index, tab_index } });
-                }
+                this.sendAction({ type: 'restore_snapshot_subtree', payload: { id: snapshotId, window_index: windowIndex, tab_index: tabIndex } });
             });
             createItem('Restore to Current Window', svg.icon_restore, () => {
-                if (snapshot_id !== undefined && window_index !== undefined && this.currentWindowId) {
+                if (this.currentWindowId) {
                     const dragData: SnapshotDragData = {
                         type: 'snapshot_item',
-                        snapshotId: snapshot_id,
-                        windowIndex: window_index,
-                        tabIndex: tab_index,
+                        snapshotId: snapshotId,
+                        windowIndex: windowIndex,
+                        tabIndex: tabIndex,
                     };
                     this.sendAction({
                         type: 'handle_snapshot_drop',
@@ -730,9 +866,15 @@ export class TabTreeView {
                 }
             }, !this.currentWindowId);
             createSeparator();
-            createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeId));
+            createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeIdentifier));
             return;
         }
+
+        if (!this.currentLiveData) return;
+        const state = this.currentLiveData.state;
+        const nodeId = nodeIdentifier as BruhId;
+        const node = state.get_node(nodeId);
+        if (!node) return;
 
         const isNodeClosed = state.is_node_closed(nodeId);
 
@@ -770,6 +912,6 @@ export class TabTreeView {
             createSeparator();
         }
 
-        createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeId));
+        createItem('Copy URL', svg.icon_copy, () => this.copyUrl(nodeIdentifier));
     }
 }
