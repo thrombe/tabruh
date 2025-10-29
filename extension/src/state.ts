@@ -152,8 +152,8 @@ export class State {
         const existingNames = new Set(Array.from(this.nodes.values()).filter(node => node.type !== "tab").map(node => node.name.name));
 
         do {
-            const adj = this.adjectives[Math.floor(this.rng.nextU32() * this.adjectives.length)];
-            const noun = this.nouns[Math.floor(this.rng.nextU32() * this.nouns.length)];
+            const adj = this.adjectives[Math.floor(this.rng.nextFloat() * this.adjectives.length)];
+            const noun = this.nouns[Math.floor(this.rng.nextFloat() * this.nouns.length)];
             name = `${adj} ${noun}`;
         } while (existingNames.has(name));
 
@@ -1579,6 +1579,9 @@ export class State {
                         effects.push_back(remove_group_effect);
                     }
                 }
+                if (!is_closed) {
+                    effects.push_back(effect);
+                }
 
                 const old_win = this.get_window(node.wbid);
                 if (old_win.tab_bids.length == 0) {
@@ -1595,10 +1598,6 @@ export class State {
                     }
 
                     let _ = this.remove_node(old_win.bid);
-                }
-
-                if (!is_closed) {
-                    effects.push_back(effect);
                 }
             } break;
             case 'close_tabs': {
