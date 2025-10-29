@@ -81,11 +81,12 @@ class SettingsPage {
 
     private handle_event(event: StateEvent) {
         this.state.handle_event(event, this.state_effects, this.app_effects);
-        while (true) {
-            const effect = this.state_effects.pop_front();
-            if (!effect) break;
-            this.state.handle_effect(effect, this.state_effects, this.app_effects);
-        }
+        // while (true) {
+        //     const effect = this.state_effects.pop_front();
+        //     if (!effect) break;
+        //     this.state.handle_effect(effect, this.state_effects, this.app_effects);
+        // }
+        this.state_effects.clear();
         this.app_effects.clear();
     }
 
