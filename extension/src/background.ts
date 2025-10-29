@@ -24,7 +24,7 @@ import manifest from './manifest.jsonc';
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
-    eventChannel: utils.Channel<AppEvent> = new utils.Channel();
+    event_channel: utils.Channel<AppEvent> = new utils.Channel();
 
     state: State;
     clonable_state: ClonableState;
@@ -104,10 +104,10 @@ class App {
                 const msg = message as ExtensionAction;
                 switch (msg.type) {
                     case 'app_request':
-                        await this.eventChannel.send({ type: 'app_request', payload: { message: msg.payload as AppRequest, port } });
+                        await this.event_channel.send({ type: 'app_request', payload: { message: msg.payload as AppRequest, port } });
                         break;
                     case 'state_action':
-                        await this.eventChannel.send({ type: 'state_action', payload: { message: msg.payload as StateAction, port } });
+                        await this.event_channel.send({ type: 'state_action', payload: { message: msg.payload as StateAction, port } });
                         break;
                     default:
                         throw utils.exhausted(msg);
@@ -118,67 +118,67 @@ class App {
             });
         });
         browser.tabs.onCreated.addListener(async (tab) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_created', payload: { tab: tab } },
             });
         });
         browser.tabs.onRemoved.addListener(async (tid, remove_info) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_removed', payload: { tid: tid as TabId, remove_info } },
             });
         });
         browser.tabs.onUpdated.addListener(async (tid, change_info, tab) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_updated', payload: { tid: tid as TabId, change_info, tab } },
             });
         });
         browser.tabs.onMoved.addListener(async (tid, move_info) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_moved', payload: { tid: tid as TabId, move_info } },
             });
         });
         browser.tabs.onAttached.addListener(async (tid, attach_info) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_attached', payload: { tid: tid as TabId, attach_info } },
             });
         });
         browser.tabs.onDetached.addListener(async (tid, detach_info) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_detached', payload: { tid: tid as TabId, detach_info } },
             });
         });
         browser.tabs.onActivated.addListener(async (activated_info) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'tab_activated', payload: { activated_info } },
             });
         });
         browser.windows.onCreated.addListener(async (win) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'window_created', payload: { win } },
             });
         });
         browser.windows.onRemoved.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'window_removed', payload: { wid: wid as WindowId } },
             });
         });
         browser.windows.onFocusChanged.addListener(async (wid) => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'window_focus_changed', payload: { wid: wid as WindowId } },
             });
         });
         browser.sessions.onChanged.addListener(async () => {
-            let _ = await this.eventChannel.send({
+            let _ = await this.event_channel.send({
                 type: "browser_event",
                 payload: { type: 'sessions_changed', payload: {} },
             });
@@ -211,7 +211,7 @@ class App {
         const app_effects = new utils.Deque<AppEffect>();
         const state_effects = new utils.Deque<StateEffect>();
         while (true) {
-            const event = await this.eventChannel.wait_recv();
+            const event = await this.event_channel.wait_recv();
             if (!event) break;
 
             if (this.state.user_config.dbg_log_events) {
