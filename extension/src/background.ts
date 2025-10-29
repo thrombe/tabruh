@@ -213,8 +213,6 @@ class App {
             this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(app_effects);
             await this.save_state().catch(console.error);
-
-            this._broadcast_updates(event);
         }
     }
 
@@ -677,80 +675,6 @@ class App {
                 break;
             default:
                 throw utils.exhausted(effect);
-        }
-    }
-
-    _broadcast_updates(event: AppEvent) {
-        switch (event.type) {
-            case 'browser_event':
-                switch (event.payload.type) {
-                    case 'tab_created':
-                    case 'tab_removed':
-                    case 'tab_updated':
-                    case 'tab_moved':
-                    case 'tab_attached':
-                    case 'tab_detached':
-                    case 'tab_activated':
-                    case 'window_created':
-                    case 'window_removed':
-                        break;
-
-                    case 'sessions_changed':
-                    case 'window_focus_changed':
-                        break;
-
-                    default:
-                        throw utils.exhausted(event.payload);
-                }
-                break;
-            case 'app_request':
-                switch (event.payload.message.type) {
-                    case 'export_data':
-                    case 'convert_sideberry_export':
-                    case 'get_initial_state':
-                        break;
-
-                    default:
-                        throw utils.exhausted(event.payload.message);
-                }
-                break;
-            case 'state_action':
-                switch (event.payload.message.type) {
-                    case 'toggle_collapse':
-                    case 'handle_drop':
-                    case 'close_tabs':
-                    case 'duplicate_tab':
-                    case 'unload_tabs':
-                    case 'reload_tree':
-                    case 'move_subtree_to_new_window':
-                    case 'create_tab':
-                    case 'close_window':
-                    case 'restore_window':
-                    case 'delete_window_state':
-                    case 'flatten_tree':
-                    case 'create_group':
-                    case 'rename_node':
-                    case 'focus_tab':
-                    case 'update_user_config':
-                    case 'create_snapshot':
-                    case 'delete_snapshot':
-                    case 'restore_snapshot_window':
-                    case 'restore_snapshot_subtree':
-                    case 'import_file_as_snapshot':
-                    case 'handle_snapshot_drop':
-                    case 'toggle_snapshot_collapse':
-                    case 'toggle_snapshot_window_collapse':
-                        break;
-
-                    case 'load_bruh_export':
-                        break;
-
-                    default:
-                        throw utils.exhausted(event.payload.message);
-                }
-                break;
-            default:
-                throw utils.exhausted(event);
         }
     }
 
