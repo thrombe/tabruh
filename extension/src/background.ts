@@ -16,6 +16,7 @@ import type {
     ExtensionAction,
     ClonableState,
     StateEvent,
+    BruhUiEvent,
 } from './types';
 import * as utils from './utils';
 import { State } from './state';
@@ -184,7 +185,7 @@ class App {
         });
     }
 
-    _post(port: browser.Runtime.Port, message: AppResponse) {
+    _post(port: browser.Runtime.Port, message: BruhUiEvent) {
         try {
             port.postMessage(message);
         } catch (e) {
@@ -192,10 +193,18 @@ class App {
         }
     }
 
-    _broadcast(message: AppResponse) {
+    _broadcast(message: BruhUiEvent) {
         for (const port of this.ports) {
             this._post(port, message);
         }
+    }
+
+    _broadcast_state_effect(effect: StateEffect) {
+        this._broadcast({ type: 'state_effect', payload: effect });
+    }
+
+    _broadcast_state_action(action: StateAction) {
+        this._broadcast({ type: 'state_action', payload: action });
     }
 
     async process_events() {
@@ -706,10 +715,12 @@ class App {
                         };
                         state_effects.push_back(effect);
                         this.state_events.push({ type: 'state_effect', payload: effect });
+                        this._broadcast_state_effect(effect);
                     } break;
                     case 'tab_removed': {
                         state_effects.push_back(msg);
                         this.state_events.push({ type: 'state_effect', payload: msg });
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_updated': {
                         const btab = msg.payload.tab;
@@ -725,14 +736,17 @@ class App {
                         };
                         state_effects.push_back(effect);
                         this.state_events.push({ type: 'state_effect', payload: effect });
+                        this._broadcast_state_effect(effect);
                     } break;
                     case 'tab_moved': {
                         state_effects.push_back(msg);
                         this.state_events.push({ type: 'state_effect', payload: msg });
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_attached': {
                         state_effects.push_back(msg);
                         this.state_events.push({ type: 'state_effect', payload: msg });
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'tab_detached': {
                         // we just rely on 'tab_attached' to do the state changes for detach too
@@ -740,6 +754,7 @@ class App {
                     case 'tab_activated': {
                         state_effects.push_back(msg);
                         this.state_events.push({ type: 'state_effect', payload: msg });
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'window_created': {
                         const bwin = msg.payload.win;
@@ -748,10 +763,12 @@ class App {
                         const effect: StateEffect = { type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } };
                         state_effects.push_back(effect);
                         this.state_events.push({ type: 'state_effect', payload: effect });
+                        this._broadcast_state_effect(effect);
                     } break;
                     case 'window_removed': {
                         state_effects.push_back(msg);
                         this.state_events.push({ type: 'state_effect', payload: msg });
+                        this._broadcast_state_effect(msg);
                     } break;
                     case 'window_focus_changed': {
                         // nothing to do
@@ -761,6 +778,7 @@ class App {
                         const effect: StateEffect = { type: 'sessions_changed', payload: { sessions } };
                         state_effects.push_back(effect);
                         this.state_events.push({ type: 'state_effect', payload: effect });
+                        this._broadcast_state_effect(effect);
                     } break;
                     default:
                         throw utils.exhausted(msg);
@@ -769,6 +787,7 @@ class App {
             case 'state_action': {
                 this.state_events.push({ type: event.type, payload: event.payload.message });
                 this.state.handle_action(event.payload.message, app_effects);
+                this._broadcast_state_action(event.payload.message);
             } break;
             case 'app_request': {
                 const msg = event.payload.message;
@@ -788,11 +807,11 @@ class App {
                     } break;
                     case 'convert_sideberry_export': {
                         const data = State.convert_sideberry_export_to_bruh(msg.payload.data);
-                        this._post(event.payload.port, { type: 'converted_sideberry_export_ready', payload: { data } });
+                        this._post(event.payload.port, { type: 'app_response', payload: { type: 'converted_sideberry_export_ready', payload: { data } } });
                     } break;
                     case 'get_initial_state': {
                         const data = this.state.clonable_state();
-                        this._post(event.payload.port, { type: 'initial_state', payload: data });
+                        this._post(event.payload.port, { type: 'app_response', payload: { type: 'initial_state', payload: data } });
                     } break;
                     default:
                         throw utils.exhausted(msg);
