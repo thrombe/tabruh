@@ -623,9 +623,9 @@ class App {
             case 'app_request':
                 switch (event.payload.message.type) {
                     case 'export_data':
-
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
+                        console.log(Date.now(), event.type, event.payload.message, event.payload.port);
                         break;
                     default:
                         throw utils.exhausted(event.payload.message);
