@@ -445,11 +445,6 @@ export class State {
                 node.discarded = true;
             }
         }
-
-        if (win.tab_bids.length == 1) {
-            let _ = this.remove_node(win.tab_bids[0]!);
-            _ = this.remove_node(win.bid);
-        }
     }
 
     register_bwindow(wid: WindowId, bid: BruhId) {
@@ -1246,7 +1241,20 @@ export class State {
                     let tbids = this.closing_window_tabs.get(wbid)!;
                     this.closing_window_tabs.delete(wbid);
 
-                    this.mark_window_closed(wbid);
+                    const win = this.get_window(wbid);
+                    if (win.tab_bids.length == 1) {
+                        let _ = this.remove_node(win.tab_bids[0]!);
+
+                        const storage = this.get_node_storage_data(wbid);
+                        this.browser_restore_cache.set(storage.bid, storage);
+                        _ = this.remove_node(wbid);
+                    } else {
+                        this.mark_window_closed(wbid);
+                    }
+                } else {
+                    const storage = this.get_node_storage_data(wbid);
+                    this.browser_restore_cache.set(storage.bid, storage);
+                    const _ = this.remove_node(storage.bid);
                 }
             } break;
             case 'sessions_changed': {
@@ -1298,7 +1306,8 @@ export class State {
                 // this.remove_tab_from_window(node.bid, win.bid);
 
                 // if (win.tab_bids.length == 0) {
-                //     // TODO: maybe save this thing in cache
+                //     const storage = this.get_node_storage_data(win.bid);
+                //     this.browser_restore_cache.set(storage.bid, storage);
                 //     let _ = this.remove_node(win.bid);
                 // }
             } break;
