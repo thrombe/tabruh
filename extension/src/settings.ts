@@ -110,6 +110,9 @@ class SettingsPage {
                 switch (message.payload.type) {
                     case 'initial_state':
                         this.state = State.from_clonable_state(message.payload.payload);
+
+                        // @ts-ignore
+                        globalThis.state = this.state;
                         break;
                     case 'converted_sideberry_export_ready': {
                         this.sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });

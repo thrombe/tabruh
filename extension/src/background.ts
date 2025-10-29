@@ -973,6 +973,8 @@ async function main() {
     let app = App.init();
     // @ts-ignore
     globalThis.app = app;
+    // @ts-ignore
+    globalThis.state = app.state;
 
     app.attach_listeners();
     await app.init_tree();

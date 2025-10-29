@@ -118,6 +118,9 @@ class TabTreeSidebar {
                 switch (message.payload.type) {
                     case 'initial_state': {
                         this.state = State.from_clonable_state(message.payload.payload);
+
+                        // @ts-ignore
+                        globalThis.state = this.state;
                     } break;
                     case 'converted_sideberry_export_ready':
                     case 'snapshots_list_update':
