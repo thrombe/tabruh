@@ -24,6 +24,7 @@ import manifest from './manifest.jsonc';
 
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
+    state_listeners: Set<browser.Runtime.Port> = new Set();
     event_channel: utils.Channel<AppEvent> = new utils.Channel();
 
     state: State;
@@ -115,6 +116,7 @@ class App {
             });
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);
+                this.state_listeners.delete(port);
             });
         });
         browser.tabs.onCreated.addListener(async (tab) => {
@@ -200,11 +202,15 @@ class App {
     }
 
     _broadcast_state_effect(effect: StateEffect) {
-        this._broadcast({ type: 'state_effect', payload: effect });
+        for (const port of this.state_listeners) {
+            this._post(port, { type: 'state_effect', payload: effect });
+        }
     }
 
     _broadcast_state_action(action: StateAction) {
-        this._broadcast({ type: 'state_action', payload: action });
+        for (const port of this.state_listeners) {
+            this._post(port, { type: 'state_action', payload: action });
+        }
     }
 
     async process_events() {
@@ -812,6 +818,10 @@ class App {
                     case 'get_initial_state': {
                         const data = this.state.clonable_state();
                         this._post(event.payload.port, { type: 'app_response', payload: { type: 'initial_state', payload: data } });
+                        for (const e of this.state_events) {
+                            this._post(event.payload.port, e);
+                        }
+                        this.state_listeners.add(event.payload.port);
                     } break;
                     default:
                         throw utils.exhausted(msg);
