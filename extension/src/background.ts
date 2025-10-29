@@ -226,7 +226,7 @@ class App {
 
             await this.process_event(event, state_effects, app_effects).catch(console.error);
             this.process_state_effects(state_effects, app_effects);
-            await this.process_app_effects(app_effects);
+            await this.process_app_effects(state_effects, app_effects);
             await this.save_state().catch(console.error);
         }
     }
@@ -244,15 +244,16 @@ class App {
         }
     }
 
-    async process_app_effects(effects: utils.Deque<AppEffect>) {
+    async process_app_effects(state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
         while (true) {
-            const effect = effects.pop_front();
+            const effect = app_effects.pop_front();
             if (!effect) break;
 
             if (this.state.user_config.dbg_log_effects) {
                 this._log_effect(effect);
             }
-            await this._process_effect(effect).catch(console.error);
+            await this._process_effect(effect, state_effects).catch(console.error);
+            this.process_state_effects(state_effects, app_effects);
         }
     }
 
@@ -373,16 +374,6 @@ class App {
         }
     }
 
-    async register_bwindow(wid: WindowId, bid: BruhId) {
-        let _ = this.state.register_bwindow(wid, bid);
-        await this.write_session_pointer(bid, wid, "window");
-    }
-
-    async register_btab(btab: browser.Tabs.Tab, bid: BruhId) {
-        let _ = this.state.register_btab(btab.id as TabId, bid);
-        await this.write_session_pointer(bid, btab.id as TabId, "tab");
-    }
-
     async init_tree() {
         const config = await this.load_config();
         // TODO: some way to easily migrate using `config.config_version`
@@ -458,6 +449,7 @@ class App {
         }
 
         const app_effects = new utils.Deque<AppEffect>();
+        const state_effects = new utils.Deque<StateEffect>();
         const new_tabs_to_reparent_via_opener_id = new Set();
         // in this pass we try to restore only the windows that were open/closed+pristine, because the non-pristine closed windows
         // can only be restored by the extension
@@ -466,7 +458,8 @@ class App {
             if (!old_wbid) {
                 // we create completely new windows here
                 let new_win_effect = this.state.create_new_window({});
-                await this.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+                const e = this.state.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+                app_effects.push_back(e);
             } else {
                 const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
                 if (!node) {
@@ -487,7 +480,7 @@ class App {
                     app_effects.push_back(e);
                 }
             }
-            await this.process_app_effects(app_effects);
+            await this.process_app_effects(state_effects, app_effects);
 
             // TODO: MAYBE: there's probably a subtle bug somewhere in here,
             //    where a non-pristine/pristine restored tab is moved to a pristine/non-pristine restored window,
@@ -554,7 +547,7 @@ class App {
                     win.active = tab.bid;
                 }
 
-                await this.process_app_effects(app_effects);
+                await this.process_app_effects(state_effects, app_effects);
             }
         }
 
@@ -832,12 +825,12 @@ class App {
         }
     }
 
-    async _process_effect(effect: AppEffect) {
+    async _process_effect(effect: AppEffect, state_effects: utils.Deque<StateEffect>) {
         switch (effect.type) {
             case 'effects': {
                 for (let i = 0; i < effect.payload.effects.length; i++) {
                     const e = effect.payload.effects[i]!;
-                    await this._process_effect(e);
+                    await this._process_effect(e, state_effects);
                 }
             } break;
             case 'node_removed': {
@@ -869,7 +862,12 @@ class App {
                     title = undefined;
                 }
                 let btab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active });
-                await this.register_btab(btab, node.bid);
+                await this.write_session_pointer(node.bid, btab.id as TabId, "tab");
+
+                const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: node.bid } };
+                state_effects.push_back(e);
+                this.state_events.push({ type: 'state_effect', payload: e });
+                this._broadcast_state_effect(e);
             } break;
             case 'tab_focused': {
                 const node = this.state.get_tab(effect.payload.bid);
@@ -926,9 +924,19 @@ class App {
                         url: this.state.get_node_url(active),
                     });
                     const btab = bwin.tabs![0]!;
-                    await this.register_btab(btab, active);
+                    await this.write_session_pointer(active, btab.id as TabId, "tab");
+
+                    const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: active } };
+                    state_effects.push_back(e);
+                    this.state_events.push({ type: 'state_effect', payload: e });
+                    this._broadcast_state_effect(e);
                 }
-                await this.register_bwindow(bwin.id as WindowId, win.bid);
+                await this.write_session_pointer(win.bid, bwin.id as WindowId, "window");
+
+                const e: StateEffect = { type: 'register_window', payload: { wid: bwin.id as WindowId, bid: win.bid } };
+                state_effects.push_back(e);
+                this.state_events.push({ type: 'state_effect', payload: e });
+                this._broadcast_state_effect(e);
 
                 let i = 0;
                 for (const tbid of tbids) {
@@ -946,7 +954,12 @@ class App {
                             active: false,
                             title: this.state.get_node_name(tbid),
                         });
-                        await this.register_btab(btab, tbid);
+                        await this.write_session_pointer(tbid, btab.id as TabId, "tab");
+
+                        const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: tbid } };
+                        state_effects.push_back(e);
+                        this.state_events.push({ type: 'state_effect', payload: e });
+                        this._broadcast_state_effect(e);
                     }
                     i += 1;
                 }

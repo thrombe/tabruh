@@ -269,6 +269,8 @@ export type StateEffect =
             discarded: boolean | undefined,
         }
     }
+    | { type: 'register_tab', payload: { tid: TabId, bid: BruhId } }
+    | { type: 'register_window', payload: { wid: WindowId, bid: BruhId } }
     ;
 
 export type StateEvent =

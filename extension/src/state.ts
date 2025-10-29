@@ -1392,6 +1392,14 @@ export class State {
                 const e2 = this.update_tab_info(msg);
                 if (e2) app_effects.push_back(e2);
             } break;
+            case 'register_tab': {
+                const msg = effect.payload;
+                let _ = this.register_btab(msg.tid, msg.bid);
+            } break;
+            case 'register_window': {
+                const msg = effect.payload;
+                let _ = this.register_bwindow(msg.wid, msg.bid);
+            } break;
             default:
                 throw utils.exhausted(effect);
         }
