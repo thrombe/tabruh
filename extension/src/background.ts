@@ -240,7 +240,7 @@ class App {
                 // TODO:
                 // this._log_effect(effect);
             }
-            this.state.handle_effect(effect, state_effects, app_effects);
+            this.state.handle_effect(effect, app_effects);
         }
     }
 
@@ -252,7 +252,7 @@ class App {
             if (this.state.user_config.dbg_log_effects) {
                 this._log_effect(effect);
             }
-            await this._process_effect(effects, effect).catch(console.error);
+            await this._process_effect(effect).catch(console.error);
         }
     }
 
@@ -832,12 +832,12 @@ class App {
         }
     }
 
-    async _process_effect(effects: utils.Deque<AppEffect>, effect: AppEffect) {
+    async _process_effect(effect: AppEffect) {
         switch (effect.type) {
             case 'effects': {
-                for (let i = effect.payload.effects.length; i > 0; i--) {
-                    const e = effect.payload.effects[i - 1]!;
-                    effects.push_front(e);
+                for (let i = 0; i < effect.payload.effects.length; i++) {
+                    const e = effect.payload.effects[i]!;
+                    await this._process_effect(e);
                 }
             } break;
             case 'node_removed': {

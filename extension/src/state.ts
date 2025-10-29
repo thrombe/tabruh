@@ -1218,10 +1218,10 @@ export class State {
         return effects;
     }
 
-    handle_event(event: StateEvent, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
+    handle_event(event: StateEvent, app_effects: utils.Deque<AppEffect>) {
         switch (event.type) {
             case 'state_effect': {
-                this.handle_effect(event.payload, state_effects, app_effects);
+                this.handle_effect(event.payload, app_effects);
             } break;
             case 'state_action': {
                 this.handle_action(event.payload, app_effects);
@@ -1231,12 +1231,12 @@ export class State {
         }
     }
 
-    handle_effect(effect: StateEffect, state_effects: utils.Deque<StateEffect>, app_effects: utils.Deque<AppEffect>) {
+    handle_effect(effect: StateEffect, app_effects: utils.Deque<AppEffect>) {
         switch (effect.type) {
             case 'effects': {
-                for (let i = effect.payload.effects.length; i > 0; i--) {
-                    const e = effect.payload.effects[i - 1]!;
-                    state_effects.push_front(e);
+                for (let i = 0; i < effect.payload.effects.length; i++) {
+                    const e = effect.payload.effects[i]!;
+                    this.handle_effect(e, app_effects);
                 }
             } break;
             case 'window_removed': {

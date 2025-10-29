@@ -30,7 +30,6 @@ class SettingsPage {
 
     private state: State;
     private ui_events: utils.Channel<BruhUiEvent>;
-    private state_effects: utils.Deque<StateEffect>;
     private app_effects: utils.Deque<AppEffect>;
 
 
@@ -40,7 +39,6 @@ class SettingsPage {
 
         this.state = new State("0.0");
         this.ui_events = new utils.Channel();
-        this.state_effects = new utils.Deque();
         this.app_effects = new utils.Deque();
 
         this.port.onMessage.addListener(async msg => await this.ui_events.send(msg as BruhUiEvent));
@@ -80,13 +78,7 @@ class SettingsPage {
     }
 
     private handle_event(event: StateEvent) {
-        this.state.handle_event(event, this.state_effects, this.app_effects);
-        // while (true) {
-        //     const effect = this.state_effects.pop_front();
-        //     if (!effect) break;
-        //     this.state.handle_effect(effect, this.state_effects, this.app_effects);
-        // }
-        this.state_effects.clear();
+        this.state.handle_event(event, this.app_effects);
         this.app_effects.clear();
     }
 
