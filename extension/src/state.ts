@@ -1487,6 +1487,9 @@ export class State {
                     for (const bid of subtree) {
                         let _ = this.remove_node(bid);
                     }
+                    if (source_win.tab_bids.length == 0 && source_win.bid !== node.bid) {
+                        let _ = this.remove_node(source_win.bid);
+                    }
 
                     effects.push_back(effect);
                 } else {
@@ -1801,7 +1804,9 @@ export class State {
                     create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index });
                 }
 
-                effects.push_back(create_effect);
+                if (!win.closed) {
+                    effects.push_back(create_effect);
+                }
             } break;
             case 'toggle_collapse': {
                 const node = this.get_node(action.payload.bid);
