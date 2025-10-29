@@ -51,7 +51,8 @@ class SplitMix64 {
     private state: bigint;
 
     constructor(seed: bigint) {
-        this.state = seed;
+        // Ensure the initial seed is also 64-bit.
+        this.state = seed & 0xFFFFFFFFFFFFFFFFn;
     }
 
     public next(): bigint {
@@ -59,7 +60,9 @@ class SplitMix64 {
         let z = this.state;
         z = (z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n & 0xFFFFFFFFFFFFFFFFn;
         z = (z ^ (z >> 27n)) * 0x94d049bb133111ebn & 0xFFFFFFFFFFFFFFFFn;
-        return z ^ (z >> 31n);
+        // The final XOR and shift won't exceed 64 bits if z is already 64-bit,
+        // but adding a mask here is harmless and ensures correctness.
+        return (z ^ (z >> 31n)) & 0xFFFFFFFFFFFFFFFFn;
     }
 }
 
@@ -78,7 +81,13 @@ export class Xoshiro256 {
 
     static from_state(s: Xoshiro256State) {
         const rng = new Xoshiro256();
-        rng.s = s;
+        // Ensure the provided state is properly masked to 64-bit values.
+        rng.s = [
+            s[0] & 0xFFFFFFFFFFFFFFFFn,
+            s[1] & 0xFFFFFFFFFFFFFFFFn,
+            s[2] & 0xFFFFFFFFFFFFFFFFn,
+            s[3] & 0xFFFFFFFFFFFFFFFFn,
+        ];
         return rng;
     }
 
@@ -88,14 +97,22 @@ export class Xoshiro256 {
 
     private static rotl(x: bigint, k: number): bigint {
         const kBigInt = BigInt(k);
+        // This rotl implementation already correctly uses a mask on the left shift,
+        // so it's safe. The result is implicitly 64-bit.
         return ((x << kBigInt) & 0xFFFFFFFFFFFFFFFFn) | (x >> (64n - kBigInt));
     }
 
     public next(): bigint {
-        const r = Xoshiro256.rotl((this.s[0] + this.s[3]) & 0xFFFFFFFFFFFFFFFFn, 23) + this.s[0] & 0xFFFFFFFFFFFFFFFFn;
+        // The additions here could result in a 65-bit number, so they need masking.
+        // Your original code was already correct on this line.
+        const r = (Xoshiro256.rotl((this.s[0] + this.s[3]) & 0xFFFFFFFFFFFFFFFFn, 23) + this.s[0]) & 0xFFFFFFFFFFFFFFFFn;
 
-        const t = this.s[1] << 17n;
+        // **BUG FIX**: The left shift `<<` can create a bigint larger than 64 bits.
+        // It must be masked.
+        const t = (this.s[1] << 17n) & 0xFFFFFFFFFFFFFFFFn;
 
+        // XOR operations do not increase the bit width, so they are safe without a mask
+        // as long as the inputs are already 64-bit.
         this.s[2] ^= this.s[0];
         this.s[3] ^= this.s[1];
         this.s[1] ^= this.s[2];
@@ -136,16 +153,19 @@ export class Xoshiro256 {
                 this.next();
             }
         }
-        this.s[0] = s0;
-        this.s[1] = s1;
-        this.s[2] = s2;
-        this.s[3] = s3;
+        // The results of the XORs will be 64-bit, so no mask is strictly necessary here,
+        // but it adds robustness.
+        this.s[0] = s0 & 0xFFFFFFFFFFFFFFFFn;
+        this.s[1] = s1 & 0xFFFFFFFFFFFFFFFFn;
+        this.s[2] = s2 & 0xFFFFFFFFFFFFFFFFn;
+        this.s[3] = s3 & 0xFFFFFFFFFFFFFFFFn;
     }
 
     public seed(init_s: bigint): void {
         // Xoshiro requires 256-bits of seed.
         const gen = new SplitMix64(init_s);
-
+        // The gen.next() calls will return correctly masked 64-bit bigints
+        // because we fixed the SplitMix64 class.
         this.s[0] = gen.next();
         this.s[1] = gen.next();
         this.s[2] = gen.next();
