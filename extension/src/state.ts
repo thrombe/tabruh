@@ -219,6 +219,7 @@ export class State {
     // }
 
     get_subtree(bid: BruhId): BruhId[] {
+        if (!this.nodes.has(bid)) return [bid];
         const node = this.get_node(bid);
         if (node.type == "window") {
             return [bid, ...node.tab_bids];
@@ -244,6 +245,7 @@ export class State {
     }
 
     get_immediate_children(bid: BruhId): BruhId[] {
+        if (!this.nodes.has(bid)) return [];
         const node = this.get_node(bid);
         const win = this.get_window(node.wbid);
         const index = this.get_index(node.bid) + 1;
