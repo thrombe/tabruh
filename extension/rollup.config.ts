@@ -166,7 +166,7 @@ const config: RollupOptions = {
         },
         {
             name: "lint-manifest",
-            async buildStart() {
+            async writeBundle() {
                 await webExt.cmd.lint({ sourceDir: "./build" }, { shouldExitProgram: false });
             },
         },
