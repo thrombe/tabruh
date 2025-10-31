@@ -1601,7 +1601,7 @@ export class State {
                     });
                 }
 
-                if (!this.is_node_closed(node.bid)) {
+                if (!win.closed) {
                     effects.push_back(effect);
                 }
             } break;
@@ -1805,7 +1805,10 @@ export class State {
                 const bid = this.bruhid++ as BruhId;
                 const target = this.get_target_index(bid, parent.bid, "inside");
                 const effect = this.create_new_group(target.parent_bid, { bid: bid, index: target.index });
-                effects.push_back(effect);
+
+                if (!win.closed) {
+                    effects.push_back(effect);
+                }
             } break;
             case 'create_tab': {
                 const url = action.payload.url;
