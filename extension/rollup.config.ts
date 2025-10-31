@@ -14,6 +14,7 @@ import url from 'url';
 import fs from 'fs/promises';
 // @ts-ignore
 import webExt from 'web-ext';
+import replace from '@rollup/plugin-replace';
 
 const distDir = 'build';
 
@@ -62,6 +63,10 @@ const config: RollupOptions = {
         },
     },
     plugins: [
+        replace({
+            preventAssignment: true,
+            'process.env.NODE_ENV': JSON.stringify('production'),
+        }),
         watchStaticAssets(),
         postcss(
             {
