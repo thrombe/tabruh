@@ -384,8 +384,7 @@ export class State {
         const target_win = this.get_window(target.wbid);
 
         const source_subtree = this.get_subtree(bid);
-        const target_subtree = this.get_subtree(target.bid);
-        const lastDescendantId = target_subtree[target_subtree.length - 1]!;
+        const lastDescendantId = this.get_subtree(target.bid).pop()!;
         const lastDescendantIndex = this.get_index(lastDescendantId);
         const targetIndex = this.get_index(target.bid);
         let currentIndex = target_win.tab_bids.indexOf(bid);
@@ -494,6 +493,20 @@ export class State {
         }
         const tbids_to_move = this.get_subtree(node.bid);
 
+        // NOTE:(1007)
+        // we need to make sure here that the tabs end up all contiguous starting at `index`
+        // so we need to first remove all tabs from the array, else partly moved subtrees
+        // will offset the index of other tabs
+        if (node.wbid == parent.wbid) {
+            const win = this.get_window(parent.wbid);
+            const active = win.active;
+            for (let i = 0; i < tbids_to_move.length; i++) {
+                const tbid = tbids_to_move[i]!;
+                this.remove_tab_from_window(tbid, win.bid);
+            }
+            win.active = active;
+        }
+
         node.parent_bid = new_parent_bid;
         for (let i = 0; i < tbids_to_move.length; i++) {
             const tbid = tbids_to_move[i]!;
@@ -508,6 +521,11 @@ export class State {
         const parent = this.get_node(new_parent_bid);
         if (index === undefined) {
             index = this.get_target_index(node.bid, parent.bid, "inside").index;
+        }
+
+        // same as NOTE:(1007), but not handled here because it is annoying to handle and this case should never trigger anyway
+        if (node.wbid == parent.wbid) {
+            throw new Error(`State.reparent_children does not support reparenting within the same window`);
         }
 
         const effect = { type: 'tabs_moved', payload: { tbids: [], wbid: parent.wbid, index } } as Extract<AppEffect, { type: 'tabs_moved' }>;
