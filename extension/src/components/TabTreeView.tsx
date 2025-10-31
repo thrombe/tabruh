@@ -85,6 +85,8 @@ export const TabTreeView: React.FC<TreeViewProps> = (props) => {
             const wbid = identifier as BruhId;
             content = (
                 <>
+                    {createItem('New Group', svg.icon_group, () => sendAction({ type: 'create_group', payload: { parent_bid: wbid } }))}
+                    {createSeparator()}
                     {createItem('Restore Window', svg.icon_restore, () => sendAction({ type: 'restore_window', payload: { wbid } }))}
                     {createSeparator()}
                     {createItem('Delete State', svg.icon_trash, () => sendAction({ type: 'delete_window_state', payload: { wbid } }))}
