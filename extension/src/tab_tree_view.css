@@ -5,10 +5,12 @@
   background-color: var(--gruvbox-bg);
   color: var(--gruvbox-fg);
   width: 100%;
+  height: 100%; /* CRITICAL: Make this container fill its parent (.window-view) */
 }
 
 .tab-tree-scroll-container {
   @apply flex-grow overflow-y-auto p-2;
+  /* This element will now take up all available vertical space and scroll its content */
 }
 
 .closed-group .tab-tree-scroll-container {
@@ -19,6 +21,7 @@
   @apply flex items-center justify-between p-2 flex-shrink-0;
   background-color: var(--gruvbox-hover-accent);
   border-bottom: 1px solid var(--gruvbox-border-2);
+  /* flex-shrink: 0 is correct, it prevents the header from shrinking */
 }
 
 .group-name {

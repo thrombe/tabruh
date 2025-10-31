@@ -2,8 +2,11 @@
 
 #overview-container {
     display: flex;
-    height: 100vh;
-    overflow-x: auto;
+    height: 100%;
+    overflow-x: auto; /* Allow horizontal scrolling for windows */
+    overflow-y: hidden; /* CRITICAL: Prevent the main container from scrolling vertically */
+    box-sizing: border-box;
+    align-items: stretch; /* This is correct, it makes all .window-view children the same height */
 }
 
 #overview-container.group-view-mode {
@@ -13,16 +16,16 @@
 #overview-container.group-view-mode .window-view {
     width: 100%;
     border-right: none;
+    flex-shrink: 1; /* Allow shrinking in group mode */
 }
 
 
 .window-view {
     width: 350px;
-    flex-shrink: 0;
-    height: 100%;
+    flex-shrink: 0; /* CRITICAL: Prevent windows from shrinking, forcing horizontal scroll */
     border-right: 2px solid var(--gruvbox-border-2);
-    display: flex;
-    flex-direction: column;
+    display: flex; /* This is correct, it turns the window into a flex container */
+    flex-direction: column; /* This is correct for the header/content layout */
 }
 
 .window-view-header {
@@ -37,7 +40,7 @@
 
 .window-view-content {
     flex-grow: 1;
-    overflow-y: hidden;
+    overflow-y: auto;
 }
 
 .action-page-container {
