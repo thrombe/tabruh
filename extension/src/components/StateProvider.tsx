@@ -1,5 +1,4 @@
-// components/StateProvider.tsx
-import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useReducer } from 'react';
 import browser from 'webextension-polyfill';
 import { State } from '../state';
 import * as utils from '../utils';
@@ -22,8 +21,9 @@ const StateContext = createContext<StateContextType>({
 export const useStateContext = () => useContext(StateContext);
 
 export const StateProvider: React.FC<{ children: ReactNode, connectionName: string }> = ({ children, connectionName }) => {
-    const [state, setState] = useState<State | null>(null);
+    const stateRef = useRef<State | null>(null);
     const [port, setPort] = useState<browser.Runtime.Port | null>(null);
+    const [, forceUpdate] = useReducer(x => x + 1, 0);
 
     useEffect(() => {
         let isConnected = true;
@@ -35,27 +35,25 @@ export const StateProvider: React.FC<{ children: ReactNode, connectionName: stri
             switch (message.type) {
                 case 'app_response':
                     if (message.payload.type === 'initial_state') {
+                        // Initialize the state instance ONCE from the clonable state.
                         const freshState = State.from_clonable_state(message.payload.payload);
-                        setState(freshState);
+                        stateRef.current = freshState;
                         // @ts-ignore
                         globalThis.state = freshState;
+                        forceUpdate(); // Trigger the first render
                     }
                     // other app_response types are handled inline in settings/overview pages
                     break;
                 case 'state_effect':
                 case 'state_action':
-                    setState(prevState => {
-                        if (!prevState) return null;
-                        const newState = State.from_clonable_state(prevState.clonable_state());
-                        // Create a temporary deque for the local state update.
-                        // The frontend does not execute these effects; it only needs to
-                        // update its state representation to match the background script.
+                    // Mutate the EXISTING state instance directly. No more cloning.
+                    if (stateRef.current) {
                         const app_effects = new utils.Deque<AppEffect>();
-                        newState.handle_event({ type: message.type, payload: message.payload as any }, app_effects);
+                        stateRef.current.handle_event({ type: message.type, payload: message.payload as any }, app_effects);
                         // @ts-ignore
-                        globalThis.state = newState;
-                        return newState;
-                    });
+                        globalThis.state = stateRef.current;
+                        forceUpdate(); // Notify React that a re-render is needed.
+                    }
                     break;
             }
         };
@@ -98,7 +96,7 @@ export const StateProvider: React.FC<{ children: ReactNode, connectionName: stri
         port.postMessage(message);
     }, [port]);
 
-    const value = { state, port, sendAction, sendRequest };
+    const value = { state: stateRef.current, port, sendAction, sendRequest };
 
     return <StateContext.Provider value={value}>{children}</StateContext.Provider>;
 };
