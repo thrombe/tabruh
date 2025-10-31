@@ -2,7 +2,8 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import browser from 'webextension-polyfill';
 import { State } from '../state';
-import type { AppRequest, StateAction, BruhUiEvent, ExtensionAction, ClonableState } from '../types';
+import * as utils from '../utils';
+import type { AppRequest, StateAction, BruhUiEvent, ExtensionAction, AppEffect } from '../types';
 
 type StateContextType = {
     state: State | null;
@@ -46,7 +47,11 @@ export const StateProvider: React.FC<{ children: ReactNode, connectionName: stri
                     setState(prevState => {
                         if (!prevState) return null;
                         const newState = State.from_clonable_state(prevState.clonable_state());
-                        newState.handle_event({ type: message.type, payload: message.payload as any }, new (class { clear() { } } as any)());
+                        // Create a temporary deque for the local state update.
+                        // The frontend does not execute these effects; it only needs to
+                        // update its state representation to match the background script.
+                        const app_effects = new utils.Deque<AppEffect>();
+                        newState.handle_event({ type: message.type, payload: message.payload as any }, app_effects);
                         // @ts-ignore
                         globalThis.state = newState;
                         return newState;
