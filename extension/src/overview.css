@@ -4,7 +4,6 @@
     display: flex;
     height: 100vh;
     overflow-x: auto;
-    background-color: #1d2021; /* gruvbox darker bg */
 }
 
 #overview-container.group-view-mode {
