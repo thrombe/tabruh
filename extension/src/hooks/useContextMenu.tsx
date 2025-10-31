@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 
 type ContextMenuState = {
     x: number;
@@ -63,7 +64,7 @@ export const ContextMenuPortal: React.FC<{ menuState: ContextMenuState }> = ({ m
 
     if (!menuState.visible) return null;
 
-    return (
+    const menuContent = (
         <div
             ref={menuRef}
             id="tab-context-menu"
@@ -74,4 +75,6 @@ export const ContextMenuPortal: React.FC<{ menuState: ContextMenuState }> = ({ m
             {menuState.content}
         </div>
     );
+
+    return ReactDOM.createPortal(menuContent, document.body);
 };

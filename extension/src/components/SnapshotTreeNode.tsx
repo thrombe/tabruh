@@ -1,4 +1,3 @@
-// components/SnapshotTreeNode.tsx
 import React, { memo, useCallback, useMemo } from 'react';
 import type { BruhExport, SnapshotDragData } from '../types';
 import * as svg from '../svg';
@@ -57,6 +56,7 @@ const SnapshotTreeNode: React.FC<SnapshotTreeNodeProps> = ({ tabIndex, snapshotW
 
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         showContextMenu(e.clientX, e.clientY, tabIndex);
     }, [showContextMenu, tabIndex]);
 

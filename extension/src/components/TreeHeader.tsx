@@ -1,4 +1,3 @@
-// components/TreeHeader.tsx
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import type { Node, BruhId, DragData } from '../types';
 import { useStateContext } from './StateProvider';

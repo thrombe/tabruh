@@ -1,4 +1,3 @@
-// components/SnapshotTreeHeader.tsx
 import React, { useCallback } from 'react';
 import type { BruhExport, SnapshotDragData } from '../types';
 import { useStateContext } from './StateProvider';

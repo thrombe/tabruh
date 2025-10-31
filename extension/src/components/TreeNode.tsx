@@ -1,4 +1,3 @@
-// components/TreeNode.tsx
 import React, { memo, useState, useCallback } from 'react';
 import type { BruhId, DropAction, DragData } from '../types';
 import * as svg from '../svg';
@@ -52,6 +51,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({ nodeId, showContextMenu }) => {
 
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         showContextMenu(e.clientX, e.clientY, nodeId);
     }, [showContextMenu, nodeId]);
 
