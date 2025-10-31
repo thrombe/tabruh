@@ -43,9 +43,9 @@ function watchStaticAssets(): Plugin {
 const config: RollupOptions = {
     input: {
         background: 'src/background.ts',
-        sidebar: 'src/sidebar.ts',
-        overview: 'src/overview.ts',
-        settings: 'src/settings.ts',
+        sidebar: 'src/sidebar.tsx',
+        overview: 'src/overview.tsx',
+        settings: 'src/settings.tsx',
     },
     output: {
         dir: distDir,
@@ -74,7 +74,8 @@ const config: RollupOptions = {
         ),
         resolve({
             browser: true,
-            preferBuiltins: false
+            preferBuiltins: false,
+            extensions: ['.js', '.jsx', '.ts', '.tsx'],
         }),
         commonjs(),
         typescript({
@@ -86,6 +87,7 @@ const config: RollupOptions = {
                 { src: 'src/sidebar.html', dest: distDir },
                 { src: 'src/overview.html', dest: distDir },
                 { src: 'src/settings.html', dest: distDir },
+                { src: 'src/new.html', dest: distDir },
             ],
             hook: 'buildEnd',
         }),
