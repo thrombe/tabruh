@@ -238,7 +238,9 @@ export class State {
                 subtree.push(tbid);
                 maybe_parents.add(tbid);
             } else {
-                break;
+                // TODO(1006): ideally this should break here, but the user might reorder tabs manually, and that
+                //    order might not follow the rule of all subtrees being contiguous in win.tab_bids 
+                // break;
             }
         }
         return subtree;
@@ -262,7 +264,8 @@ export class State {
                     children.push(tbid);
                 }
             } else {
-                break;
+                // same as TODO:(1006)
+                // break;
             }
         }
         return children;
