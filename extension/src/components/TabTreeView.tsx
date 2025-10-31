@@ -1,4 +1,4 @@
-import './tab_tree_view.css';
+import '../tab_tree_view.css';
 import React, { useCallback, useMemo } from 'react';
 import type { BruhId, WindowId, BruhExport, SnapshotDragData } from '../types';
 import * as svg from '../svg';
