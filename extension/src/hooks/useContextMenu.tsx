@@ -1,5 +1,4 @@
-// hooks/useContextMenu.ts
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 type ContextMenuState = {
     x: number;

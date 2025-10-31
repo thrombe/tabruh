@@ -1,9 +1,7 @@
-// components/TabTreeView.tsx
 import './tab_tree_view.css';
 import React, { useCallback, useMemo } from 'react';
-import browser from 'webextension-polyfill';
+import type { BruhId, WindowId, BruhExport, SnapshotDragData } from '../types';
 import * as svg from '../svg';
-import type { BruhId, WindowId, BruhExport, SnapshotDragData, Node } from '../types';
 import { useStateContext } from './StateProvider';
 import { useContextMenu, ContextMenuPortal } from '../hooks/useContextMenu';
 import { TreeHeader } from './TreeHeader';
@@ -184,7 +182,6 @@ export const TabTreeView: React.FC<TreeViewProps> = (props) => {
         if (!rootNode) return null;
 
         const isClosed = state!.is_node_closed(props.rootId);
-        const window = state!.get_window(rootNode.wbid);
         const children = state!.get_immediate_children(props.rootId);
         const containerClasses = `tab-tree-view-container ${isClosed && props.treeType !== 'snapshot' ? 'closed-group' : ''}`;
 

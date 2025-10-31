@@ -1,11 +1,48 @@
-// settings.tsx
 import './settings.css';
 import React, { useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './components/TabTreeView';
 import { StateProvider, useStateContext } from './components/StateProvider';
-import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId } from './types';
+import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent } from './types';
+
+const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) => void, sendAction: (act: any) => void) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const content = e.target?.result as string;
+                const data = JSON.parse(content);
+                if (!('id' in data || 'timestamp' in data)) {
+                    alert('Unrecognized export format.');
+                    return;
+                }
+                if (isForSnapshot) {
+                    const name = prompt(`Enter a name for the imported snapshot:`, file.name.replace('.json', ''));
+                    if (name) sendAction({ type: 'import_file_as_snapshot', payload: { data, name } });
+                } else {
+                    if ('id' in data) {
+                        sendRequest({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
+                    } else {
+                        sendAction({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
+                        alert('Import successful! Your imported windows have been added as closed windows.');
+                    }
+                }
+            } catch (err) {
+                console.error('Error importing file:', err);
+                alert('Failed to read or parse the import file.');
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+};
 
 const SettingsView: React.FC = () => {
     const { state, sendAction, sendRequest } = useStateContext();
@@ -71,44 +108,6 @@ const SettingsView: React.FC = () => {
     );
 };
 
-const openFilePicker = (isForSnapshot: boolean, sendRequest: any, sendAction: any) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    input.onchange = () => {
-        const file = input.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const content = e.target?.result as string;
-                const data = JSON.parse(content);
-                if (!('id' in data || 'timestamp' in data)) {
-                    alert('Unrecognized export format.');
-                    return;
-                }
-                if (isForSnapshot) {
-                    const name = prompt(`Enter a name for the imported snapshot:`, file.name.replace('.json', ''));
-                    if (name) sendAction({ type: 'import_file_as_snapshot', payload: { data, name } });
-                } else {
-                    if ('id' in data) {
-                        sendRequest({ type: 'convert_sideberry_export', payload: { data: data as SideberryExport } });
-                    } else {
-                        sendAction({ type: 'load_bruh_export', payload: { data: data as BruhExport } });
-                        alert('Import successful! Your imported windows have been added as closed windows.');
-                    }
-                }
-            } catch (err) {
-                console.error('Error importing file:', err);
-                alert('Failed to read or parse the import file.');
-            }
-        };
-        reader.readAsText(file);
-    };
-    input.click();
-};
-
 const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindowId }) => {
     const { state, sendAction, sendRequest } = useStateContext();
     const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
@@ -171,6 +170,7 @@ const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindow
 };
 
 const SettingsPage: React.FC = () => {
+    const { port, sendAction } = useStateContext();
     const [currentView, setCurrentView] = useState<'settings' | 'snapshots'>('settings');
     const [currentWindowId, setCurrentWindowId] = useState<WindowId | undefined>();
 
@@ -179,6 +179,19 @@ const SettingsPage: React.FC = () => {
             setCurrentWindowId(win.id as WindowId);
         });
     }, []);
+
+    useEffect(() => {
+        if (!port) return;
+
+        const handleMessage = (message: BruhUiEvent) => {
+            if (message.type === 'app_response' && message.payload.type === 'converted_sideberry_export_ready') {
+                sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
+                alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+            }
+        };
+        port.onMessage.addListener(handleMessage);
+        return () => { port.onMessage.removeListener(handleMessage) };
+    }, [port, sendAction]);
 
     const renderContent = () => {
         switch (currentView) {
@@ -213,6 +226,7 @@ const SettingsPage: React.FC = () => {
         </div>
     );
 };
+
 
 document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('settings-root');
