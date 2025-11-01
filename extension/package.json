@@ -1,7 +1,7 @@
 {
   "name": "tabruh",
   "scripts": {
-    "build": "rm -r ./build && mkdir ./build && rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
+    "build": "mkdir -p ./build && rm -r ./build/* && rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "pkg-build": "bun run build && bun x tsx ./src/dev.ts build",
     "dev": "bun x tsx ./src/dev.ts"
   },
