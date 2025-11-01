@@ -14,8 +14,29 @@ if (original_url) {
     document.title = "URL Error";
     container.innerHTML = `
         <div class="title">Tabruh cannot open this URL:</div>
-        <div class="url-display">${escapeHTML(original_url)}</div>
+        <div class="url-container">
+            <div class="url-display">${escapeHTML(original_url)}</div>
+            <button id="copy-button" class="copy-button">Copy</button>
+        </div>
     `;
+
+    const copyButton = document.getElementById('copy-button');
+    if (copyButton) {
+        copyButton.addEventListener('click', () => {
+            navigator.clipboard.writeText(original_url).then(() => {
+                copyButton.textContent = 'Copied!';
+                copyButton.classList.add('copied');
+                setTimeout(() => {
+                    copyButton.textContent = 'Copy';
+                    copyButton.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy URL: ', err);
+                copyButton.textContent = 'Failed!';
+            });
+        });
+    }
+
 } else {
     // Case 2: Standard new tab, check for user-defined redirect
     const port = browser.runtime.connect({ name: 'new-tab-connection' });
@@ -29,15 +50,16 @@ if (original_url) {
                 try {
                     // Validate URL before redirecting
                     new URL(redirectUrl);
-                    window.location.href = redirectUrl;
+                    window.location.replace(redirectUrl); // Use replace to avoid polluting browser history
                 } catch (e) {
                     console.error("Invalid redirect URL provided in settings:", redirectUrl);
-                    // Fallback to a blank page if user URL is invalid
-                    document.title = "New Tab";
+                    document.title = "Invalid URL";
+                    container.innerHTML = `<div class="title">Invalid Redirect URL in Settings</div>`;
                 }
             } else {
-                // No redirect configured, show a blank page or a welcome message
                 document.title = "New Tab";
+                // You can add a default welcome message here if you want
+                // container.innerHTML = `<div class="title">Welcome to Tabruh</div>`;
             }
         }
     });

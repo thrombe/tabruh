@@ -10,12 +10,19 @@ body {
 
 #container {
     max-width: 80%;
+    width: 600px;
 }
 
 .title {
     font-size: 1.5rem;
     font-weight: bold;
     margin-bottom: 1rem;
+}
+
+.url-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .url-display {
@@ -25,4 +32,27 @@ body {
     font-family: monospace;
     word-break: break-all;
     border: 1px solid var(--gruvbox-border-2);
+    text-align: left;
+    flex-grow: 1;
+}
+
+.copy-button {
+    background-color: var(--gruvbox-blue);
+    color: var(--gruvbox-bg);
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    font-weight: bold;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color 0.2s ease;
+}
+
+.copy-button:hover {
+    background-color: #a9b665; /* A gruvbox green for hover */
+}
+
+.copy-button.copied {
+    background-color: var(--gruvbox-border-2);
+    cursor: default;
 }
