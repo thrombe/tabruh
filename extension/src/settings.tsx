@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './components/TabTreeView';
 import { StateProvider, useStateContext } from './components/StateProvider';
-import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent } from './types';
+import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction } from './types';
 
 const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) => void, sendAction: (act: any) => void) => {
     const input = document.createElement('input');
@@ -46,18 +46,37 @@ const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) =
 
 const SettingsView: React.FC = () => {
     const { state, sendAction, sendRequest } = useStateContext();
+    
+    // Use local state for the text input to avoid re-renders on every keystroke.
+    const [newTabUrl, setNewTabUrl] = useState(state?.user_config.new_tab_url || '');
+
+    // Sync local state if the global state changes from another source.
+    useEffect(() => {
+        if (state) {
+            setNewTabUrl(state.user_config.new_tab_url);
+        }
+    }, [state?.user_config.new_tab_url]);
+
     if (!state || !state.user_config) return null;
 
     const userConfig = state.user_config;
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const target = e.target;
-        sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.value } as Partial<UserConfig> } });
-    };
-
     const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const target = e.target;
         sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } as Partial<UserConfig> } });
+    };
+    
+    // Save the new tab URL state only on blur or Enter.
+    const handleSaveNewTabUrl = () => {
+        if (state && newTabUrl !== state.user_config.new_tab_url) {
+            sendAction({ type: 'update_user_config', payload: { config: { new_tab_url: newTabUrl } } });
+        }
+    };
+
+    const handleUrlInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.currentTarget.blur(); // Triggers the onBlur event to save
+        }
     };
 
     const handleExport = () => {
@@ -81,7 +100,16 @@ const SettingsView: React.FC = () => {
                         <label htmlFor="new_tab_url">Custom New Tab URL</label>
                         <p className="description">Redirect new tabs to this URL. Leave blank for the default page.</p>
                     </div>
-                    <input type="text" id="new_tab_url" className="text-input" placeholder="https://example.com" value={userConfig.new_tab_url} onChange={handleInputChange} />
+                    <input
+                        type="text"
+                        id="new_tab_url"
+                        className="text-input"
+                        placeholder="https://example.com"
+                        value={newTabUrl}
+                        onChange={(e) => setNewTabUrl(e.target.value)}
+                        onBlur={handleSaveNewTabUrl}
+                        onKeyDown={handleUrlInputKeyDown}
+                    />
                 </div>
             </div>
             <div className="settings-section">
