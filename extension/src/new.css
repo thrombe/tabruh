@@ -40,12 +40,14 @@ body {
     background-color: var(--gruvbox-blue);
     color: var(--gruvbox-bg);
     border: none;
-    padding: 0.5rem 1rem;
+    padding: 0.5rem; /* Adjusted for a more square icon button */
     border-radius: 0.25rem;
-    font-weight: bold;
     cursor: pointer;
     flex-shrink: 0;
     transition: background-color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .copy-button:hover {
@@ -55,4 +57,9 @@ body {
 .copy-button.copied {
     background-color: var(--gruvbox-border-2);
     cursor: default;
+}
+
+.copy-button svg {
+    width: 16px;
+    height: 16px;
 }

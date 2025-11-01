@@ -2,12 +2,14 @@ import './new.css';
 import browser from 'webextension-polyfill';
 import type { AppRequest, BruhUiEvent, ExtensionAction } from './types';
 import { State } from './state';
+import * as svg from './svg';
 
 const container = document.getElementById('container');
 if (!container) throw new Error('Container not found');
 
 const urlParams = new URLSearchParams(window.location.search);
 const original_url = urlParams.get('original_url');
+
 
 if (original_url) {
     // Case 1: Display error for a "funny" URL
@@ -16,23 +18,24 @@ if (original_url) {
         <div class="title">Tabruh cannot open this URL:</div>
         <div class="url-container">
             <div class="url-display">${escapeHTML(original_url)}</div>
-            <button id="copy-button" class="copy-button">Copy</button>
+            <button id="copy-button" class="copy-button" title="Copy URL">${svg.icon_copy}</button>
         </div>
     `;
 
     const copyButton = document.getElementById('copy-button');
     if (copyButton) {
         copyButton.addEventListener('click', () => {
+            if (copyButton.classList.contains('copied')) return; // Prevent multiple clicks
+
             navigator.clipboard.writeText(original_url).then(() => {
-                copyButton.textContent = 'Copied!';
+                copyButton.innerHTML = svg.icon_tick;
                 copyButton.classList.add('copied');
                 setTimeout(() => {
-                    copyButton.textContent = 'Copy';
+                    copyButton.innerHTML = svg.icon_copy;
                     copyButton.classList.remove('copied');
-                }, 2000);
+                }, 1000);
             }).catch(err => {
                 console.error('Failed to copy URL: ', err);
-                copyButton.textContent = 'Failed!';
             });
         });
     }
