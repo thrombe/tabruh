@@ -10,14 +10,49 @@ if (!container) throw new Error('Container not found');
 const urlParams = new URLSearchParams(window.location.search);
 const original_url = urlParams.get('original_url');
 
+const port = browser.runtime.connect({ name: 'new-tab-connection' });
 
-if (original_url) {
-    // Case 1: Display error for a "funny" URL
+port.onMessage.addListener((message: BruhUiEvent) => {
+    if (message.type === 'app_response' && message.payload.type === 'initial_state') {
+        const state = State.from_clonable_state(message.payload.payload);
+
+        if (original_url) {
+            // Case 1: This is a "funny" URL. Decide whether to restrict or redirect.
+            if (state.config.features.url_open_restricted) {
+                renderErrorPage(original_url);
+            } else {
+                window.location.replace(original_url);
+            }
+        } else {
+            // Case 2: This is a standard new tab. Check for user-defined redirect.
+            const redirectUrl = state.user_config.new_tab_url;
+            if (redirectUrl && redirectUrl.trim() !== '') {
+                try {
+                    new URL(redirectUrl);
+                    window.location.replace(redirectUrl);
+                } catch (e) {
+                    console.error("Invalid redirect URL provided in settings:", redirectUrl);
+                    document.title = "Invalid URL";
+                    container.innerHTML = `<div class="title">Invalid Redirect URL in Settings</div>`;
+                }
+            } else {
+                document.title = "New Tab";
+            }
+        }
+    }
+});
+
+const request: AppRequest = { type: 'get_initial_state', payload: {} };
+const message: ExtensionAction = { type: 'app_request', payload: request };
+port.postMessage(message);
+
+
+function renderErrorPage(url: string) {
     document.title = "URL Error";
     container.innerHTML = `
         <div class="title">Tabruh cannot open this URL:</div>
         <div class="url-container">
-            <div class="url-display">${escapeHTML(original_url)}</div>
+            <div class="url-display">${escapeHTML(url)}</div>
             <button id="copy-button" class="copy-button" title="Copy URL">${svg.icon_copy}</button>
         </div>
     `;
@@ -25,9 +60,9 @@ if (original_url) {
     const copyButton = document.getElementById('copy-button');
     if (copyButton) {
         copyButton.addEventListener('click', () => {
-            if (copyButton.classList.contains('copied')) return; // Prevent multiple clicks
+            if (copyButton.classList.contains('copied')) return;
 
-            navigator.clipboard.writeText(original_url).then(() => {
+            navigator.clipboard.writeText(url).then(() => {
                 copyButton.innerHTML = svg.icon_tick;
                 copyButton.classList.add('copied');
                 setTimeout(() => {
@@ -39,37 +74,6 @@ if (original_url) {
             });
         });
     }
-
-} else {
-    // Case 2: Standard new tab, check for user-defined redirect
-    const port = browser.runtime.connect({ name: 'new-tab-connection' });
-
-    port.onMessage.addListener((message: BruhUiEvent) => {
-        if (message.type === 'app_response' && message.payload.type === 'initial_state') {
-            const state = State.from_clonable_state(message.payload.payload);
-            const redirectUrl = state.user_config.new_tab_url;
-
-            if (redirectUrl && redirectUrl.trim() !== '') {
-                try {
-                    // Validate URL before redirecting
-                    new URL(redirectUrl);
-                    window.location.replace(redirectUrl); // Use replace to avoid polluting browser history
-                } catch (e) {
-                    console.error("Invalid redirect URL provided in settings:", redirectUrl);
-                    document.title = "Invalid URL";
-                    container.innerHTML = `<div class="title">Invalid Redirect URL in Settings</div>`;
-                }
-            } else {
-                document.title = "New Tab";
-                // You can add a default welcome message here if you want
-                // container.innerHTML = `<div class="title">Welcome to Tabruh</div>`;
-            }
-        }
-    });
-
-    const request: AppRequest = { type: 'get_initial_state', payload: {} };
-    const message: ExtensionAction = { type: 'app_request', payload: request };
-    port.postMessage(message);
 }
 
 function escapeHTML(str: string): string {
