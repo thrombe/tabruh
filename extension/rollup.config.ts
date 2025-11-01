@@ -47,6 +47,7 @@ const config: RollupOptions = {
         sidebar: 'src/sidebar.tsx',
         overview: 'src/overview.tsx',
         settings: 'src/settings.tsx',
+        new: 'src/new.ts',
     },
     output: {
         dir: distDir,

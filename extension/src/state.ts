@@ -549,7 +549,9 @@ export class State {
         let url = options.url ?? this.get_new_url();
         if (this.parse_group_url_id(url)) throw new Error(`App.create_new_tab cannot create 'group'`);
         if (this.is_url_funny(url)) {
-            url = this.get_new_url();
+            const new_url = new URL(this.get_new_url());
+            new_url.searchParams.set('original_url', url);
+            url = new_url.toString();
         }
         const node: Node = {
             bid,

@@ -40,6 +40,7 @@ export type UserConfig = {
     dbg_log_events: boolean,
     dbg_log_effects: boolean,
     open_sidebar_on_new_windows: boolean,
+    new_tab_url?: string,
 };
 export type ConfigStorage = {
     config_version: string,

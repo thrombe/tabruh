@@ -50,6 +50,11 @@ const SettingsView: React.FC = () => {
 
     const userConfig = state.user_config;
 
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const target = e.target;
+        sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.value } as Partial<UserConfig> } });
+    };
+
     const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const target = e.target;
         sendAction({ type: 'update_user_config', payload: { config: { [target.id]: target.checked } as Partial<UserConfig> } });
@@ -70,6 +75,13 @@ const SettingsView: React.FC = () => {
                 <div className="setting-item">
                     <label htmlFor="open_sidebar_on_new_windows">Open sidebar automatically on new windows</label>
                     <input type="checkbox" id="open_sidebar_on_new_windows" checked={userConfig.open_sidebar_on_new_windows} onChange={handleCheckboxChange} />
+                </div>
+                <div className="setting-item">
+                    <div>
+                        <label htmlFor="new_tab_url">Custom New Tab URL</label>
+                        <p className="description">Redirect new tabs to this URL. Leave blank for the default page.</p>
+                    </div>
+                    <input type="text" id="new_tab_url" className="text-input" placeholder="https://example.com" value={userConfig.new_tab_url} onChange={handleInputChange} />
                 </div>
             </div>
             <div className="settings-section">

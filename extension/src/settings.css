@@ -93,6 +93,18 @@ body {
 }
 .button:hover { background-color: #a9b665; }
 
+.text-input {
+    background-color: var(--gruvbox-hover);
+    border: 1px solid var(--gruvbox-border-2);
+    color: var(--gruvbox-fg);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    outline: none;
+}
+.text-input:focus {
+    border-color: var(--gruvbox-blue);
+}
+
 .snapshot-window-view {
     margin-bottom: 1rem;
     border: 1px solid var(--gruvbox-border-2);

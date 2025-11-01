@@ -1,0 +1,28 @@
+@import "./styles.css";
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--gruvbox-fg);
+}
+
+#container {
+    max-width: 80%;
+}
+
+.title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+.url-display {
+    background-color: var(--gruvbox-hover);
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    font-family: monospace;
+    word-break: break-all;
+    border: 1px solid var(--gruvbox-border-2);
+}
