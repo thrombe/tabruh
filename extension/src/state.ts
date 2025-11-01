@@ -65,6 +65,7 @@ export class State {
         this.rng = utils.Xoshiro256.from_bigint(BigInt(Math.floor(Math.random() * (1 << 30))));
         this.extension_version = version;
 
+        const is_maybe_ff = browser.runtime.getBrowserInfo != undefined;
         const session_values = browser.sessions.setWindowValue !== undefined;
         this.config = {
             available_apis: {
@@ -72,6 +73,7 @@ export class State {
             },
             features: {
                 restore_strategy: session_values ? "SessionsValues" : "SessionHistory",
+                url_open_restricted: is_maybe_ff,
             },
         };
 
@@ -104,6 +106,9 @@ export class State {
     // TODO: need to add this check before calling tabs.create anywhere.
     // maybe just create a tab saying "sorry man. can't create this one for you"
     is_url_funny(url_str: string): boolean {
+        if (!this.config.features.url_open_restricted) {
+            return false;
+        }
         try {
             const url = new URL(url_str);
             if (url.protocol === "chrome-extension:") {

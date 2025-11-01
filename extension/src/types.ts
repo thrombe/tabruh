@@ -33,6 +33,7 @@ export type Config = {
     },
     features: {
         restore_strategy: "SessionsValues" | "SessionHistory",
+        url_open_restricted: boolean,
     },
 };
 export type UserConfig = {
