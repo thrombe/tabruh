@@ -843,7 +843,7 @@ class App {
                 if (active) {
                     title = undefined;
                 }
-                let btab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active });
+                let btab = await browser.tabs.create({ windowId: wid, url, index, discarded: !active, active, title });
                 await this.write_session_pointer(node.bid, btab.id as TabId, "tab");
 
                 const e: StateEffect = { type: 'register_tab', payload: { tid: btab.id as TabId, bid: node.bid } };
