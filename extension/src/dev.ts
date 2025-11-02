@@ -1,6 +1,20 @@
 import webExt from 'web-ext';
 import fs from 'fs/promises';
 import path from 'path';
+import stripJsonComments from 'strip-json-comments';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+async function create_src_archive() {
+    const manifestPath = path.resolve("./src/manifest.jsonc");
+    const raw = await fs.readFile(manifestPath, "utf-8");
+    const cleaned = stripJsonComments(raw, { trailingCommas: true });
+    const manifest = JSON.parse(cleaned);
+    const name = manifest["name"];
+    const version = manifest["version"];
+
+    await promisify(exec)(`git archive --format=zip -o ./build_artifacts/${name}-src-${version}.zip HEAD`);
+}
 
 async function main() {
     const args = process.argv.slice(2);
@@ -37,6 +51,8 @@ async function main() {
 
         await fs.rm(cliOpts.artifactsDir, { recursive: true, force: true });
         await webExt.cmd.build(cliOpts, { shouldExitProgram: true });
+
+        await create_src_archive();
     }
 }
 
