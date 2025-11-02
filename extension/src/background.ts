@@ -482,17 +482,18 @@ class App {
         // can only be restored by the extension
         for (const bwin of bwins) {
             const old_wbid = old_wbids.get(bwin.id as WindowId);
-            if (!old_wbid) {
-                // we create completely new windows here
-                let new_win_effect = this.state.create_new_window({});
-                const e = this.state.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
-                app_effects.push_back(e);
-            } else {
+
+            let needs_new_win = false;
+            if (old_wbid) {
                 const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
                 if (!node) {
-                    // windows that were restored via the browser restore api after the state for it was deleted
-                    const e = this.state.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
-                    app_effects.push_back(e);
+                    if (this.state.browser_restore_cache.has(old_wbid)) {
+                        // windows that were restored via the browser restore api after the state for it was deleted
+                        const e = this.state.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
+                        app_effects.push_back(e);
+                    } else {
+                        needs_new_win = true;
+                    }
                 } else {
                     // windows that are open/closed, but still in state
                     if (node.is_archived_pristine) {
@@ -506,7 +507,17 @@ class App {
                     const e = this.state.restore_window(bwin.id as WindowId, old_wbid, state.node_storage_data);
                     app_effects.push_back(e);
                 }
+            } else {
+                needs_new_win = true;
             }
+
+            if (needs_new_win) {
+                // we create completely new windows here
+                let new_win_effect = this.state.create_new_window({});
+                const e = this.state.register_bwindow(bwin.id as WindowId, new_win_effect.payload.wbid);
+                app_effects.push_back(e);
+            }
+
             await this.process_app_effects(state_effects, app_effects);
 
             // TODO: MAYBE: there's probably a subtle bug somewhere in here,
