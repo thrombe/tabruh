@@ -3,6 +3,7 @@
   "scripts": {
     "build": "mkdir -p ./build/ignore && rm -r ./build/* && rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "pkg-build": "bun run build && bun x tsx ./src/dev.ts build",
+    "pkg-sign": "bun run build && bun x tsx ./src/dev.ts sign",
     "dev": "bun x tsx ./src/dev.ts"
   },
   "devDependencies": {
@@ -13,6 +14,7 @@
     "@types/bun": "latest",
     "@types/webextension-polyfill": "^0.12.3",
     "autoprefixer": "^10.4.21",
+    "dotenv": "^17.2.3",
     "glob": "^11.0.3",
     "rollup": "^4.52.0",
     "rollup-plugin-copy": "^3.5.0",

@@ -1,0 +1,8 @@
+{
+  "version": { "license": "MIT" },
+  "categories": { "firefox": ["tabs"] },
+  "requires_payment": false,
+  "homepage": {
+    "en-US": "https://github.com/thrombe/tabruh"
+  }
+}
