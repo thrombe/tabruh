@@ -5,15 +5,12 @@ import stripJsonComments from 'strip-json-comments';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-async function create_src_archive() {
+async function get_manifest() {
     const manifestPath = path.resolve("./src/manifest.jsonc");
     const raw = await fs.readFile(manifestPath, "utf-8");
     const cleaned = stripJsonComments(raw, { trailingCommas: true });
     const manifest = JSON.parse(cleaned);
-    const name = manifest["name"];
-    const version = manifest["version"];
-
-    await promisify(exec)(`git archive --format=zip -o ./build_artifacts/${name}-src-${version}.zip HEAD`);
+    return manifest;
 }
 
 async function main() {
@@ -50,9 +47,14 @@ async function main() {
         cliOpts.artifactsDir = './build_artifacts';
 
         await fs.rm(cliOpts.artifactsDir, { recursive: true, force: true });
-        await webExt.cmd.build(cliOpts, { shouldExitProgram: true });
 
-        await create_src_archive();
+        const manifest = await get_manifest();
+        const name = manifest["name"];
+        const version = manifest["version"];
+
+        cliOpts.filename = `${name}-v${version}.zip`;
+        await webExt.cmd.build(cliOpts, { shouldExitProgram: true });
+        await promisify(exec)(`git -C "$(git rev-parse --show-toplevel)" archive --format=zip -o ./extension/build_artifacts/${name}-src-v${version}.zip HEAD`);
     }
 }
 
