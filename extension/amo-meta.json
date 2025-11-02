@@ -1,5 +1,8 @@
 {
-  "version": { "license": "MIT" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "detailed description, build instructions, test env in ./README.md\nextension src: ./extension\n\ninstructions:\n$ cd extension\n$ bun run pkg-build"
+  },
   "categories": { "firefox": ["tabs"] },
   "requires_payment": false,
   "homepage": {
