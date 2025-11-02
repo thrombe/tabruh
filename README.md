@@ -18,6 +18,7 @@ A Firefox extension for managing browser tabs in a tree. It allows for manipulat
 
 ### Prerequisites
 - [Bun](https://bun.sh/) is required to install dependencies and run the build scripts.
+- you might also want to install [Node.js](https://nodejs.org/) if building the extension give you some errors.
 
 ### Build Steps
 1. Clone the repository:
@@ -36,6 +37,13 @@ bun install
 bun run pkg-build
 ```
 This command will build the extension source into the `./build` directory and then create a packaged `.zip` file in the `./build_artifacts/` directory.
+
+# Tested Environment
+The development and build setup for this extension has been tested and is confirmed to work with the following environment.
+  - **Operating System**: Linux
+  - **Node.js**: `v22.17.0`
+  - **Bun**: `v1.2.18`
+  - **Firefox**: `v138.0.4`
 
 # Loading for Development
 After building the source (you can use `bun run build`), you can load the extension for development or testing in Firefox:
