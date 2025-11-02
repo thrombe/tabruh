@@ -7,7 +7,8 @@
       "id": "@tabruh.thrombe",
       // sessions.getTabValue/getWindowValue -> ff v57
       // sidebarActions.toggle -> ff v73
-      "strict_min_version": "73.0",
+      // background.type: "module" -> ff v112
+      "strict_min_version": "112.0",
     },
   },
   "permissions": [
