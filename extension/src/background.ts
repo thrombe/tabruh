@@ -226,9 +226,6 @@ class App {
             await this.process_event(event, state_effects, app_effects).catch(console.error);
             this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(state_effects, app_effects);
-
-            // TODO:
-            // await this.save_state().catch(console.error);
         }
     }
 
@@ -258,6 +255,20 @@ class App {
         }
     }
 
+    save_request_count: number = 0;
+    request_state_save() {
+        this.save_request_count += 1;
+        setTimeout(() => {
+            this.event_channel.send({ type: 'save_state', payload: {} });
+        }, 5000);
+    }
+    async maybe_save_state() {
+        this.save_request_count -= 1;
+        if (this.save_request_count == 0) {
+            await this.save_state();
+        }
+    }
+
     async save_config() {
         const config = this.state.serialize_config();
         await browser.storage.local.set({
@@ -266,6 +277,7 @@ class App {
     }
 
     async save_state() {
+        console.log(Date.now(), "actually saving state now");
         const state = this.state.serialize_state();
         await browser.storage.local.set({
             [this.storage_state_key]: state,
@@ -670,6 +682,8 @@ class App {
                         throw utils.exhausted(event.payload.message);
                 }
                 break;
+            case 'save_state':
+                break;
             default:
                 throw utils.exhausted(event);
         }
@@ -689,6 +703,7 @@ class App {
             case 'window_closed':
             case 'save_config':
             case 'save_snapshots':
+            case 'save_state':
                 console.log(Date.now(), effect.type, effect.payload);
                 break;
             case 'write_window_session':
@@ -792,6 +807,37 @@ class App {
             case 'state_action': {
                 this.state.handle_action(event.payload.message, app_effects);
                 this._broadcast_state_action(event.payload.message);
+
+                switch (event.payload.message.type) {
+                    case 'focus_tab':
+                    case 'close_tabs':
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'load_bruh_export':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'handle_snapshot_drop':
+                        this.request_state_save();
+                        break;
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'import_file_as_snapshot':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        break;
+                }
             } break;
             case 'app_request': {
                 const msg = event.payload.message;
@@ -821,6 +867,9 @@ class App {
                     default:
                         throw utils.exhausted(msg);
                 } break;
+            } break;
+            case 'save_state': {
+                await this.maybe_save_state();
             } break;
             default:
                 throw utils.exhausted(event);
@@ -978,7 +1027,11 @@ class App {
                 await this.save_config();
             } break;
             case 'save_snapshots': {
-                await this.save_snapshots();
+                // NOTE: no awaiting to reduce latency. + these are very infrequent anyway
+                let _ = this.save_snapshots();
+            } break;
+            case 'save_state': {
+                this.request_state_save();
             } break;
             default:
                 throw utils.exhausted(effect);

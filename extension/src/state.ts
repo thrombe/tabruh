@@ -1471,6 +1471,37 @@ export class State {
 
     handle_action(action: StateAction, effects: utils.Deque<AppEffect>) {
         switch (action.type) {
+            case 'focus_tab':
+            case 'close_tabs':
+            case 'toggle_collapse':
+            case 'handle_drop':
+            case 'duplicate_tab':
+            case 'unload_tabs':
+            case 'reload_tree':
+            case 'move_subtree_to_new_window':
+            case 'create_tab':
+            case 'close_window':
+            case 'restore_window':
+            case 'delete_window_state':
+            case 'flatten_tree':
+            case 'create_group':
+            case 'rename_node':
+            case 'load_bruh_export':
+            case 'restore_snapshot_window':
+            case 'restore_snapshot_subtree':
+            case 'handle_snapshot_drop':
+                effects.push_back({ type: 'save_state', payload: {} });
+                break;
+            case 'update_user_config':
+            case 'create_snapshot':
+            case 'delete_snapshot':
+            case 'import_file_as_snapshot':
+            case 'toggle_snapshot_collapse':
+            case 'toggle_snapshot_window_collapse':
+                break;
+        }
+
+        switch (action.type) {
             case 'restore_window': {
                 const node = this.get_node(action.payload.wbid);
                 if (node.type !== "window") throw new Error(`expected 'window' found '${node.type}' bid: ${node.bid}`);

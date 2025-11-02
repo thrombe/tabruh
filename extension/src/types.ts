@@ -246,6 +246,7 @@ export type AppEffect =
     | { type: 'update_tab_url', payload: { tid: TabId, url: string } }
     | { type: 'save_config', payload: {} }
     | { type: 'save_snapshots', payload: {} }
+    | { type: 'save_state', payload: {} }
     ;
 
 export type StateEffect =
@@ -287,6 +288,7 @@ export type AppEvent =
     | { type: 'browser_event', payload: BrowserEvent }
     | { type: 'app_request', payload: { message: AppRequest, port: browser.Runtime.Port } }
     | { type: 'state_action', payload: { message: StateAction, port: browser.Runtime.Port } }
+    | { type: 'save_state', payload: {} }
     ;
 
 export type BruhUiEvent =
