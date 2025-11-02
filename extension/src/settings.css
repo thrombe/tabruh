@@ -1,5 +1,6 @@
 @import "./styles.css";
 
+/* === Base Page Layout === */
 body {
   overflow: hidden;
   background-color: var(--gruvbox-bg);
@@ -7,8 +8,7 @@ body {
 }
 
 .settings-container {
-  display: flex;
-  height: 100vh;
+  @apply flex h-screen;
 }
 
 .sidebar {
@@ -17,144 +17,131 @@ body {
   border-right: 1px solid var(--gruvbox-border-2);
 }
 
-.sidebar-button {
-  @apply w-full text-left p-2 rounded-md mb-2 text-lg;
-  background: none;
-  border: none;
-  color: var(--gruvbox-border);
-  cursor: pointer;
-  font-weight: bold;
+.content {
+  @apply flex flex-grow overflow-y-auto p-6;
 }
 
+/* === General Reusable Components === */
+.button {
+  @apply rounded-md border-none bg-[var(--gruvbox-blue)] px-4 py-2 text-sm font-semibold text-[var(--gruvbox-bg)] transition-colors;
+  cursor: pointer;
+}
+.button:hover {
+  background-color: #a9b665;
+}
+
+.text-input {
+  @apply rounded-sm border border-solid bg-[var(--gruvbox-hover)] p-1 px-2 text-[var(--gruvbox-fg)] outline-none;
+  border-color: var(--gruvbox-border-2);
+}
+.text-input:focus {
+  border-color: var(--gruvbox-blue);
+}
+
+.sidebar-button {
+  @apply mb-2 w-full cursor-pointer rounded-md border-none p-2 text-left text-lg font-bold text-[var(--gruvbox-border)];
+  background: none;
+}
 .sidebar-button:hover {
   background-color: var(--gruvbox-hover);
   color: var(--gruvbox-fg);
 }
-
 .sidebar-button.active {
+  @apply font-bold;
   background-color: var(--gruvbox-blue);
   color: var(--gruvbox-bg);
-  font-weight: bold;
 }
 
-.content {
-  @apply flex-grow p-6 overflow-y-auto;
-  display: flex;
-  flex-direction: row; /* For snapshots view */
+/* === Settings View Specifics === */
+.settings-view-container {
+  @apply w-full;
 }
 
-/* Settings View */
-.settings-view-container { @apply w-full; }
-.settings-section { @apply mb-8; }
-.settings-title { @apply text-2xl font-bold mb-4 border-b-2; border-color: var(--gruvbox-border-2); padding-bottom: 0.5rem; }
-.setting-item { @apply flex items-center mb-4; }
-.setting-item label { @apply flex-grow text-base; }
-.setting-item input[type="checkbox"] { @apply w-5 h-5; }
-.setting-item .description { @apply text-sm mt-1; color: var(--gruvbox-border); }
-.setting-item .button { @apply ml-4; }
+.settings-section {
+  @apply mb-8;
+}
 
-/* Snapshots View */
+.settings-title {
+  @apply mb-4 border-b-2 pb-2 text-2xl font-bold;
+  border-color: var(--gruvbox-border-2);
+}
+
+.setting-item {
+  @apply mb-4 flex items-center;
+}
+.setting-item > div {
+  @apply flex-grow; /* Container for label + description */
+}
+.setting-item label {
+  @apply text-base;
+}
+.setting-item input[type="checkbox"] {
+  @apply h-5 w-5;
+}
+.setting-item .description {
+  @apply mt-1 text-sm text-[var(--gruvbox-border)];
+}
+.setting-item .button {
+  @apply ml-4;
+}
+
+/* === Snapshots View Specifics === */
 .snapshots-list-pane {
-  @apply w-80 flex-shrink-0 pr-4 mr-4;
-  border-right: 1px solid var(--gruvbox-border-2);
-  height: 100%;
+  @apply mr-4 h-full w-80 flex-shrink-0 flex-col border-r pr-4;
+  border-color: var(--gruvbox-border-2);
   display: flex;
-  flex-direction: column;
 }
 .snapshots-detail-pane {
-  @apply flex-grow overflow-y-auto;
-  height: 100%;
+  @apply h-full flex-grow overflow-y-auto;
 }
-.snapshots-header { @apply flex items-center justify-between mb-4; }
-.snapshots-header .button-group { @apply flex gap-2; }
-.snapshot-item { @apply p-2 rounded-md cursor-pointer mb-2 flex justify-between items-center; }
-.snapshot-item:hover { background-color: var(--gruvbox-hover); }
-.snapshot-item.selected { background-color: var(--gruvbox-hover); }
-.snapshot-name { @apply font-semibold truncate; }
-.snapshot-date { @apply text-xs; color: var(--gruvbox-border); }
+
+.snapshots-header {
+  @apply mb-4 flex items-center justify-between;
+}
+.snapshots-header .button-group {
+  @apply flex gap-2;
+}
+
+.snapshot-item {
+  @apply mb-2 flex cursor-pointer items-center justify-between rounded-md p-2;
+}
+.snapshot-item:hover {
+  background-color: var(--gruvbox-hover);
+}
+.snapshot-item.selected {
+  background-color: var(--gruvbox-hover-accent);
+}
+
+.snapshot-name {
+  @apply truncate font-semibold;
+}
+.snapshot-date {
+  @apply text-xs text-[var(--gruvbox-border)];
+}
+
 .snapshot-menu-btn {
-    @apply w-6 h-6 rounded flex items-center justify-center;
-    opacity: 0;
-    transition: opacity 0.15s ease-in-out;
+  @apply ml-2 flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded border-none bg-transparent text-lg text-[var(--gruvbox-fg)] opacity-0 transition-[opacity,background-color];
 }
 .snapshot-item:hover .snapshot-menu-btn {
-    opacity: 1;
+  @apply opacity-100;
 }
-.snapshot-menu-btn:hover { background-color: var(--gruvbox-hover-accent); }
-.no-snapshot-selected { @apply flex items-center justify-center h-full text-xl; color: var(--gruvbox-border); }
+.snapshot-menu-btn:hover {
+  background-color: var(--gruvbox-hover-accent);
+}
 
-.button {
-    @apply px-4 py-2 rounded-md font-semibold text-sm;
-    background-color: var(--gruvbox-blue);
-    color: var(--gruvbox-bg);
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-.button:hover { background-color: #a9b665; }
-
-.text-input {
-    background-color: var(--gruvbox-hover);
-    border: 1px solid var(--gruvbox-border-2);
-    color: var(--gruvbox-fg);
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    outline: none;
-}
-.text-input:focus {
-    border-color: var(--gruvbox-blue);
+.no-snapshot-selected {
+  @apply flex h-full items-center justify-center text-xl text-[var(--gruvbox-border)];
 }
 
 .snapshot-window-view {
-    margin-bottom: 1rem;
-    border: 1px solid var(--gruvbox-border-2);
-    border-radius: 0.375rem; /* rounded-md */
-    overflow: hidden; /* To contain the rounded corners */
+  @apply mb-4 overflow-hidden rounded-md border border-solid;
+  border-color: var(--gruvbox-border-2);
 }
-
+/* Override default TabTreeView height behavior for snapshots */
 .snapshot-window-view .tab-tree-view-container {
-    height: auto;
+  height: auto;
 }
-
 .snapshot-window-view .tab-tree-scroll-container {
-    flex: none;
-    overflow-y: auto;
-}
-
-.snapshot-menu-btn {
-    background: none;
-    border: none;
-    color: var(--gruvbox-fg);
-    cursor: pointer;
-    border-radius: 4px;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    flex-shrink: 0;
-    margin-left: 8px;
-    opacity: 0;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-
-.snapshot-item:hover .snapshot-menu-btn {
-    opacity: 1;
-}
-
-.snapshot-menu-btn:hover {
-    background-color: var(--gruvbox-hover-accent);
-}
-
-.text-input {
-    background-color: var(--gruvbox-hover);
-    border: 1px solid var(--gruvbox-border-2);
-    color: var(--gruvbox-fg);
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    outline: none;
-}
-.text-input:focus {
-    border-color: var(--gruvbox-blue);
+  flex: none; /* Allow the content to define its height */
+  max-height: 400px; /* Add a max-height to prevent extremely long lists */
 }
