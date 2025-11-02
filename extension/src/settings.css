@@ -18,7 +18,9 @@ body {
 }
 
 .content {
-  @apply flex flex-grow overflow-y-auto p-6;
+  @apply flex-grow overflow-y-auto p-6;
+  display: flex;
+  flex-direction: row; /* For snapshots view */
 }
 
 /* === General Reusable Components === */
@@ -54,7 +56,7 @@ body {
 
 /* === Settings View Specifics === */
 .settings-view-container {
-  @apply w-full;
+  @apply mx-auto w-full max-w-4xl;
 }
 
 .settings-section {
@@ -67,23 +69,28 @@ body {
 }
 
 .setting-item {
-  @apply mb-4 flex items-center;
+  @apply mb-4 flex items-center justify-between;
 }
+
 .setting-item > div {
-  @apply flex-grow; /* Container for label + description */
+  @apply pr-4;
 }
 .setting-item label {
   @apply text-base;
 }
 .setting-item input[type="checkbox"] {
-  @apply h-5 w-5;
+  @apply h-5 w-5 flex-shrink-0;
 }
 .setting-item .description {
   @apply mt-1 text-sm text-[var(--gruvbox-border)];
 }
 .setting-item .button {
-  @apply ml-4;
+  @apply ml-4 flex-shrink-0;
 }
+.setting-item .text-input {
+  @apply flex-shrink-0;
+}
+
 
 /* === Snapshots View Specifics === */
 .snapshots-list-pane {
@@ -143,5 +150,4 @@ body {
 }
 .snapshot-window-view .tab-tree-scroll-container {
   flex: none; /* Allow the content to define its height */
-  max-height: 400px; /* Add a max-height to prevent extremely long lists */
 }
