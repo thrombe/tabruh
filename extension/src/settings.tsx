@@ -5,6 +5,8 @@ import browser from 'webextension-polyfill';
 import { TabTreeView } from './components/TabTreeView';
 import { StateProvider, useStateContext } from './components/StateProvider';
 import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction } from './types';
+import { ContextMenuPortal, useContextMenu } from './hooks/useContextMenu';
+import * as svg from './svg';
 
 const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) => void, sendAction: (act: any) => void) => {
     const input = document.createElement('input');
@@ -151,6 +153,7 @@ const SettingsView: React.FC = () => {
 const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindowId }) => {
     const { state, sendAction, sendRequest } = useStateContext();
     const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+    const { menuState, showMenu, hideMenu } = useContextMenu();
 
     const handleCreateSnapshot = () => {
         const name = prompt('Enter a name for the new snapshot:', new Date().toLocaleString());
@@ -160,6 +163,44 @@ const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindow
     const handleImportSnapshot = () => {
         openFilePicker(true, sendRequest, sendAction);
     };
+
+    const showSnapshotContextMenu = useCallback((x: number, y: number, snapshot: Snapshot) => {
+        const createItem = (label: string, icon: string, action: () => void) => (
+            <div className="context-menu-item" onClick={() => { action(); hideMenu(); }}>
+                <span className="context-menu-icon" dangerouslySetInnerHTML={{ __html: icon }} />
+                <span>{label}</span>
+            </div>
+        );
+
+        const createSeparator = () => <div className="context-menu-separator" />;
+
+        const content = (
+            <>
+                {createItem('Restore All Windows', svg.icon_restore, () => {
+                    sendAction({ type: 'load_bruh_export', payload: { data: snapshot.data } });
+                    alert(`Restored ${snapshot.data.windows.length} window(s) from snapshot "${snapshot.name}". They are available in your closed windows list.`);
+                })}
+                {createItem('Export Snapshot', svg.icon_export, () => {
+                    const data = { ...snapshot.data, name: snapshot.name };
+                    const jsonData = JSON.stringify(data, null, 2);
+                    const blob = new Blob([jsonData], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const filename = `tabruh-snapshot-${snapshot.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+                    browser.downloads.download({ url, filename, saveAs: true });
+                    setTimeout(() => URL.revokeObjectURL(url), 5000);
+                })}
+                {createSeparator()}
+                {createItem('Delete Snapshot', svg.icon_trash, () => {
+                    if (confirm(`Delete snapshot "${snapshot.name}"? This cannot be undone.`)) {
+                        if (selectedSnapshotId === snapshot.id) setSelectedSnapshotId(null);
+                        sendAction({ type: 'delete_snapshot', payload: { id: snapshot.id } });
+                    }
+                })}
+            </>
+        );
+
+        showMenu(x, y, content);
+    }, [sendAction, hideMenu, showMenu, selectedSnapshotId]);
 
     const snapshots = state ? [...state.snapshots].sort((a, b) => b.timestamp.localeCompare(a.timestamp)) : [];
     const selectedSnapshot = snapshots.find(s => s.id === selectedSnapshotId);
@@ -184,6 +225,15 @@ const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindow
                             <div className="snapshot-name">{snapshot.name}</div>
                             <div className="snapshot-date">{new Date(snapshot.timestamp).toLocaleString()}</div>
                         </div>
+                        <button
+                            className="snapshot-menu-btn"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                showSnapshotContextMenu(e.clientX, e.clientY, snapshot);
+                            }}
+                        >
+                            &#x22EE;
+                        </button>
                     </div>
                 ))}
             </div>
@@ -205,6 +255,7 @@ const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindow
                     <div className="no-snapshot-selected">Select a snapshot to view its contents</div>
                 )}
             </div>
+            <ContextMenuPortal menuState={menuState} />
         </>
     );
 };

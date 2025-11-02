@@ -120,3 +120,41 @@ body {
     flex: none;
     overflow-y: auto;
 }
+
+.snapshot-menu-btn {
+    background: none;
+    border: none;
+    color: var(--gruvbox-fg);
+    cursor: pointer;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.snapshot-item:hover .snapshot-menu-btn {
+    opacity: 1;
+}
+
+.snapshot-menu-btn:hover {
+    background-color: var(--gruvbox-hover-accent);
+}
+
+.text-input {
+    background-color: var(--gruvbox-hover);
+    border: 1px solid var(--gruvbox-border-2);
+    color: var(--gruvbox-fg);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    outline: none;
+}
+.text-input:focus {
+    border-color: var(--gruvbox-blue);
+}
