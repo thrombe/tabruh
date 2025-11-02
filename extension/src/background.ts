@@ -17,6 +17,7 @@ import type {
     ClonableState,
     StateEvent,
     BruhUiEvent,
+    Snapshot,
 } from './types';
 import * as utils from './utils';
 import { State } from './state';
@@ -31,6 +32,7 @@ class App {
 
     private session_pointer_key = "tabruh-bruh-id";
     private storage_state_key = "tabruh-app-state";
+    private storage_snapshot_key = "tabruh-app-snapshot";
     private storage_config_key = "tabruh-app-config";
 
     static init() {
@@ -256,9 +258,14 @@ class App {
 
     async save_state() {
         const state = this.state.serialize_state();
-        await browser.storage.local.set({ [this.storage_state_key]: state.state });
         await browser.storage.local.set({
             [this.storage_config_key]: state.config,
+        });
+        await browser.storage.local.set({
+            [this.storage_state_key]: state.state,
+        });
+        await browser.storage.local.set({
+            [this.storage_snapshot_key]: state.snapshots,
         });
     }
 
@@ -279,9 +286,10 @@ class App {
         }
     }
 
-    async load_state(key: string) {
-        const result = await browser.storage.local.get(key);
-        const state = result[key] as StateStorage;
+    async load_state(state_key: string, snapshot_key: string) {
+        const result = await browser.storage.local.get([state_key, snapshot_key]);
+        const state = result[state_key] as StateStorage;
+        const snapshots = result[snapshot_key] as Snapshot[];
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
             const node_storage: Map<BruhId, NodeStorageData> = new Map();
@@ -334,7 +342,7 @@ class App {
             nodes: nodes,
             node_storage_data: node_storage,
             browser_restore_cache: cache,
-            snapshots: state.snapshots,
+            snapshots: snapshots ?? [],
         };
     }
 
@@ -376,10 +384,10 @@ class App {
         // TODO: some way to easily migrate using `config.config_version`
         this.state.user_config = config.user_config;
 
-        let state = await this.load_state(this.storage_state_key);
+        let state = await this.load_state(this.storage_state_key, this.storage_snapshot_key);
         // TODO: some way to easily migrate using `state.state_version`
         if (this.state.user_config.dbg_reset_state_on_load) {
-            state = await this.load_state("blah");
+            state = await this.load_state("blah", "huh");
         }
         this.state.rng.s = state.rng_state;
         this.state.bruh_session_key = state.bruh_session_key;

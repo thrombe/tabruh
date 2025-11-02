@@ -24,7 +24,6 @@ export type StateStorage = {
     nodes: Record<string, Node>,
     node_storage_data: Record<string, NodeStorageData>,
     browser_restore_cache: Record<string, NodeStorageData>,
-    snapshots: Snapshot[],
 };
 
 export type Config = {
@@ -49,8 +48,9 @@ export type ConfigStorage = {
 };
 
 export type SerializableState = {
-    state: StateStorage,
     config: ConfigStorage,
+    state: StateStorage,
+    snapshots: Snapshot[],
 };
 
 // state that can be used to clone State

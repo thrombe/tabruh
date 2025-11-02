@@ -980,7 +980,6 @@ export class State {
             nodes: nodes,
             node_storage_data: node_storage,
             browser_restore_cache: cache,
-            snapshots: this.snapshots,
         };
 
         const config: ConfigStorage = {
@@ -988,7 +987,11 @@ export class State {
             user_config: this.user_config,
         };
 
-        const state: SerializableState = { state: state_to_save, config };
+        const state: SerializableState = {
+            config,
+            state: state_to_save,
+            snapshots: this.snapshots,
+        };
         return structuredClone(state);
     }
 

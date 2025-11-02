@@ -13,7 +13,6 @@
   "permissions": [
     "activeTab",
     "tabs",
-    "tabHide",
     "history",
     "bookmarks",
     "webNavigation",
