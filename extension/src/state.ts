@@ -957,6 +957,14 @@ export class State {
         return null;
     }
 
+    serialize_config() {
+        const config: ConfigStorage = {
+            config_version: this.extension_version,
+            user_config: this.user_config,
+        };
+        return config;
+    }
+
     serialize_state() {
         const nodes: Record<string, Node> = {};
         const node_storage: Record<string, NodeStorageData> = {};
@@ -982,17 +990,11 @@ export class State {
             browser_restore_cache: cache,
         };
 
-        const config: ConfigStorage = {
-            config_version: this.extension_version,
-            user_config: this.user_config,
-        };
+        return structuredClone(state_to_save);
+    }
 
-        const state: SerializableState = {
-            config,
-            state: state_to_save,
-            snapshots: this.snapshots,
-        };
-        return structuredClone(state);
+    serialize_snapshots() {
+        return structuredClone(this.snapshots);
     }
 
     clonable_state(): ClonableState {
@@ -1874,9 +1876,11 @@ export class State {
             } break;
             case 'create_snapshot': {
                 this.create_snapshot(action.payload.name);
+                effects.push_back({ type: 'save_snapshots', payload: {} });
             } break;
             case 'delete_snapshot': {
                 this.delete_snapshot(action.payload.id);
+                effects.push_back({ type: 'save_snapshots', payload: {} });
             } break;
             case 'restore_snapshot_window': {
                 this.restore_snapshot_window(action.payload.id, action.payload.window_index);
@@ -1900,6 +1904,7 @@ export class State {
                     data: bruhData
                 };
                 this.snapshots.push(newSnapshot);
+                effects.push_back({ type: 'save_snapshots', payload: {} });
             } break;
             case 'handle_snapshot_drop': {
                 const { drag_data, target_bid, action: target_action, target_wid } = action.payload;
@@ -1949,6 +1954,7 @@ export class State {
                         const tabData = windowData.tabs[tab_index];
                         if (tabData) {
                             tabData.collapsed = !tabData.collapsed;
+                            effects.push_back({ type: 'save_snapshots', payload: {} });
                         }
                     }
                 }
@@ -1960,11 +1966,13 @@ export class State {
                     const windowData = snapshot.data.windows[window_index];
                     if (windowData) {
                         windowData.collapsed = !(windowData.collapsed ?? false);
+                        effects.push_back({ type: 'save_snapshots', payload: {} });
                     }
                 }
             } break;
             case 'update_user_config': {
                 this.user_config = { ...this.user_config, ...action.payload.config };
+                effects.push_back({ type: 'save_config', payload: {} });
             } break;
             default:
                 throw utils.exhausted(action);

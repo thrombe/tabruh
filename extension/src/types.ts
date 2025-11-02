@@ -244,6 +244,8 @@ export type AppEffect =
     | { type: 'write_window_session', payload: { wid: WindowId, bid: BruhId } }
     | { type: 'write_tab_session', payload: { tid: TabId, bid: BruhId } }
     | { type: 'update_tab_url', payload: { tid: TabId, url: string } }
+    | { type: 'save_config', payload: {} }
+    | { type: 'save_snapshots', payload: {} }
     ;
 
 export type StateEffect =

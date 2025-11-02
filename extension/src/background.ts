@@ -226,7 +226,9 @@ class App {
             await this.process_event(event, state_effects, app_effects).catch(console.error);
             this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(state_effects, app_effects);
-            await this.save_state().catch(console.error);
+
+            // TODO:
+            // await this.save_state().catch(console.error);
         }
     }
 
@@ -256,16 +258,24 @@ class App {
         }
     }
 
+    async save_config() {
+        const config = this.state.serialize_config();
+        await browser.storage.local.set({
+            [this.storage_config_key]: config,
+        });
+    }
+
     async save_state() {
         const state = this.state.serialize_state();
         await browser.storage.local.set({
-            [this.storage_config_key]: state.config,
+            [this.storage_state_key]: state,
         });
+    }
+
+    async save_snapshots() {
+        const snapshots = this.state.serialize_snapshots();
         await browser.storage.local.set({
-            [this.storage_state_key]: state.state,
-        });
-        await browser.storage.local.set({
-            [this.storage_snapshot_key]: state.snapshots,
+            [this.storage_snapshot_key]: snapshots,
         });
     }
 
@@ -677,6 +687,8 @@ class App {
             case 'tabs_closed':
             case 'window_created':
             case 'window_closed':
+            case 'save_config':
+            case 'save_snapshots':
                 console.log(Date.now(), effect.type, effect.payload);
                 break;
             case 'write_window_session':
@@ -961,6 +973,12 @@ class App {
             } break;
             case 'update_tab_url': {
                 await browser.tabs.update(effect.payload.tid, { url: effect.payload.url });
+            } break;
+            case 'save_config': {
+                await this.save_config();
+            } break;
+            case 'save_snapshots': {
+                await this.save_snapshots();
             } break;
             default:
                 throw utils.exhausted(effect);
