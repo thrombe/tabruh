@@ -314,56 +314,33 @@ class App {
         const snapshots = result[snapshot_key] as Snapshot[];
         if (!state) {
             const nodes: Map<BruhId, Node> = new Map();
-            const node_storage: Map<BruhId, NodeStorageData> = new Map();
+            const node_storage: utils.DllLruCache<BruhId, NodeStorageData> = new utils.DllLruCache();
             for (const [bid, node] of this.state.nodes.entries()) {
                 const storage = this.state.get_node_storage_data(bid);
                 node_storage.set(bid, storage);
-                nodes.set(bid, node);
+                nodes.set(bid, structuredClone(node));
             }
-            const browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
-            for (const [bid, storage] of this.state.browser_restore_cache.entries()) {
-                browser_restore_cache.set(bid, storage);
+            const browser_restore_cache: utils.DllLruCache<BruhId, NodeStorageData> = new utils.DllLruCache();
+            browser_restore_cache.first = this.state.browser_restore_cache.first;
+            browser_restore_cache.last = this.state.browser_restore_cache.last;
+            for (const [bid, storage] of this.state.browser_restore_cache.map.entries()) {
+                browser_restore_cache.map.set(bid, structuredClone(storage));
             }
-            return structuredClone({
-                rng_state: this.state.rng.s,
+            return {
+                rng_state: structuredClone(this.state.rng.s),
                 state_version: this.state.extension_version,
                 bruh_session_key: this.state.bruh_session_key,
                 bruhid: this.state.bruhid,
                 hierarchy_generation_id: this.state.hierarchy_generation_id,
                 nodes: nodes,
                 node_storage_data: node_storage,
-                browser_restore_cache: this.state.browser_restore_cache,
-                snapshots: this.state.snapshots,
-            });
-        }
-
-        const cache: Map<BruhId, NodeStorageData> = new Map();
-        for (const bstrid in state.browser_restore_cache) {
-            const bid = Number(bstrid) as BruhId;
-            cache.set(bid, state.browser_restore_cache[bstrid]!);
-        }
-
-        const nodes: Map<BruhId, Node> = new Map();
-        for (const bstrid in state.nodes) {
-            const bid = Number(bstrid) as BruhId;
-            nodes.set(bid, state.nodes[bstrid]!);
-        }
-
-        const node_storage: Map<BruhId, NodeStorageData> = new Map();
-        for (const bstrid in state.node_storage_data) {
-            const bid = Number(bstrid) as BruhId;
-            node_storage.set(bid, state.node_storage_data[bstrid]!);
+                browser_restore_cache: browser_restore_cache,
+                snapshots: structuredClone(this.state.snapshots),
+            };
         }
 
         return {
-            rng_state: state.rng_state,
-            state_version: state.state_version,
-            bruh_session_key: state.bruh_session_key,
-            bruhid: state.bruhid,
-            hierarchy_generation_id: state.hgid,
-            nodes: nodes,
-            node_storage_data: node_storage,
-            browser_restore_cache: cache,
+            ...State.load_state(state),
             snapshots: snapshots ?? [],
         };
     }
@@ -487,7 +464,7 @@ class App {
             if (old_wbid) {
                 const node = state.nodes.get(old_wbid) as Extract<Node, { type: "window" }>;
                 if (!node) {
-                    if (this.state.browser_restore_cache.has(old_wbid)) {
+                    if (this.state.browser_restore_cache.get(old_wbid)) {
                         // windows that were restored via the browser restore api after the state for it was deleted
                         const e = this.state.restore_window(bwin.id as WindowId, old_wbid, this.state.browser_restore_cache);
                         app_effects.push_back(e);
@@ -544,7 +521,7 @@ class App {
                 if (old_tbid) {
                     const node = state.nodes.get(old_tbid) as Exclude<Node, { type: "window" }>;
                     if (!node) {
-                        if (this.state.browser_restore_cache.has(old_tbid)) {
+                        if (this.state.browser_restore_cache.get(old_tbid)) {
                             const e = this.state.restore_tab(tab_info, old_tbid, this.state.browser_restore_cache);
                             app_effects.push_back(e);
                         } else {

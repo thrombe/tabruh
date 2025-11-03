@@ -23,6 +23,7 @@ import type {
     ConfigStorage,
     StateEffect,
     ClonableState,
+    DllLruCacheState,
 } from './types';
 import * as utils from './utils';
 
@@ -38,7 +39,7 @@ export class State {
 
     nodes: Map<BruhId, Node> = new Map();
     tab_name_cache: Map<BruhId, GroupName> = new Map();
-    browser_restore_cache: Map<BruhId, NodeStorageData> = new Map();
+    browser_restore_cache: utils.DllLruCache<BruhId, NodeStorageData> = new utils.DllLruCache();
 
     // win -> []tab
     closing_window_tabs: Map<BruhId, Set<BruhId>> = new Map();
@@ -81,6 +82,7 @@ export class State {
             dbg_reset_state_on_load: false,
             dbg_log_events: true,
             dbg_log_effects: true,
+            restore_cache_size: 1000,
             open_sidebar_on_new_windows: false,
         };
 
@@ -377,9 +379,14 @@ export class State {
         return storageData;
     }
 
+    set_restore_cache(bid: BruhId, storageData: NodeStorageData): void {
+        this.browser_restore_cache.set(bid, storageData);
+        this.browser_restore_cache.retain(this.user_config.restore_cache_size);
+    }
+
     archive_node(bid: BruhId): void {
         const snapshot = this.get_node_storage_data(bid);
-        this.browser_restore_cache.set(bid, snapshot);
+        this.set_restore_cache(bid, snapshot);
 
         const node = this.get_node(bid);
         if (node.type === 'window') {
@@ -438,10 +445,10 @@ export class State {
         win.is_archived_pristine = true;
 
         const storage = this.get_node_storage_data(win.bid);
-        this.browser_restore_cache.set(storage.bid, storage);
+        this.set_restore_cache(storage.bid, storage);
         for (let bid of win.tab_bids) {
             const storage = this.get_node_storage_data(bid);
-            this.browser_restore_cache.set(storage.bid, storage);
+            this.set_restore_cache(storage.bid, storage);
         }
 
         for (let tbid of win.tab_bids) {
@@ -965,6 +972,36 @@ export class State {
         return config;
     }
 
+    static load_state(state: StateStorage) {
+        const cache: utils.DllLruCache<BruhId, NodeStorageData> = new utils.DllLruCache();
+        cache.first = state.browser_restore_cache.first;
+        cache.last = state.browser_restore_cache.last;
+        cache.map = new Map(Object.entries(state.browser_restore_cache.map).map(([k, v]) => [Number(k) as BruhId, v]));
+
+        const nodes: Map<BruhId, Node> = new Map();
+        for (const bstrid in state.nodes) {
+            const bid = Number(bstrid) as BruhId;
+            nodes.set(bid, state.nodes[bstrid]!);
+        }
+
+        const node_storage: utils.DllLruCache<BruhId, NodeStorageData> = new utils.DllLruCache();
+        for (const bstrid in state.node_storage_data) {
+            const bid = Number(bstrid) as BruhId;
+            node_storage.set(bid, state.node_storage_data[bstrid]!);
+        }
+
+        return {
+            rng_state: state.rng_state,
+            state_version: state.state_version,
+            bruh_session_key: state.bruh_session_key,
+            bruhid: state.bruhid,
+            hierarchy_generation_id: state.hgid,
+            nodes: nodes,
+            node_storage_data: node_storage,
+            browser_restore_cache: cache,
+        };
+    }
+
     serialize_state() {
         const nodes: Record<string, Node> = {};
         const node_storage: Record<string, NodeStorageData> = {};
@@ -972,11 +1009,6 @@ export class State {
             const storage = this.get_node_storage_data(bid);
             node_storage[bid.toString()] = storage;
             nodes[bid.toString()] = node;
-        }
-
-        const cache: Record<string, NodeStorageData> = {};
-        for (const [bid, storage] of this.browser_restore_cache.entries()) {
-            cache[bid.toString()] = storage;
         }
 
         const state_to_save: StateStorage = {
@@ -987,7 +1019,11 @@ export class State {
             hgid: this.hierarchy_generation_id,
             nodes: nodes,
             node_storage_data: node_storage,
-            browser_restore_cache: cache,
+            browser_restore_cache: {
+                first: this.browser_restore_cache.first,
+                last: this.browser_restore_cache.last,
+                map: Object.fromEntries(this.browser_restore_cache.map.entries()),
+            },
         };
 
         return structuredClone(state_to_save);
@@ -1007,7 +1043,11 @@ export class State {
             bruhid: this.bruhid,
             hgid: this.hierarchy_generation_id,
             nodes: Object.fromEntries([...this.nodes.entries()].map(([k, v]) => [String(k), v])),
-            browser_restore_cache: Object.fromEntries([...this.browser_restore_cache.entries()].map(([k, v]) => [String(k), v])),
+            browser_restore_cache: {
+                first: this.browser_restore_cache.first,
+                last: this.browser_restore_cache.last,
+                map: Object.fromEntries(this.browser_restore_cache.map.entries()),
+            },
             snapshots: this.snapshots,
             tab_name_cache: Object.fromEntries([...this.tab_name_cache.entries()].map(([k, v]) => [String(k), v])),
             closing_window_tabs: Object.fromEntries([...this.closing_window_tabs.entries()].map(([k, v]) => [String(k), [...v.values()]])),
@@ -1038,7 +1078,11 @@ export class State {
         self.bruhid = state.bruhid;
         self.hierarchy_generation_id = state.hgid;
         self.nodes = new Map(Object.entries(state.nodes).map(([k, v]) => [Number(k) as BruhId, v]));
-        self.browser_restore_cache = new Map(Object.entries(state.browser_restore_cache).map(([k, v]) => [Number(k) as BruhId, v]));
+        const cache = new utils.DllLruCache<BruhId, NodeStorageData>();
+        cache.first = state.browser_restore_cache.first;
+        cache.last = state.browser_restore_cache.last;
+        cache.map = new Map(Object.entries(state.browser_restore_cache.map).map(([k, v]) => [Number(k) as BruhId, v]));
+        self.browser_restore_cache = cache;
         self.snapshots = state.snapshots;
         self.tab_name_cache = new Map(Object.entries(state.tab_name_cache).map(([k, v]) => [Number(k) as BruhId, v]));
         self.closing_window_tabs = new Map(Object.entries(state.closing_window_tabs).map(([k, v]) => [Number(k) as BruhId, new Set(v)]));
@@ -1111,9 +1155,9 @@ export class State {
         return tab_update_effect;
     }
 
-    restore_window(wid: WindowId, old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
-        const cache = restore_cache.get(old_bid);
-        restore_cache.delete(old_bid);
+    restore_window(wid: WindowId, old_bid: BruhId, restore_cache: utils.DllLruCache<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid, 'peek');
+        restore_cache.remove(old_bid);
         if (!cache || cache.type !== "window") {
             throw new Error(`wrong cache for window bid: ${old_bid} tid: ${wid}`);
         }
@@ -1150,9 +1194,9 @@ export class State {
         return effect;
     }
 
-    restore_tab(btab: Extract<StateEffect, { type: 'tab_created' }>["payload"], old_bid: BruhId, restore_cache: Map<BruhId, NodeStorageData>) {
-        const cache = restore_cache.get(old_bid);
-        restore_cache.delete(old_bid);
+    restore_tab(btab: Extract<StateEffect, { type: 'tab_created' }>["payload"], old_bid: BruhId, restore_cache: utils.DllLruCache<BruhId, NodeStorageData>) {
+        const cache = restore_cache.get(old_bid, 'peek');
+        restore_cache.remove(old_bid);
         if (!cache || cache.type === "window") {
             throw new Error(`wrong cache for tab bid: ${old_bid} tid: ${btab.tid}`);
         }
@@ -1279,14 +1323,14 @@ export class State {
                         let _ = this.remove_node(win.tab_bids[0]!);
 
                         const storage = this.get_node_storage_data(wbid);
-                        this.browser_restore_cache.set(storage.bid, storage);
+                        this.set_restore_cache(storage.bid, storage);
                         _ = this.remove_node(wbid);
                     } else {
                         this.mark_window_closed(wbid);
                     }
                 } else {
                     const storage = this.get_node_storage_data(wbid);
-                    this.browser_restore_cache.set(storage.bid, storage);
+                    this.set_restore_cache(storage.bid, storage);
                     const _ = this.remove_node(storage.bid);
                 }
             } break;
@@ -1399,7 +1443,7 @@ export class State {
                 if (this.window_bids.has(wid)) return;
 
                 let e;
-                if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                if (old_wbid && this.browser_restore_cache.get(old_wbid)) {
                     e = this.restore_window(wid, old_wbid, this.browser_restore_cache);
                 } else {
                     let new_win_effect = this.create_new_window({});
@@ -1419,7 +1463,7 @@ export class State {
                 const msg = effect.payload;
                 if (!this.window_bids.has(msg.wid)) {
                     const old_wbid = msg.old_wbid;
-                    if (old_wbid && this.browser_restore_cache.has(old_wbid)) {
+                    if (old_wbid && this.browser_restore_cache.get(old_wbid)) {
                         const e = this.restore_window(msg.wid, old_wbid, this.browser_restore_cache);
                         app_effects.push_back(e);
                     } else {
@@ -1429,7 +1473,7 @@ export class State {
                     }
                 }
                 const old_bid = msg.old_tbid;
-                if (old_bid && this.browser_restore_cache.has(old_bid)) {
+                if (old_bid && this.browser_restore_cache.get(old_bid)) {
                     const e = this.restore_tab(msg, old_bid, this.browser_restore_cache);
                     app_effects.push_back(e);
                     return;
@@ -1561,7 +1605,7 @@ export class State {
                         const subtree = this.get_subtree(node.bid);
                         for (let bid of subtree) {
                             const storage = this.get_node_storage_data(bid);
-                            this.browser_restore_cache.set(storage.bid, storage);
+                            this.set_restore_cache(bid, storage);
                         }
                     }
 
@@ -1574,7 +1618,7 @@ export class State {
                         // same as NOTE(1005)
                         if (!node.closed) {
                             const storage = this.get_node_storage_data(node.bid);
-                            this.browser_restore_cache.set(storage.bid, storage);
+                            this.set_restore_cache(storage.bid, storage);
                         }
                         const window_remove_effect = this.remove_node(node.bid);
                         wid = window_remove_effect.payload.browser_id as WindowId;
@@ -1670,7 +1714,7 @@ export class State {
                 if (node.type == "group") {
                     if (!is_closed) {
                         const storage = this.get_node_storage_data(node.bid);
-                        this.browser_restore_cache.set(storage.bid, storage);
+                        this.set_restore_cache(storage.bid, storage);
                     }
                     const remove_group_effect = this.remove_node_and_reparent_children(node.bid);
                     if (!is_closed) {
@@ -1692,7 +1736,7 @@ export class State {
 
                     if (!is_closed) {
                         const storage = this.get_node_storage_data(old_win.bid);
-                        this.browser_restore_cache.set(storage.bid, storage);
+                        this.set_restore_cache(storage.bid, storage);
                     }
 
                     let _ = this.remove_node(old_win.bid);
@@ -1717,13 +1761,13 @@ export class State {
                     if (!win.closed) {
                         for (let bid of subtree) {
                             const storage = this.get_node_storage_data(bid);
-                            this.browser_restore_cache.set(storage.bid, storage);
+                            this.set_restore_cache(bid, storage);
                         }
 
                         if (closing_all_tabs) {
                             // if we are closing all tabs in the window
                             const storage = this.get_node_storage_data(win.bid);
-                            this.browser_restore_cache.set(storage.bid, storage);
+                            this.set_restore_cache(storage.bid, storage);
                         }
                     }
 
@@ -1756,7 +1800,7 @@ export class State {
                 } else {
                     if (!win.closed) {
                         const storage = this.get_node_storage_data(node.bid);
-                        this.browser_restore_cache.set(storage.bid, storage);
+                        this.set_restore_cache(storage.bid, storage);
                     }
 
                     const effect = this.remove_node_and_reparent_children(node.bid);;
@@ -2011,4 +2055,3 @@ export class State {
 
     }
 }
-

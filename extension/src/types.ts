@@ -15,6 +15,12 @@ export type Snapshot = {
     data: BruhExport,
 };
 
+export type DllLruCacheState<K, V> = {
+    first: K | null,
+    last: K | null,
+    map: Record<string, { val: V, next: K | null, prev: K | null }>,
+};
+
 export type StateStorage = {
     rng_state: utils.Xoshiro256State,
     state_version: string,
@@ -23,7 +29,7 @@ export type StateStorage = {
     hgid: HierarchyGenerationId,
     nodes: Record<string, Node>,
     node_storage_data: Record<string, NodeStorageData>,
-    browser_restore_cache: Record<string, NodeStorageData>,
+    browser_restore_cache: DllLruCacheState<BruhId, NodeStorageData>,
 };
 
 export type Config = {
@@ -39,6 +45,7 @@ export type UserConfig = {
     dbg_reset_state_on_load: boolean,
     dbg_log_events: boolean,
     dbg_log_effects: boolean,
+    restore_cache_size: number,
     open_sidebar_on_new_windows: boolean,
     new_tab_url?: string,
 };
@@ -63,7 +70,7 @@ export type ClonableState = {
     bruhid: BruhId,
     hgid: HierarchyGenerationId,
     nodes: Record<string, Node>,
-    browser_restore_cache: Record<string, NodeStorageData>,
+    browser_restore_cache: DllLruCacheState<BruhId, NodeStorageData>,
     snapshots: Snapshot[],
     tab_name_cache: Record<string, GroupName>;
     closing_window_tabs: Record<string, BruhId[]>;
