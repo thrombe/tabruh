@@ -51,13 +51,15 @@ const SettingsView: React.FC = () => {
     
     // Use local state for the text input to avoid re-renders on every keystroke.
     const [newTabUrl, setNewTabUrl] = useState(state?.user_config.new_tab_url || '');
+    const [restoreCacheSize, setRestoreCacheSize] = useState(state?.user_config.restore_cache_size.toString() || '1000');
 
     // Sync local state if the global state changes from another source.
     useEffect(() => {
         if (state) {
-            setNewTabUrl(state.user_config.new_tab_url);
+            setNewTabUrl(state.user_config.new_tab_url || '');
+            setRestoreCacheSize(state.user_config.restore_cache_size.toString());
         }
-    }, [state?.user_config.new_tab_url]);
+    }, [state?.user_config.new_tab_url, state?.user_config.restore_cache_size]);
 
     if (!state || !state.user_config) return null;
 
@@ -78,6 +80,21 @@ const SettingsView: React.FC = () => {
     const handleUrlInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
             e.currentTarget.blur(); // Triggers the onBlur event to save
+        }
+    };
+
+    const handleSaveRestoreCacheSize = () => {
+        const newSize = parseInt(restoreCacheSize, 10);
+        if (!isNaN(newSize) && newSize >= 0 && state && newSize !== state.user_config.restore_cache_size) {
+            sendAction({ type: 'update_user_config', payload: { config: { restore_cache_size: newSize } } });
+        } else if (state) {
+            setRestoreCacheSize(state.user_config.restore_cache_size.toString());
+        }
+    };
+
+    const handleCacheSizeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.currentTarget.blur();
         }
     };
 
@@ -111,6 +128,23 @@ const SettingsView: React.FC = () => {
                         onChange={(e) => setNewTabUrl(e.target.value)}
                         onBlur={handleSaveNewTabUrl}
                         onKeyDown={handleUrlInputKeyDown}
+                    />
+                </div>
+                <div className="setting-item">
+                    <div>
+                        <label htmlFor="restore_cache_size">Restore Cache Size</label>
+                        <p className="description">Max number of closed tabs/windows to remember for restoration.</p>
+                    </div>
+                    <input
+                        type="number"
+                        id="restore_cache_size"
+                        className="text-input"
+                        min="0"
+                        step="100"
+                        value={restoreCacheSize}
+                        onChange={(e) => setRestoreCacheSize(e.target.value)}
+                        onBlur={handleSaveRestoreCacheSize}
+                        onKeyDown={handleCacheSizeInputKeyDown}
                     />
                 </div>
             </div>
