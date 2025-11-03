@@ -243,6 +243,162 @@ export class Xoshiro256 {
     }
 }
 
+type LruCacheEntry<K, V> = {
+    val: V;
+    next: K | null;
+    prev: K | null;
+}
+
+export class DllLruCache<K, V> {
+    first: K | null = null;
+    last: K | null = null;
+    map = new Map<K, LruCacheEntry<K, V>>();
+
+    private getEntry(key: K): LruCacheEntry<K, V> | undefined {
+        return this.map.get(key);
+    }
+
+    constructor() { }
+
+    clear() {
+        this.map.clear();
+        this.first = null;
+        this.last = null;
+    }
+
+    /** Remove and return the least recently used element */
+    pop(): { key: K; val: V } | null {
+        if (this.first === null) return null;
+
+        const firstKey = this.first;
+        const val = this.remove(firstKey);
+        if (val === undefined) return null;
+
+        return { key: firstKey, val };
+    }
+
+    /** Pop only if cache size > n */
+    retainingPop(n: number): { key: K; val: V } | null {
+        if (this.map.size > n) {
+            return this.pop();
+        }
+        return null;
+    }
+
+    retain(n: number) {
+        while (this.size() > n) {
+            let _ = this.pop();
+        }
+    }
+
+    /** Remove an entry by key */
+    remove(key: K): V | undefined {
+        const entry = this.map.get(key);
+        if (!entry) return undefined;
+
+        // unlink from prev
+        if (entry.prev !== null) {
+            const prev = this.map.get(entry.prev)!;
+            prev.next = entry.next;
+        } else {
+            this.first = entry.next;
+        }
+
+        // unlink from next
+        if (entry.next !== null) {
+            const next = this.map.get(entry.next)!;
+            next.prev = entry.prev;
+        } else {
+            this.last = entry.prev;
+        }
+
+        this.map.delete(key);
+        return entry.val;
+    }
+
+    /** Touch moves an entry to the most recent (tail) position */
+    private touch(key: K, entry: LruCacheEntry<K, V>): void {
+        if (this.last === key) return; // already last
+
+        // unlink
+        if (entry.prev !== null) {
+            const prev = this.map.get(entry.prev)!;
+            prev.next = entry.next;
+        } else {
+            this.first = entry.next;
+        }
+
+        if (entry.next !== null) {
+            const next = this.map.get(entry.next)!;
+            next.prev = entry.prev;
+        }
+
+        // link as new last
+        if (this.last !== null) {
+            const last = this.map.get(this.last)!;
+            last.next = key;
+        }
+
+        entry.prev = this.last;
+        entry.next = null;
+        this.last = key;
+    }
+
+    /** Get a value and optionally touch it (move to MRU) */
+    get(key: K, mode: "touch" | "peek" = "touch"): V | undefined {
+        const entry = this.map.get(key);
+        if (!entry) return undefined;
+
+        if (mode === "touch") {
+            this.touch(key, entry);
+        }
+
+        return entry.val;
+    }
+
+    set(key: K, value: V): void {
+        const existing = this.map.get(key);
+        if (existing) {
+            existing.val = value;
+            this.touch(key, existing);
+            return;
+        }
+
+        const newEntry: LruCacheEntry<K, V> = {
+            val: value,
+            prev: this.last,
+            next: null,
+        };
+
+        this.map.set(key, newEntry);
+
+        if (this.last !== null) {
+            const lastEntry = this.map.get(this.last);
+            if (lastEntry) lastEntry.next = key;
+        } else {
+            this.first = key;
+        }
+
+        this.last = key;
+    }
+
+    /** Cache size */
+    size(): number {
+        return this.map.size;
+    }
+
+    /** For debugging */
+    keysInOrder(): K[] {
+        const result: K[] = [];
+        let curr = this.first;
+        while (curr !== null) {
+            result.push(curr);
+            curr = this.map.get(curr)?.next ?? null;
+        }
+        return result;
+    }
+}
+
 export class Deque<T> {
     private buffer: (T | undefined)[];
     private capacity: number;
@@ -913,4 +1069,120 @@ function datastructuee_tests() {
     }
 
     runAllAdvancedTests();
+}
+
+export function runLruCacheTests() {
+    function assert(cond: boolean, msg: string) {
+        if (!cond) {
+            console.error("❌ FAIL:", msg);
+            throw new Error(msg);
+        } else {
+            console.log("✅ PASS:", msg);
+        }
+    }
+
+    function testBasicInsertRetrieve() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+
+        assert(cache.get("a", "peek") === 1, "basic get a");
+        assert(cache.get("b", "peek") === 2, "basic get b");
+        assert(cache.get("c", "peek") === 3, "basic get c");
+    }
+
+    function testUpdateAndTouchOrder() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("a", 99);
+        assert(cache.get("a", "peek") === 99, "update value works");
+
+        // Touch "a" -> MRU
+        cache.get("a", "touch");
+        const popped = cache.pop();
+        assert(popped?.key === "b", "pop removes least recently used (b)");
+    }
+
+    function testRemove() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+
+        const removed = cache.remove("b");
+        assert(removed === 2, "remove returns correct value");
+        assert(cache.get("b", "peek") == null, "removed key not retrievable");
+    }
+
+    function testRetainingPop() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        assert(cache.retainingPop(2) == null, "retaining_pop does nothing if under limit");
+        cache.set("c", 3);
+        const popped = cache.retainingPop(2);
+        assert(popped?.key === "a", "retaining_pop removes oldest when over limit");
+    }
+
+    function testTouchOrder() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+        cache.get("a", "touch");
+        cache.get("b", "touch");
+        cache.get("c", "touch");
+
+        const popped = cache.pop();
+        assert(popped?.key === "a", "touch order maintained");
+    }
+
+    function testRemoveEnds() {
+        const cache = new DllLruCache<string, number>();
+        cache.set("a", 1);
+        cache.set("b", 2);
+        cache.set("c", 3);
+
+        cache.remove("a");
+        assert(cache.first === "b", "remove first updates head");
+
+        cache.remove("c");
+        assert(cache.last === "b", "remove last updates tail");
+    }
+
+    function testEmptyOps() {
+        const cache = new DllLruCache<string, number>();
+        assert(cache.pop() == null, "pop empty returns null");
+        assert(cache.retainingPop(5) == null, "retaining_pop empty returns null");
+        assert(cache.remove("x") == null, "remove missing returns null");
+        assert(cache.get("x", "peek") == null, "get missing returns null");
+    }
+
+    function testObjectKeys() {
+        const cache = new DllLruCache<object, string>();
+        const key1 = { id: 1 };
+        const key2 = { id: 2 };
+        cache.set(key1, "A");
+        cache.set(key2, "B");
+        assert(cache.get(key1, "peek") === "A", "object key 1");
+        assert(cache.get(key2, "peek") === "B", "object key 2");
+
+        cache.get(key1, "touch");
+        const popped = cache.pop();
+        assert(popped?.key === key2, "object keys maintain order");
+    }
+
+    // Run all tests
+    console.log("🧪 Running DllLruCache tests...\n");
+    testBasicInsertRetrieve();
+    testUpdateAndTouchOrder();
+    testRemove();
+    testRetainingPop();
+    testTouchOrder();
+    testRemoveEnds();
+    testEmptyOps();
+    testObjectKeys();
+    console.log("\n✅ All tests passed successfully!");
 }
