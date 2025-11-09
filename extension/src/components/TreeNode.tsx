@@ -1,30 +1,68 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import type { BruhId, DropAction, DragData } from '../types';
 import * as svg from '../svg';
 import { useStateContext } from './StateProvider';
 
 const DEFAULT_FAVICON_URL = `data:image/svg+xml;base64,${btoa(svg.default_favicon)}`;
 
-type TreeNodeProps = {
-    nodeId: BruhId;
-    showContextMenu: (x: number, y: number, nodeId: BruhId) => void;
-};
-
 const getUrlFromDataTransfer = (dataTransfer: DataTransfer): string | null => {
     const url = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
     return url ? url.trim() : null;
 };
 
-const TreeNode: React.FC<TreeNodeProps> = ({ nodeId, showContextMenu }) => {
+type TreeNodeProps = {
+    nodeId: BruhId;
+    showContextMenu: (x: number, y: number, nodeId: BruhId) => void;
+    renamingNodeId: BruhId | null;
+    setRenamingNodeId: (id: BruhId | null) => void;
+};
+
+const TreeNode: React.FC<TreeNodeProps> = ({ nodeId, showContextMenu, renamingNodeId, setRenamingNodeId }) => {
     const { state, sendAction } = useStateContext();
     const [dragOverAction, setDragOverAction] = useState<DropAction | null>(null);
+    const [name, setName] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const node = state?.get_node(nodeId);
+
+    const isRenaming = renamingNodeId === nodeId && node?.type === 'group';
+
+    useEffect(() => {
+        if (node) {
+            setName(state?.get_node_name(nodeId) ?? '');
+        }
+    }, [node, state, nodeId]);
+
+    useEffect(() => {
+        if (isRenaming && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isRenaming]);
+
     if (!state || !node) return null;
 
     const children = state.get_immediate_children(nodeId);
     const window = state.get_window(node.wbid);
     const isClosed = state.is_node_closed(nodeId);
+
+    const handleRename = useCallback(() => {
+        const nodeName = state?.get_node_name(nodeId) ?? '';
+        if (name.trim() && name.trim() !== nodeName) {
+            sendAction({ type: 'rename_node', payload: { bid: nodeId, new_name: name.trim() } });
+        } else {
+            setName(nodeName);
+        }
+        setRenamingNodeId(null);
+    }, [name, nodeId, state, sendAction, setRenamingNodeId]);
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') handleRename();
+        if (e.key === 'Escape') {
+            setName(state?.get_node_name(nodeId) ?? '');
+            setRenamingNodeId(null);
+        }
+    }, [handleRename, state, nodeId, setRenamingNodeId]);
 
     const handleFocus = useCallback(() => {
         if (!isClosed) {
@@ -187,7 +225,20 @@ const TreeNode: React.FC<TreeNodeProps> = ({ nodeId, showContextMenu }) => {
                             }
                         }}
                     />
-                    <span className="tree-node-title">{state.get_node_name(nodeId)}</span>
+                    {isRenaming ? (
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            className="group-name-input"
+                            value={name}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setName(e.target.value)}
+                            onBlur={handleRename}
+                            onKeyDown={handleKeyDown}
+                        />
+                    ) : (
+                        <span className="tree-node-title">{state.get_node_name(nodeId)}</span>
+                    )}
                 </div>
                 <button className="close-tab-button" onClick={handleClose} dangerouslySetInnerHTML={{ __html: svg.icon_close }} />
             </div>
@@ -195,7 +246,13 @@ const TreeNode: React.FC<TreeNodeProps> = ({ nodeId, showContextMenu }) => {
             {!node.collapsed && children.length > 0 && (
                 <div className="children-container">
                     {children.map(childId => (
-                        <TreeNode key={childId} nodeId={childId} showContextMenu={showContextMenu} />
+                        <TreeNode
+                            key={childId}
+                            nodeId={childId}
+                            showContextMenu={showContextMenu}
+                            renamingNodeId={renamingNodeId}
+                            setRenamingNodeId={setRenamingNodeId}
+                        />
                     ))}
                 </div>
             )}

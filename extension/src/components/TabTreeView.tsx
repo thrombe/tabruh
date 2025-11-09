@@ -1,5 +1,5 @@
 import '../tab_tree_view.css';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { BruhId, WindowId, BruhExport, SnapshotDragData } from '../types';
 import * as svg from '../svg';
 import { useStateContext } from './StateProvider';
@@ -28,11 +28,12 @@ const getUrlFromNode = (state: any, nodeId: BruhId): string | undefined => state
 export const TabTreeView: React.FC<TreeViewProps> = (props) => {
     const { state, sendAction } = useStateContext();
     const { menuState, showMenu, hideMenu } = useContextMenu();
+    const [renamingNodeId, setRenamingNodeId] = useState<BruhId | null>(null);
 
     const startNodeRename = useCallback((nodeId: BruhId) => {
         // This functionality has been moved into the TreeHeader component itself
         // But for nodes, we need a different approach, maybe a global state for renaming target
-        console.log("Renaming needs to be re-implemented for nodes with a global state or similar pattern.");
+        setRenamingNodeId(nodeId);
     }, []);
 
     const copyUrl = useCallback(async (nodeIdentifier: BruhId | number) => {
@@ -190,11 +191,17 @@ export const TabTreeView: React.FC<TreeViewProps> = (props) => {
         return (
             <div className={containerClasses}>
                 <TreeHeader rootNode={rootNode} isClosed={isClosed} showGroupContextMenu={showGroupContextMenu} />
-                {(!rootNode.collapsed || props.treeType === 'sidebar') && (
+                {(!rootNode.collapsed || props.treeType === 'sidebar' || (props.treeType === 'overview' && rootNode.type === 'group')) && (
                     <div className="tab-tree-scroll-container">
                         <div className="flex flex-col">
                             {children.map(childId => (
-                                <TreeNode key={childId} nodeId={childId} showContextMenu={showNodeContextMenu} />
+                                <TreeNode
+                                    key={childId}
+                                    nodeId={childId}
+                                    showContextMenu={showNodeContextMenu}
+                                    renamingNodeId={renamingNodeId}
+                                    setRenamingNodeId={setRenamingNodeId}
+                                />
                             ))}
                         </div>
                         <AddButton rootId={props.rootId} />
