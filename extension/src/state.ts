@@ -1912,7 +1912,18 @@ export class State {
                 if (!!url && this.parse_group_url_id(url) !== null) {
                     create_effect = this.create_new_group(parent.bid, { bid: bid, index: target.index });
                 } else {
-                    create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index });
+                    let title: string | undefined;
+                    if (url) {
+                        try {
+                            const parsedUrl = new URL(url);
+                            if (parsedUrl.protocol.startsWith('http')) {
+                                title = parsedUrl.hostname;
+                            }
+                        } catch (e) {
+                            // Invalid URL, let create_new_tab handle the default title
+                        }
+                    }
+                    create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index, title });
                 }
 
                 if (!win.closed) {
