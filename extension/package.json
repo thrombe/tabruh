@@ -5,7 +5,7 @@
     "pkg-build": "bun run build && bun x tsx ./src/dev.ts build",
     "pkg-sign": "bun run build && bun x tsx ./src/dev.ts sign",
     "pkg-publish": "bun run build && bun x tsx ./src/dev.ts publish",
-    "dev": "bun x tsx ./src/dev.ts"
+    "dev": "bun x tsx ./src/dev.ts run"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^28.0.6",

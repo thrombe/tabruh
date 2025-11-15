@@ -21,20 +21,19 @@ async function main() {
     const args = process.argv.slice(2);
     const command = args[0]!;
 
-    // Use last argument for browser binary/profile detection unless it's "build"
-    // So if "build" is last arg, fallback to "firefox"
-    let lastArg = args.length > 0 && args[args.length - 1]! !== 'build' ? args[args.length - 1]! : 'firefox';
-
-    const IS_FF = lastArg.includes('irefox') || lastArg.includes('loorp') || lastArg.includes('zen');
     const cliOpts: Record<string, any> = {
         sourceDir: "./build",
     };
 
     if (command === 'run') {
+        let lastArg = args.length > 0 && args[args.length - 1]! !== 'run' ? args[args.length - 1]! : 'firefox';
+
+        const is_ff = lastArg.includes('irefox') || lastArg.includes('loorp') || lastArg.includes('zen');
+
         cliOpts.keepProfileChanges = true;
         cliOpts.devtools = true;
 
-        if (IS_FF) {
+        if (is_ff) {
             cliOpts.firefox = lastArg;
             cliOpts.firefoxProfile = './tmp/profile-' + path.basename(lastArg).split(".")[0];
             await fs.mkdir(cliOpts.firefoxProfile, { recursive: true });
