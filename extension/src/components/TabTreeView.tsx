@@ -98,6 +98,7 @@ export const TabTreeView: React.FC<TreeViewProps> = (props) => {
             content = (
                 <>
                     {createItem('New Group', svg.icon_group, () => sendAction({ type: 'create_group', payload: { parent_bid: bid } }))}
+                    {createItem('Unload Tabs', svg.icon_unload, () => sendAction({ type: 'unload_tabs', payload: { bid: bid, recursive: true } }))}
                     {createSeparator()}
                     {createItem('Close Window', svg.icon_close, () => sendAction({ type: 'close_window', payload: { wbid: bid } }))}
                 </>
