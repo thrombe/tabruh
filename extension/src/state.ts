@@ -122,6 +122,9 @@ export class State {
             if (url.protocol === 'about:') {
                 return true;
             }
+            if (url.protocol === 'file:') {
+                return true;
+            }
 
             return false;
         } catch (e) {
