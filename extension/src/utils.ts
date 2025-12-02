@@ -47,6 +47,72 @@ export function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export type Log = {
+    timestamp: Date,
+    msg: string,
+    trace: string,
+    extra: Record<string, any>,
+};
+
+export class Logger {
+    cap: number;
+    buf: Deque<Log> = new Deque();
+    console: boolean = true;
+
+    constructor(cap?: number) {
+        this.cap = cap ?? 1000;
+    }
+
+    err(e: any, msg?: string) {
+        let log = "";
+        if (msg) {
+            log += msg + ":";
+        }
+        return this.log(`${msg} ${e}`, { trace: trace_from(e) });
+    }
+
+    log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        const log = { timestamp: new Date(), msg, extra, trace: get_trace(1) };
+
+        if ("trace" in extra && !!extra["trace"]) {
+            log.trace = extra["trace"];
+            delete extra["trace"];
+        }
+
+        this.buf.push_back(log);
+        while (this.buf.size > this.cap) {
+            let _ = this.buf.pop_front();
+        }
+
+        if (this.console ?? to_console ?? false) {
+            console.log(`${log.timestamp} ${log.msg}\n${log.trace}`);
+        }
+
+        return log;
+    }
+}
+
+export function trace_from(e: any) {
+    if (e instanceof Error && e.stack) {
+        return e.stack;
+    }
+    return get_trace(1, String(e));
+}
+
+export function get_trace(skip: number = 0, msg?: string) {
+    const err = new Error();
+    Error.captureStackTrace(err, get_trace);
+
+    const lines = (err.stack ?? "").split("\n");
+    // remove a few functions from trace
+    const _ = lines.splice(1, skip);
+    if (lines.length > 0) {
+        lines[0] = (msg ?? "Trace") + ":";
+    }
+    const trace = lines.join("\n");
+    return trace;
+}
+
 class SplitMix64 {
     private state: bigint;
 
@@ -490,6 +556,16 @@ export class Deque<T> {
         this.capacity = newCapacity;
         this.front = 0;
         this.back = this.size;
+    }
+
+    public map<U>(callbackfn: (value: T, index: number, deque: Deque<T>) => U, thisArg?: any): U[] {
+        const result: U[] = new Array(this.size);
+        for (let i = 0; i < this.size; i++) {
+            const bufferIndex = (this.front + i) % this.capacity;
+            const value = this.buffer[bufferIndex] as T;
+            result[i] = callbackfn.call(thisArg, value, i, this);
+        }
+        return result;
     }
 }
 
