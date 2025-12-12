@@ -745,6 +745,26 @@ class App {
         switch (event.type) {
             case 'browser_event': {
                 const msg = event.payload;
+
+                switch (msg.type) {
+                    case 'tab_created':
+                    case 'tab_removed':
+                    case 'tab_updated':
+                    case 'tab_moved':
+                    case 'tab_attached':
+                    case 'tab_detached':
+                    case 'tab_activated':
+                    case 'window_created':
+                    case 'window_removed':
+                        this.request_state_save();
+                        break;
+                    case 'window_focus_changed':
+                    case 'sessions_changed':
+                        break;
+                    default:
+                        throw utils.exhausted(msg);
+                }
+
                 switch (msg.type) {
                     case 'tab_created': {
                         const btab = msg.payload.tab;
@@ -854,9 +874,9 @@ class App {
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
                     case 'handle_snapshot_drop':
+                    case 'update_user_config':
                         this.request_state_save();
                         break;
-                    case 'update_user_config':
                     case 'create_snapshot':
                     case 'delete_snapshot':
                     case 'import_file_as_snapshot':
