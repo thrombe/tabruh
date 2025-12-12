@@ -1759,7 +1759,7 @@ export class State {
                 }
 
                 if (action.payload.recursive) {
-                    const subtree = this.get_subtree(node.bid);
+                    const subtree = this.get_subtree(node.bid).slice(1);
                     const closing_all_tabs = subtree.length == win.tab_bids.length;
                     let wid;
                     if (node.type == "window" || closing_all_tabs) {
