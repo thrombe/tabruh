@@ -590,14 +590,30 @@ class App {
 
         for (const wbid of windows_to_preserve) {
             const wnode = state.nodes.get(wbid)! as Extract<Node, { type: "window" }>;
-            if (!wnode.closed) {
-                wnode.closed = true;
-                wnode.is_archived_pristine = true;
-            }
+
             this.state.nodes.set(wnode.bid, wnode);
             for (const tbid of wnode.tab_bids) {
                 const tnode = state.nodes.get(tbid)! as Exclude<Node, { type: "window" }>;
                 this.state.nodes.set(tnode.bid, tnode);
+            }
+
+            if (!wnode.closed) {
+                wnode.closed = true;
+                wnode.is_archived_pristine = true;
+            } else {
+                continue;
+            }
+
+            // when browser is killed - nothing gets saved in state.browser_restore_cache. but the same data is saved in
+            // storage. so we need to restore the data for those missing nodes.
+            if (state.node_storage_data.get(wnode.bid) && !this.state.browser_restore_cache.get(wnode.bid)) {
+                this.state.browser_restore_cache.set(wnode.bid, state.node_storage_data.get(wnode.bid)!);
+            }
+            for (const tbid of wnode.tab_bids) {
+                const tnode = state.nodes.get(tbid)! as Exclude<Node, { type: "window" }>;
+                if (state.node_storage_data.get(tnode.bid) && !this.state.browser_restore_cache.get(tnode.bid)) {
+                    this.state.browser_restore_cache.set(tnode.bid, state.node_storage_data.get(tnode.bid)!);
+                }
             }
         }
     }
