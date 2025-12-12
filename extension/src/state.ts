@@ -82,6 +82,8 @@ export class State {
             dbg_reset_state_on_load: false,
             dbg_log_events: true,
             dbg_log_effects: true,
+            dbg_log_state_effects: true,
+            dbg_log_state_actions: false,
             restore_cache_size: 1000,
             open_sidebar_on_new_windows: false,
         };
@@ -1537,6 +1539,9 @@ export class State {
             case 'restore_snapshot_window':
             case 'restore_snapshot_subtree':
             case 'handle_snapshot_drop':
+                if (this.user_config.dbg_log_state_actions) {
+                    console.log(Date.now(), action.type, action.payload);
+                }
                 effects.push_back({ type: 'save_state', payload: {} });
                 break;
             case 'update_user_config':

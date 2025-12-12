@@ -234,9 +234,8 @@ class App {
             const effect = state_effects.pop_front();
             if (!effect) break;
 
-            if (this.state.user_config.dbg_log_effects) {
-                // TODO:
-                // this._log_effect(effect);
+            if (this.state.user_config.dbg_log_state_effects) {
+                this._log_state_effect(effect);
             }
             this.state.handle_effect(effect, app_effects);
         }
@@ -674,6 +673,29 @@ class App {
                 break;
             default:
                 throw utils.exhausted(event);
+        }
+    }
+
+    _log_state_effect(effect: StateEffect) {
+        switch (effect.type) {
+            case 'tab_created':
+            case 'tab_removed':
+            case 'tab_moved':
+            case 'tab_attached':
+            case 'tab_detached':
+            case 'tab_activated':
+            case 'window_created':
+            case 'window_removed':
+            case 'sessions_changed':
+            case 'upate_tab_info':
+            case 'register_tab':
+            case 'register_window':
+                console.log(Date.now(), effect.type, effect.payload);
+                break;
+            case 'effects':
+                break
+            default:
+                throw utils.exhausted(effect);
         }
     }
 

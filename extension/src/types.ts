@@ -45,6 +45,8 @@ export type UserConfig = {
     dbg_reset_state_on_load: boolean,
     dbg_log_events: boolean,
     dbg_log_effects: boolean,
+    dbg_log_state_effects: boolean,
+    dbg_log_state_actions: boolean,
     restore_cache_size: number,
     open_sidebar_on_new_windows: boolean,
     new_tab_url?: string,

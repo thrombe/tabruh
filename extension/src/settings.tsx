@@ -179,6 +179,14 @@ const SettingsView: React.FC = () => {
                     <label htmlFor="dbg_log_effects">Log extension effects to console</label>
                     <input type="checkbox" id="dbg_log_effects" checked={userConfig.dbg_log_effects} onChange={handleCheckboxChange} />
                 </div>
+                <div className="setting-item">
+                    <label htmlFor="dbg_log_state_effects">Log extension state effects to console</label>
+                    <input type="checkbox" id="dbg_log_state_effects" checked={userConfig.dbg_log_state_effects} onChange={handleCheckboxChange} />
+                </div>
+                <div className="setting-item">
+                    <label htmlFor="dbg_log_state_actions">Log extension state actions to console</label>
+                    <input type="checkbox" id="dbg_log_state_actions" checked={userConfig.dbg_log_state_actions} onChange={handleCheckboxChange} />
+                </div>
             </div>
         </div>
     );
