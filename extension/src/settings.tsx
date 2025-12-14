@@ -1,10 +1,10 @@
 import './settings.css';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './components/TabTreeView';
 import { StateProvider, useStateContext } from './components/StateProvider';
-import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction, WindowData } from './types';
+import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction, WindowData} from './types';
 import { ContextMenuPortal, useContextMenu } from './hooks/useContextMenu';
 import * as svg from './svg';
 import * as utils from './utils';
@@ -354,10 +354,239 @@ const SnapshotsView: React.FC<{ currentWindowId?: WindowId }> = ({ currentWindow
     );
 };
 
+const LogEntry: React.FC<{
+    log: utils.Log;
+    isTraceExpanded: boolean;
+    isJsonExpanded: boolean;
+    onToggleTrace: () => void;
+    onToggleJson: () => void;
+}> = ({ log, isTraceExpanded, isJsonExpanded, onToggleTrace, onToggleJson }) => {
+
+    const hasExtra = Object.keys(log.extra).length > 0;
+    const hasTrace = log.trace && log.trace.split('\n').length > 1;
+
+    const formattedJson = useMemo(() => {
+        return hasExtra ? JSON.stringify(log.extra, null, 2) : '';
+    }, [log.extra, hasExtra]);
+
+    return (
+        <div className={`log-entry ${log.level.toLowerCase()}`}>
+            <div className="log-header">
+                <span className="log-timestamp">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                <span className={`log-level ${log.level}`}>{log.level}</span>
+                <span className="log-msg" onClick={onToggleJson}>{log.msg}</span>
+                {hasExtra && !isJsonExpanded && (
+                    <span className="json-preview" onClick={onToggleJson}>{'{...}'}</span>
+                )}
+                {hasTrace && (
+                    <span className="log-details-toggle" onClick={onToggleTrace}>
+                        {isTraceExpanded ? 'hide trace' : 'show trace'}
+                    </span>
+                )}
+            </div>
+
+            {isTraceExpanded && hasTrace && (
+                <div className="log-details"><pre>{log.trace}</pre></div>
+            )}
+            {isJsonExpanded && hasExtra && (
+                <div className="log-details"><pre>{formattedJson}</pre></div>
+            )}
+        </div>
+    );
+};
+
+const LOG_LEVELS: utils.Log['level'][] = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
+
+const LogsView: React.FC<{ logs: utils.Deque<utils.Log> }> = ({ logs }) => {
+    const { sendRequest } = useStateContext();
+    const [filters, setFilters] = useState<Record<utils.Log['level'], boolean>>({
+        ERROR: true, WARN: true, INFO: true, DEBUG: false
+    });
+    
+    // State for individual toggle states
+    const [expandedTraces, setExpandedTraces] = useState<Set<number>>(new Set());
+    const [expandedJson, setExpandedJson] = useState<Set<number>>(new Set());
+
+    // State for the "master" toggles
+    const [expandAllJson, setExpandAllJson] = useState(false);
+    const [expandAllTraces, setExpandAllTraces] = useState(false);
+
+    const logContainerRef = useRef<HTMLDivElement>(null);
+    const isAtBottomRef = useRef(true);
+
+    // Initial log fetch and setup
+    useEffect(() => {
+        if (logs.is_empty()) {
+            sendRequest({ type: 'get_logs', payload: {} });
+        } else {
+            // Pre-expand errors on first load
+            const errorIndices = new Set<number>();
+            logs.map((log, i) => {
+                if (log.level === 'ERROR') errorIndices.add(i);
+            });
+            setExpandedTraces(prev => new Set([...prev, ...errorIndices]));
+        }
+    }, []); // Runs only on initial mount
+
+    // Memoize the logs with their original indices
+    const allLogs = useMemo(() => logs.map((l, i) => ({ log: l, originalIndex: i })), [logs.size]);
+    
+    // Memoize the filtered list
+    const filteredLogs = useMemo(() => {
+        return allLogs.filter(item => filters[item.log.level]);
+    }, [allLogs, filters]);
+
+    // This is the core logic for sticky scrolling.
+    // It runs AFTER the DOM has been updated with new logs.
+    useLayoutEffect(() => {
+        const el = logContainerRef.current;
+        if (el && isAtBottomRef.current) {
+            // If we were at the bottom before the update, scroll to the new bottom.
+            el.scrollTop = el.scrollHeight;
+        }
+    }, [filteredLogs]); // Only run when the visible logs change
+
+    // This handler continuously updates our ref with the current scroll state.
+    const handleScroll = () => {
+        const el = logContainerRef.current;
+        if (el) {
+            const isAtBottom = el.scrollHeight - el.scrollTop < el.clientHeight + 5; // 5px buffer
+            isAtBottomRef.current = isAtBottom;
+        }
+    };
+
+    // Handler for the "Expand All" checkboxes
+    const handleExpandAll = (
+        isChecked: boolean,
+        setExpandedState: React.Dispatch<React.SetStateAction<Set<number>>>
+    ) => {
+        const filteredIndices = new Set(filteredLogs.map(item => item.originalIndex));
+        
+        setExpandedState(prev => {
+            const next = new Set(prev);
+            if (isChecked) {
+                // Add all visible items to the set
+                filteredIndices.forEach(i => next.add(i));
+            } else {
+                // Remove all visible items from the set
+                filteredIndices.forEach(i => next.delete(i));
+            }
+            return next;
+        });
+    };
+
+    const handleFilterChange = (level: utils.Log['level']) => {
+        setFilters(f => ({ ...f, [level]: !f[level] }));
+    };
+
+    const toggleTrace = (index: number) => {
+        setExpandedTraces(prev => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index); else next.add(index);
+            return next;
+        });
+    };
+
+    const toggleJson = (index: number) => {
+        setExpandedJson(prev => {
+            const next = new Set(prev);
+            if (next.has(index)) next.delete(index); else next.add(index);
+            return next;
+        });
+    };
+    
+    const scrollToTop = () => {
+        if (logContainerRef.current) logContainerRef.current.scrollTop = 0;
+    };
+
+    const scrollToBottom = () => {
+        if (logContainerRef.current) {
+             logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight + 1000;
+             isAtBottomRef.current = true; // Force state update
+        }
+    };
+
+    return (
+        <div className="logs-view-container">
+            <div className="logs-controls">
+                <div className="control-group">
+                    <label>Filter Levels:</label>
+                    {LOG_LEVELS.map(level => (
+                        <label key={level}>
+                            <input type="checkbox" checked={filters[level]} onChange={() => handleFilterChange(level)} />
+                            {level}
+                        </label>
+                    ))}
+                </div>
+                 <div className="control-group">
+                    <label htmlFor="expandAllTraces">Expand all traces</label>
+                    <input type="checkbox" id="expandAllTraces" checked={expandAllTraces} onChange={(e) => {
+                        setExpandAllTraces(e.target.checked);
+                        handleExpandAll(e.target.checked, setExpandedTraces);
+                    }} />
+                </div>
+                <div className="control-group">
+                    <label htmlFor="expandAllJson">Expand all JSON</label>
+                    <input type="checkbox" id="expandAllJson" checked={expandAllJson} onChange={(e) => {
+                        setExpandAllJson(e.target.checked);
+                        handleExpandAll(e.target.checked, setExpandedJson);
+                    }} />
+                </div>
+                <button className="scroll-btn" title="Scroll to top" onClick={scrollToTop} dangerouslySetInnerHTML={{ __html: svg.icon_up }} ></button>
+                <button className="scroll-btn" title="Scroll to bottom" onClick={scrollToBottom} dangerouslySetInnerHTML={{ __html: svg.icon_down }} ></button>
+            </div>
+            <div className="logs-list" ref={logContainerRef} onScroll={handleScroll}>
+                {filteredLogs.length === 0 ? (
+                    <div className="no-logs">No logs available or matching filters.</div>
+                ) : (
+                    filteredLogs.map(item => (
+                         <LogEntry
+                            key={item.originalIndex}
+                            log={item.log}
+                            isTraceExpanded={expandedTraces.has(item.originalIndex)}
+                            isJsonExpanded={expandedJson.has(item.originalIndex)}
+                            onToggleTrace={() => toggleTrace(item.originalIndex)}
+                            onToggleJson={() => toggleJson(item.originalIndex)}
+                        />
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
+const OverviewView: React.FC = () => {
+    const { state } = useStateContext();
+
+    if (!state) {
+        return <div>Loading state...</div>;
+    }
+
+    const windowNodes = (Array.from(state.nodes.values())
+        .filter(n => n.type === 'window') as WindowData[])
+        .sort((a, b) => {
+            if (a.closed !== b.closed) return a.closed ? 1 : -1;
+            if (a.name.is_custom !== b.name.is_custom) return a.name.is_custom ? -1 : 1;
+            return a.name.generation - b.name.generation;
+        });
+
+    return (
+        <div id="overview-container">
+            {windowNodes.map(node => (
+                <div key={node.bid} className="window-view" data-state-id={node.bid.toString()}>
+                    <TabTreeView treeType="overview" mode="live" rootId={node.bid} />
+                </div>
+            ))}
+        </div>
+    );
+};
+
+
 const SettingsPage: React.FC = () => {
     const { port, sendAction } = useStateContext();
-    const [currentView, setCurrentView] = useState<'settings' | 'snapshots'>('settings');
+    const [currentView, setCurrentView] = useState<'settings' | 'snapshots' | 'logs' | 'overview'>('settings');
     const [currentWindowId, setCurrentWindowId] = useState<WindowId | undefined>();
+    const [logs, setLogs] = useState<utils.Deque<utils.Log>>(new utils.Deque(10000));
 
     useEffect(() => {
         browser.windows.getCurrent().then(win => {
@@ -372,6 +601,20 @@ const SettingsPage: React.FC = () => {
             if (message.type === 'app_response' && message.payload.type === 'converted_sideberry_export_ready') {
                 sendAction({ type: 'load_bruh_export', payload: { data: message.payload.payload.data } });
                 alert('Sideberry data imported successfully! Your imported windows have been added as closed windows.');
+            } else if (message.type === 'logs') {
+                 setLogs(prev => {
+                    const newLogs = new utils.Deque<utils.Log>();
+                    // clone deque
+                    prev.map(l => newLogs.push_back(l));
+                    
+                    message.payload.logs.forEach(log => {
+                        newLogs.push_back(log);
+                        if(newLogs.size > 10000) {
+                            newLogs.pop_front();
+                        }
+                    });
+                    return newLogs;
+                });
             }
         };
         port.onMessage.addListener(handleMessage);
@@ -384,6 +627,10 @@ const SettingsPage: React.FC = () => {
                 return <SettingsView />;
             case 'snapshots':
                 return <SnapshotsView currentWindowId={currentWindowId} />;
+            case 'logs':
+                return <LogsView logs={logs}/>;
+            case 'overview':
+                return <OverviewView />;
             default:
                 return null;
         }
@@ -392,6 +639,12 @@ const SettingsPage: React.FC = () => {
     return (
         <div style={{ display: 'flex', height: '100vh' }}>
             <div className="sidebar">
+                <button
+                    className={`sidebar-button ${currentView === 'overview' ? 'active' : ''}`}
+                    onClick={() => setCurrentView('overview')}
+                >
+                    Overview
+                </button>
                 <button
                     className={`sidebar-button ${currentView === 'settings' ? 'active' : ''}`}
                     onClick={() => setCurrentView('settings')}
@@ -404,8 +657,14 @@ const SettingsPage: React.FC = () => {
                 >
                     Snapshots
                 </button>
+                <button
+                    className={`sidebar-button ${currentView === 'logs' ? 'active' : ''}`}
+                    onClick={() => setCurrentView('logs')}
+                >
+                    Logs
+                </button>
             </div>
-            <div id="content" className="content">
+            <div id="content" className={`content ${currentView === 'overview' ? 'no-padding' : ''}`}>
                 {renderContent()}
             </div>
         </div>

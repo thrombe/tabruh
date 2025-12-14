@@ -215,3 +215,94 @@ body {
 .snapshot-window-view .tab-tree-scroll-container {
   flex: none; /* Allow the content to define its height */
 }
+
+/* === Logs View Specifics === */
+.logs-view-container {
+    @apply flex h-full w-full flex-col;
+}
+
+.logs-controls {
+    @apply mb-2 flex-shrink-0 flex items-center gap-4 p-2 rounded-md;
+    background-color: var(--gruvbox-hover);
+    flex-wrap: wrap;
+}
+
+.logs-controls .control-group {
+    @apply flex items-center gap-2;
+}
+.logs-controls .control-group > label {
+    @apply text-sm font-semibold;
+}
+.logs-controls .control-group > label > input {
+    @apply mr-1;
+}
+
+.logs-list {
+    @apply flex-grow overflow-y-auto bg-black/20 font-mono text-xs p-2 rounded-md;
+    border: 1px solid var(--gruvbox-border-2);
+    scroll-behavior: smooth;
+}
+
+.log-entry {
+    @apply mb-1 py-1 border-b border-solid;
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+.log-header {
+    @apply flex items-center gap-2;
+}
+
+.log-timestamp { @apply text-[var(--gruvbox-border)] flex-shrink-0; }
+.log-level { @apply font-bold w-12 text-center rounded px-1 flex-shrink-0; }
+.log-level.INFO { color: var(--gruvbox-blue); }
+.log-level.WARN { color: var(--gruvbox-yellow); }
+.log-level.ERROR { color: var(--gruvbox-red); }
+.log-level.DEBUG { color: var(--gruvbox-purple); }
+
+.log-msg { @apply text-[var(--gruvbox-fg)] flex-grow cursor-pointer; }
+
+.log-details {
+    @apply mt-2 ml-6 p-2 rounded-md bg-black/30;
+}
+.log-details pre {
+    @apply whitespace-pre-wrap break-words;
+}
+.log-details-toggle {
+    @apply ml-2 text-sm font-semibold text-[var(--gruvbox-border)] cursor-pointer flex-shrink-0;
+}
+.log-details-toggle:hover { color: var(--gruvbox-fg); }
+
+.json-preview {
+    @apply ml-2 text-[var(--gruvbox-border)] italic cursor-pointer flex-shrink-0;
+}
+
+.no-logs { @apply flex h-full items-center justify-center text-[var(--gruvbox-border)]; }
+
+.scroll-btn {
+    @apply h-8 w-8 rounded-sm border-none flex items-center justify-center text-lg font-bold cursor-pointer transition-colors;
+    background-color: var(--gruvbox-hover-accent);
+    color: var(--gruvbox-fg);
+}
+.scroll-btn:hover {
+    background-color: var(--gruvbox-blue);
+    color: var(--gruvbox-bg);
+}
+
+
+/* === Overview from Settings === */
+#overview-container {
+    display: flex;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    box-sizing: border-box;
+    align-items: stretch;
+}
+
+#overview-container .window-view {
+    width: 350px;
+    flex-shrink: 0;
+    border-right: 2px solid var(--gruvbox-border-2);
+    display: flex;
+    flex-direction: column;
+}
