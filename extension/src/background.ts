@@ -20,7 +20,7 @@ import type {
     Snapshot,
 } from './types';
 import * as utils from './utils';
-import { State } from './state';
+import { State, default_config } from './state';
 import manifest from './manifest.jsonc';
 
 class App {
@@ -702,6 +702,10 @@ class App {
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
                     case 'get_logs':
+                    case 'reinit_from_storage':
+                    case 'reset_state':
+                    case 'reset_config':
+                    case 'reset_snapshots':
                         this.log(`${event.type}`, event, this.state.user_config.dbg_log_events);
                         break;
                     default:
@@ -958,6 +962,23 @@ class App {
                         const logs = this.logger.buf.map(log => log);
                         this._post(event.payload.port, { type: 'logs', payload: { logs } });
                         this.log_listeners.add(event.payload.port);
+                    } break;
+                    case 'reinit_from_storage': {
+                        this.state = new State(this.state.extension_version);
+                        await this.init_tree();
+                    } break;
+                    case 'reset_state': {
+                        this.state = new State(this.state.extension_version);
+                        await browser.storage.local.remove(this.storage_state_key);
+                        await this.init_tree();
+                    } break;
+                    case 'reset_config': {
+                        this.state.user_config = default_config();
+                        await browser.storage.local.remove(this.storage_config_key);
+                    } break;
+                    case 'reset_snapshots': {
+                        this.state.snapshots = [];
+                        await browser.storage.local.remove(this.storage_snapshot_key);
                     } break;
                     default:
                         throw utils.exhausted(msg);

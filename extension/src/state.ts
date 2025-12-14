@@ -27,6 +27,18 @@ import type {
 } from './types';
 import * as utils from './utils';
 
+export function default_config(): UserConfig {
+    return {
+        dbg_reset_state_on_load: false,
+        dbg_log_events: true,
+        dbg_log_effects: true,
+        dbg_log_state_effects: true,
+        dbg_log_state_actions: false,
+        restore_cache_size: 1000,
+        open_sidebar_on_new_windows: false,
+    };
+}
+
 export class State {
     rng: utils.Xoshiro256;
     config: Config;
@@ -78,15 +90,7 @@ export class State {
             },
         };
 
-        this.user_config = {
-            dbg_reset_state_on_load: false,
-            dbg_log_events: true,
-            dbg_log_effects: true,
-            dbg_log_state_effects: true,
-            dbg_log_state_actions: false,
-            restore_cache_size: 1000,
-            open_sidebar_on_new_windows: false,
-        };
+        this.user_config = default_config();
 
         // just a random number that can uniquely identify the storage data saved by *this* tabruh and not some broken version.
         // TODO: maybe use uuid of some kind

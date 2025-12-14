@@ -190,6 +190,10 @@ export type AppRequest =
     | { type: 'export_data', payload: {} }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
     | { type: 'get_logs', payload: {} }
+    | { type: 'reinit_from_storage', payload: {} }
+    | { type: 'reset_state', payload: {} }
+    | { type: 'reset_config', payload: {} }
+    | { type: 'reset_snapshots', payload: {} }
     ;
 
 export type AppResponse =
