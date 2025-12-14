@@ -49,6 +49,7 @@ export function sleep(ms: number) {
 
 export type Log = {
     timestamp: Date,
+    level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG',
     msg: string,
     trace: string,
     extra: Record<string, any>,
@@ -63,16 +64,8 @@ export class Logger {
         this.cap = cap ?? 1000;
     }
 
-    err(e: any, msg?: string) {
-        let log = "";
-        if (msg) {
-            log += msg + ":";
-        }
-        return this.log(`${msg} ${e}`, { trace: trace_from(e) });
-    }
-
-    log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        const log = { timestamp: new Date(), msg, extra, trace: get_trace(1) };
+    private logInternal(level: Log['level'], msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        const log: Log = { timestamp: new Date(), level, msg, extra, trace: get_trace(2) };
 
         if ("trace" in extra && !!extra["trace"]) {
             log.trace = extra["trace"];
@@ -85,10 +78,31 @@ export class Logger {
         }
 
         if (this.console ?? to_console ?? false) {
-            console.log(`${log.timestamp} ${log.msg}\n${log.trace}`);
+            console.log(`${log.timestamp} [${log.level}] ${log.msg}\n${log.trace}`);
         }
 
         return log;
+    }
+
+    err(e: any, msg?: string) {
+        const fullMsg = msg ? `${msg}: ${e}` : String(e);
+        return this.logInternal('ERROR', fullMsg, { trace: trace_from(e) });
+    }
+
+    warn(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        return this.logInternal('WARN', msg, extra, to_console);
+    }
+
+    info(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        return this.logInternal('INFO', msg, extra, to_console);
+    }
+
+    debug(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        return this.logInternal('DEBUG', msg, extra, to_console);
+    }
+
+    log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        return this.info(msg, extra, to_console); // Backwards compatibility
     }
 }
 
