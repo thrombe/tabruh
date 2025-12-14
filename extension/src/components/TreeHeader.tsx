@@ -64,11 +64,23 @@ export const TreeHeader: React.FC<TreeHeaderProps> = ({ rootNode, isClosed, show
         event.currentTarget.parentElement?.classList.remove('dragging');
     }, []);
 
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showGroupContextMenu(e.clientX, e.clientY, rootNode.bid, isClosed);
+    }, [showGroupContextMenu, rootNode.bid, isClosed]);
+
     const nodeName = state?.get_node_name(rootNode.bid) ?? '';
     const displayText = isClosed ? `[Closed] ${nodeName}` : nodeName;
 
     return (
-        <div className="tab-tree-header" draggable onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div 
+            className="tab-tree-header" 
+            draggable 
+            onDragStart={handleDragStart} 
+            onDragEnd={handleDragEnd}
+            onContextMenu={handleContextMenu}
+        >
             {isRenaming ? (
                 <input
                     ref={inputRef}
