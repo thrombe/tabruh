@@ -501,7 +501,7 @@ const LogsView: React.FC<{ logs: utils.Deque<utils.Log> }> = ({ logs }) => {
 
     const scrollToBottom = () => {
         if (logContainerRef.current) {
-             logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight + 1000;
+             logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
              isAtBottomRef.current = true; // Force state update
         }
     };

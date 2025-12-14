@@ -240,7 +240,6 @@ body {
 .logs-list {
     @apply flex-grow overflow-y-auto bg-black/20 font-mono text-xs p-2 rounded-md;
     border: 1px solid var(--gruvbox-border-2);
-    scroll-behavior: smooth;
 }
 
 .log-entry {
