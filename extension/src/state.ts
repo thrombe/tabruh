@@ -1539,9 +1539,6 @@ export class State {
             case 'restore_snapshot_window':
             case 'restore_snapshot_subtree':
             case 'handle_snapshot_drop':
-                if (this.user_config.dbg_log_state_actions) {
-                    console.log(Date.now(), action.type, action.payload);
-                }
                 effects.push_back({ type: 'save_state', payload: {} });
                 break;
             case 'update_user_config':
@@ -1551,6 +1548,8 @@ export class State {
             case 'toggle_snapshot_collapse':
             case 'toggle_snapshot_window_collapse':
                 break;
+            default:
+                throw utils.exhausted(action);
         }
 
         switch (action.type) {
@@ -2071,6 +2070,5 @@ export class State {
             default:
                 throw utils.exhausted(action);
         }
-
     }
 }

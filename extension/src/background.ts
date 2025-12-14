@@ -27,6 +27,7 @@ class App {
     ports: Set<browser.Runtime.Port> = new Set();
     state_listeners: Set<browser.Runtime.Port> = new Set();
     event_channel: utils.Channel<AppEvent> = new utils.Channel();
+    logger: utils.Logger = new utils.Logger();
 
     state: State;
 
@@ -83,7 +84,7 @@ class App {
                     await browser.storage.local.remove(this.storage_state_key);
                 } break;
                 default:
-                    console.warn("unknown menu item id " + info.menuItemId);
+                    this.logger.log("unknown menu item id " + info.menuItemId);
             }
         });
 
@@ -219,11 +220,9 @@ class App {
             const event = await this.event_channel.wait_recv();
             if (!event) break;
 
-            if (this.state.user_config.dbg_log_events) {
-                this._log_event(event);
-            }
+            this._log_event(event);
 
-            await this.process_event(event, state_effects, app_effects).catch(console.error);
+            await this.process_event(event, state_effects, app_effects).catch(this.logger.err);
             this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(state_effects, app_effects);
         }
@@ -234,9 +233,27 @@ class App {
             const effect = state_effects.pop_front();
             if (!effect) break;
 
-            if (this.state.user_config.dbg_log_state_effects) {
-                this._log_state_effect(effect);
+            switch (effect.type) {
+                case 'tab_created':
+                case 'tab_removed':
+                case 'tab_moved':
+                case 'tab_attached':
+                case 'tab_detached':
+                case 'tab_activated':
+                case 'window_created':
+                case 'window_removed':
+                case 'sessions_changed':
+                case 'upate_tab_info':
+                case 'register_tab':
+                case 'register_window':
+                    this.logger.log(`${effect.type}`, effect, this.state.user_config.dbg_log_state_effects);
+                    break;
+                case 'effects':
+                    break
+                default:
+                    throw utils.exhausted(effect);
             }
+
             this.state.handle_effect(effect, app_effects);
         }
     }
@@ -246,10 +263,31 @@ class App {
             const effect = app_effects.pop_front();
             if (!effect) break;
 
-            if (this.state.user_config.dbg_log_effects) {
-                this._log_effect(effect);
+            switch (effect.type) {
+                case 'effects':
+                case 'node_removed':
+                case 'tab_created':
+                case 'tab_focused':
+                case 'tabs_moved':
+                case 'tabs_discarded':
+                case 'tabs_reloaded':
+                case 'tabs_closed':
+                case 'window_created':
+                case 'window_closed':
+                case 'save_config':
+                case 'save_snapshots':
+                case 'save_state':
+                    this.logger.log(`${effect.type}`, effect, this.state.user_config.dbg_log_effects);
+                    break;
+                case 'write_window_session':
+                case 'write_tab_session':
+                case 'update_tab_url':
+                    break;
+                default:
+                    throw utils.exhausted(effect);
             }
-            await this._process_effect(effect, state_effects).catch(console.error);
+
+            await this._process_effect(effect, state_effects).catch(this.logger.log);
             this.process_state_effects(state_effects, app_effects);
         }
     }
@@ -276,7 +314,7 @@ class App {
     }
 
     async save_state() {
-        console.log(Date.now(), "actually saving state now");
+        this.logger.log("actually saving state now");
         const state = this.state.serialize_state();
         await browser.storage.local.set({
             [this.storage_state_key]: state,
@@ -354,7 +392,7 @@ class App {
                 await browser.sessions.setWindowValue(id as WindowId, this.session_pointer_key, data);
             }
         } catch (e) {
-            console.warn(`Could not set session pointer for ${type} ${id}:`, e);
+            this.logger.log(`Could not set session pointer for ${type} ${id}: ${e}`, { trace: utils.trace_from(e) });
         }
     }
 
@@ -630,7 +668,7 @@ class App {
                     case 'window_created':
                     case 'window_removed':
                     case 'sessions_changed':
-                        console.log(Date.now(), event.payload.type, event.payload.payload);
+                        this.logger.log(`${event.payload.type}`, event.payload, this.state.user_config.dbg_log_events);
                         break;
                     case 'tab_updated':
                     case 'tab_activated':
@@ -645,7 +683,7 @@ class App {
                     case 'export_data':
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
-                        console.log(Date.now(), event.type, event.payload.message, event.payload.port);
+                        this.logger.log(`${event.type}`, event, this.state.user_config.dbg_log_events);
                         break;
                     default:
                         throw utils.exhausted(event.payload.message);
@@ -678,7 +716,7 @@ class App {
                     case 'handle_snapshot_drop':
                     case 'toggle_snapshot_collapse':
                     case 'toggle_snapshot_window_collapse':
-                        console.log(Date.now(), event.payload.message.type, event.payload.message.payload);
+                        this.logger.log(`${event.payload.message.type}`, event.payload.message.payload, this.state.user_config.dbg_log_events);
                         break;
 
                     default:
@@ -689,55 +727,6 @@ class App {
                 break;
             default:
                 throw utils.exhausted(event);
-        }
-    }
-
-    _log_state_effect(effect: StateEffect) {
-        switch (effect.type) {
-            case 'tab_created':
-            case 'tab_removed':
-            case 'tab_moved':
-            case 'tab_attached':
-            case 'tab_detached':
-            case 'tab_activated':
-            case 'window_created':
-            case 'window_removed':
-            case 'sessions_changed':
-            case 'upate_tab_info':
-            case 'register_tab':
-            case 'register_window':
-                console.log(Date.now(), effect.type, effect.payload);
-                break;
-            case 'effects':
-                break
-            default:
-                throw utils.exhausted(effect);
-        }
-    }
-
-    _log_effect(effect: AppEffect) {
-        switch (effect.type) {
-            case 'effects':
-            case 'node_removed':
-            case 'tab_created':
-            case 'tab_focused':
-            case 'tabs_moved':
-            case 'tabs_discarded':
-            case 'tabs_reloaded':
-            case 'tabs_closed':
-            case 'window_created':
-            case 'window_closed':
-            case 'save_config':
-            case 'save_snapshots':
-            case 'save_state':
-                console.log(Date.now(), effect.type, effect.payload);
-                break;
-            case 'write_window_session':
-            case 'write_tab_session':
-            case 'update_tab_url':
-                break;
-            default:
-                throw utils.exhausted(effect);
         }
     }
 
@@ -851,10 +840,44 @@ class App {
                 }
             } break;
             case 'state_action': {
-                this.state.handle_action(event.payload.message, app_effects);
-                this._broadcast_state_action(event.payload.message);
+                const action = event.payload.message;
+                switch (action.type) {
+                    case 'focus_tab':
+                    case 'close_tabs':
+                    case 'toggle_collapse':
+                    case 'handle_drop':
+                    case 'duplicate_tab':
+                    case 'unload_tabs':
+                    case 'reload_tree':
+                    case 'move_subtree_to_new_window':
+                    case 'create_tab':
+                    case 'close_window':
+                    case 'restore_window':
+                    case 'delete_window_state':
+                    case 'flatten_tree':
+                    case 'create_group':
+                    case 'rename_node':
+                    case 'load_bruh_export':
+                    case 'restore_snapshot_window':
+                    case 'restore_snapshot_subtree':
+                    case 'handle_snapshot_drop':
+                        this.logger.log(`${action.type}`, action, this.state.user_config.dbg_log_state_actions);
+                        break;
+                    case 'update_user_config':
+                    case 'create_snapshot':
+                    case 'delete_snapshot':
+                    case 'import_file_as_snapshot':
+                    case 'toggle_snapshot_collapse':
+                    case 'toggle_snapshot_window_collapse':
+                        break;
+                    default:
+                        throw utils.exhausted(action);
+                }
 
-                switch (event.payload.message.type) {
+                this.state.handle_action(action, app_effects);
+                this._broadcast_state_action(action);
+
+                switch (action.type) {
                     case 'focus_tab':
                     case 'close_tabs':
                     case 'toggle_collapse':
@@ -883,6 +906,8 @@ class App {
                     case 'toggle_snapshot_collapse':
                     case 'toggle_snapshot_window_collapse':
                         break;
+                    default:
+                        throw utils.exhausted(action);
                 }
             } break;
             case 'app_request': {
