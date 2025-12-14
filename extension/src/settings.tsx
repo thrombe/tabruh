@@ -1,12 +1,13 @@
 import './settings.css';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { TabTreeView } from './components/TabTreeView';
 import { StateProvider, useStateContext } from './components/StateProvider';
-import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction } from './types';
+import type { AppRequest, BruhExport, SideberryExport, Snapshot, UserConfig, WindowId, BruhUiEvent, StateAction, WindowData } from './types';
 import { ContextMenuPortal, useContextMenu } from './hooks/useContextMenu';
 import * as svg from './svg';
+import * as utils from './utils';
 
 const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) => void, sendAction: (act: any) => void) => {
     const input = document.createElement('input');
@@ -44,6 +45,56 @@ const openFilePicker = (isForSnapshot: boolean, sendRequest: (req: AppRequest) =
         reader.readAsText(file);
     };
     input.click();
+};
+
+const DangerousSettings: React.FC = () => {
+    const { sendRequest } = useStateContext();
+    const [unlocked, setUnlocked] = useState(false);
+
+    const handleAction = (type: AppRequest['type']) => {
+        if (!confirm(`Are you sure you want to trigger '${type}'? This action can lead to data loss and cannot be undone.`)) return;
+        sendRequest({ type, payload: {} });
+    };
+
+    return (
+        <div className="settings-section dangerous-section">
+            <div className="settings-title-container">
+                <h2 className="settings-title">Dangerous Settings</h2>
+                <div className="toggle-container">
+                    <label htmlFor="unlock-dangerous" className="text-sm font-semibold">Enable Actions</label>
+                    <input id="unlock-dangerous" type="checkbox" checked={unlocked} onChange={(e) => setUnlocked(e.target.checked)} />
+                </div>
+            </div>
+            <div className="setting-item">
+                <div>
+                    <label>Re-initialize from Storage</label>
+                    <p className="description">Forces a full reload of the extension's state from local storage. Use if state seems corrupted.</p>
+                </div>
+                <button className="button danger-btn setting" disabled={!unlocked} onClick={() => handleAction('reinit_from_storage')}>Re-init</button>
+            </div>
+            <div className="setting-item">
+                <div>
+                    <label>Reset State</label>
+                    <p className="description">Wipes all window, group, and tab data, starting fresh. Your open tabs will be lost.</p>
+                </div>
+                <button className="button danger-btn setting" disabled={!unlocked} onClick={() => handleAction('reset_state')}>Reset State</button>
+            </div>
+            <div className="setting-item">
+                <div>
+                    <label>Reset Configuration</label>
+                    <p className="description">Resets all your customized settings on this page to their default values.</p>
+                </div>
+                <button className="button danger-btn setting" disabled={!unlocked} onClick={() => handleAction('reset_config')}>Reset Config</button>
+            </div>
+            <div className="setting-item">
+                <div>
+                    <label>Reset Snapshots</label>
+                    <p className="description">Permanently deletes all of your saved snapshots.</p>
+                </div>
+                <button className="button danger-btn setting" disabled={!unlocked} onClick={() => handleAction('reset_snapshots')}>Reset Snapshots</button>
+            </div>
+        </div>
+    );
 };
 
 const SettingsView: React.FC = () => {
@@ -155,14 +206,14 @@ const SettingsView: React.FC = () => {
                         <label>Export Current State</label>
                         <p className="description">Save a snapshot of all your current open and closed windows to a JSON file.</p>
                     </div>
-                    <button id="export-btn" className="button" onClick={handleExport}>Export</button>
+                    <button id="export-btn" className="button setting" onClick={handleExport}>Export</button>
                 </div>
                 <div className="setting-item">
                     <div>
                         <label>Import to Current State</label>
                         <p className="description">Import windows from a Tabruh or Sideberry export file as new, closed windows.</p>
                     </div>
-                    <button id="import-btn" className="button" onClick={handleImport}>Import</button>
+                    <button id="import-btn" className="button setting" onClick={handleImport}>Import</button>
                 </div>
             </div>
             <div className="settings-section">
@@ -188,6 +239,7 @@ const SettingsView: React.FC = () => {
                     <input type="checkbox" id="dbg_log_state_actions" checked={userConfig.dbg_log_state_actions} onChange={handleCheckboxChange} />
                 </div>
             </div>
+            <DangerousSettings />
         </div>
     );
 };

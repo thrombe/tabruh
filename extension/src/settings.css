@@ -23,14 +23,52 @@ body {
   flex-direction: row; /* For snapshots view */
 }
 
+.content.no-padding {
+    padding: 0;
+}
+
 /* === General Reusable Components === */
 .button {
-  @apply rounded-md border-none bg-[var(--gruvbox-blue)] px-4 py-2 text-sm font-semibold text-[var(--gruvbox-bg)] transition-colors;
+  @apply
+    inline-flex
+    items-center
+    justify-center
+    rounded-md
+    border-none
+    bg-[var(--gruvbox-blue)]
+    px-4
+    py-2
+    text-sm
+    font-semibold
+    text-[var(--gruvbox-bg)]
+    transition-colors;
+
   cursor: pointer;
 }
-.button:hover {
-  background-color: #a9b665;
+
+.button:disabled {
+  @apply opacity-60 cursor-not-allowed;
 }
+
+.button.danger-btn {
+  @apply bg-[#ffa07a] text-[var(--gruvbox-bg)];
+}
+
+.button.danger-btn:hover:not(:disabled) {
+  @apply bg-[#fb4934];
+}
+
+.button.danger-btn:disabled {
+  @apply
+    bg-[var(--gruvbox-border-2)]
+    text-[var(--gruvbox-border)]
+    opacity-100;
+}
+
+.button.setting {
+  @apply min-w-42;
+}
+
 
 .text-input {
   @apply rounded-sm border border-solid bg-[var(--gruvbox-hover)] p-1 px-2 text-[var(--gruvbox-fg)] outline-none;
@@ -68,6 +106,15 @@ body {
   border-color: var(--gruvbox-border-2);
 }
 
+.settings-title-container {
+    @apply flex items-center justify-between;
+}
+.settings-title-container .settings-title {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
 .setting-item {
   @apply mb-4 flex items-center justify-between;
 }
@@ -89,6 +136,23 @@ body {
 }
 .setting-item .text-input {
   @apply flex-shrink-0;
+}
+
+.dangerous-section {
+    border: 2px solid var(--gruvbox-red);
+    padding: 1rem;
+    border-radius: 4px;
+}
+.dangerous-section .settings-title {
+    color: var(--gruvbox-red);
+}
+.dangerous-section .settings-title-container {
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--gruvbox-border-2);
+}
+.dangerous-section .toggle-container {
+    @apply flex items-center gap-2;
 }
 
 
