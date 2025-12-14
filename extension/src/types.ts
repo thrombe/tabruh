@@ -189,6 +189,7 @@ export type AppRequest =
     | { type: 'get_initial_state', payload: {} }
     | { type: 'export_data', payload: {} }
     | { type: 'convert_sideberry_export', payload: { data: SideberryExport } }
+    | { type: 'get_logs', payload: {} }
     ;
 
 export type AppResponse =
@@ -304,6 +305,7 @@ export type BruhUiEvent =
     | { type: 'state_effect', payload: StateEffect }
     | { type: 'state_action', payload: StateAction }
     | { type: 'app_response', payload: AppResponse }
+    | { type: 'logs', payload: { logs: utils.Log[] } }
     ;
 
 export type ExtensionAction =

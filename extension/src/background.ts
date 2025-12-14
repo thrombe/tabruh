@@ -26,6 +26,7 @@ import manifest from './manifest.jsonc';
 class App {
     ports: Set<browser.Runtime.Port> = new Set();
     state_listeners: Set<browser.Runtime.Port> = new Set();
+    log_listeners: Set<browser.Runtime.Port> = new Set();
     event_channel: utils.Channel<AppEvent> = new utils.Channel();
     logger: utils.Logger = new utils.Logger();
 
@@ -84,7 +85,7 @@ class App {
                     await browser.storage.local.remove(this.storage_state_key);
                 } break;
                 default:
-                    this.logger.log("unknown menu item id " + info.menuItemId);
+                    this.log("unknown menu item id " + info.menuItemId);
             }
         });
 
@@ -117,6 +118,7 @@ class App {
             port.onDisconnect.addListener(() => {
                 this.ports.delete(port);
                 this.state_listeners.delete(port);
+                this.log_listeners.delete(port);
             });
         });
         browser.tabs.onCreated.addListener(async (tab) => {
@@ -213,6 +215,22 @@ class App {
         }
     }
 
+    log_err(e: any, msg?: string) {
+        const log = this.logger.err(e, msg);
+
+        for (const port of this.log_listeners) {
+            this._post(port, { type: 'logs', payload: { logs: [log] } });
+        }
+    }
+
+    log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
+        const log = this.logger.log(msg, extra, to_console);
+
+        for (const port of this.log_listeners) {
+            this._post(port, { type: 'logs', payload: { logs: [log] } });
+        }
+    }
+
     async process_events() {
         const app_effects = new utils.Deque<AppEffect>();
         const state_effects = new utils.Deque<StateEffect>();
@@ -222,7 +240,7 @@ class App {
 
             this._log_event(event);
 
-            await this.process_event(event, state_effects, app_effects).catch(this.logger.err);
+            await this.process_event(event, state_effects, app_effects).catch(this.log_err);
             this.process_state_effects(state_effects, app_effects);
             await this.process_app_effects(state_effects, app_effects);
         }
@@ -246,7 +264,7 @@ class App {
                 case 'upate_tab_info':
                 case 'register_tab':
                 case 'register_window':
-                    this.logger.log(`${effect.type}`, effect, this.state.user_config.dbg_log_state_effects);
+                    this.log(`${effect.type}`, effect, this.state.user_config.dbg_log_state_effects);
                     break;
                 case 'effects':
                     break
@@ -277,7 +295,7 @@ class App {
                 case 'save_config':
                 case 'save_snapshots':
                 case 'save_state':
-                    this.logger.log(`${effect.type}`, effect, this.state.user_config.dbg_log_effects);
+                    this.log(`${effect.type}`, effect, this.state.user_config.dbg_log_effects);
                     break;
                 case 'write_window_session':
                 case 'write_tab_session':
@@ -287,7 +305,7 @@ class App {
                     throw utils.exhausted(effect);
             }
 
-            await this._process_effect(effect, state_effects).catch(this.logger.log);
+            await this._process_effect(effect, state_effects).catch(this.log_err);
             this.process_state_effects(state_effects, app_effects);
         }
     }
@@ -314,7 +332,7 @@ class App {
     }
 
     async save_state() {
-        this.logger.log("actually saving state now");
+        this.log("actually saving state now");
         const state = this.state.serialize_state();
         await browser.storage.local.set({
             [this.storage_state_key]: state,
@@ -392,7 +410,7 @@ class App {
                 await browser.sessions.setWindowValue(id as WindowId, this.session_pointer_key, data);
             }
         } catch (e) {
-            this.logger.log(`Could not set session pointer for ${type} ${id}: ${e}`, { trace: utils.trace_from(e) });
+            this.log(`Could not set session pointer for ${type} ${id}: ${e}`, { trace: utils.trace_from(e) });
         }
     }
 
@@ -668,7 +686,7 @@ class App {
                     case 'window_created':
                     case 'window_removed':
                     case 'sessions_changed':
-                        this.logger.log(`${event.payload.type}`, event.payload, this.state.user_config.dbg_log_events);
+                        this.log(`${event.payload.type}`, event.payload, this.state.user_config.dbg_log_events);
                         break;
                     case 'tab_updated':
                     case 'tab_activated':
@@ -683,7 +701,8 @@ class App {
                     case 'export_data':
                     case 'convert_sideberry_export':
                     case 'get_initial_state':
-                        this.logger.log(`${event.type}`, event, this.state.user_config.dbg_log_events);
+                    case 'get_logs':
+                        this.log(`${event.type}`, event, this.state.user_config.dbg_log_events);
                         break;
                     default:
                         throw utils.exhausted(event.payload.message);
@@ -716,7 +735,7 @@ class App {
                     case 'handle_snapshot_drop':
                     case 'toggle_snapshot_collapse':
                     case 'toggle_snapshot_window_collapse':
-                        this.logger.log(`${event.payload.message.type}`, event.payload.message.payload, this.state.user_config.dbg_log_events);
+                        this.log(`${event.payload.message.type}`, event.payload.message.payload, this.state.user_config.dbg_log_events);
                         break;
 
                     default:
@@ -861,7 +880,7 @@ class App {
                     case 'restore_snapshot_window':
                     case 'restore_snapshot_subtree':
                     case 'handle_snapshot_drop':
-                        this.logger.log(`${action.type}`, action, this.state.user_config.dbg_log_state_actions);
+                        this.log(`${action.type}`, action, this.state.user_config.dbg_log_state_actions);
                         break;
                     case 'update_user_config':
                     case 'create_snapshot':
@@ -934,6 +953,11 @@ class App {
                         const data = this.state.clonable_state();
                         this._post(event.payload.port, { type: 'app_response', payload: { type: 'initial_state', payload: data } });
                         this.state_listeners.add(event.payload.port);
+                    } break;
+                    case 'get_logs': {
+                        const logs = this.logger.buf.map(log => log);
+                        this._post(event.payload.port, { type: 'logs', payload: { logs } });
+                        this.log_listeners.add(event.payload.port);
                     } break;
                     default:
                         throw utils.exhausted(msg);
