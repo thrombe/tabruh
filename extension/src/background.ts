@@ -203,6 +203,12 @@ class App {
         }
     }
 
+    _broadcast_state_event(event: BruhUiEvent) {
+        for (const port of this.state_listeners) {
+            this._post(port, event);
+        }
+    }
+
     _broadcast_state_effect(effect: StateEffect) {
         for (const port of this.state_listeners) {
             this._post(port, { type: 'state_effect', payload: effect });
@@ -966,19 +972,33 @@ class App {
                     case 'reinit_from_storage': {
                         this.state = new State(this.state.extension_version);
                         await this.init_tree();
+
+                        const data = this.state.clonable_state();
+                        this._post(event.payload.port, { type: 'app_response', payload: { type: 'initial_state', payload: data } });
                     } break;
                     case 'reset_state': {
+                        const snapshots = this.state.snapshots;
                         this.state = new State(this.state.extension_version);
+                        this.state.snapshots = snapshots;
+
                         await browser.storage.local.remove(this.storage_state_key);
                         await this.init_tree();
+
+                        const data = this.state.clonable_state();
+                        this._broadcast_state_event({ type: 'app_response', payload: { type: 'initial_state', payload: data } });
                     } break;
                     case 'reset_config': {
                         this.state.user_config = default_config();
                         await browser.storage.local.remove(this.storage_config_key);
+
+                        this._broadcast_state_action({ type: 'update_user_config', payload: { config: this.state.user_config } });
                     } break;
                     case 'reset_snapshots': {
                         this.state.snapshots = [];
                         await browser.storage.local.remove(this.storage_snapshot_key);
+
+                        const data = this.state.clonable_state();
+                        this._broadcast_state_event({ type: 'app_response', payload: { type: 'initial_state', payload: data } });
                     } break;
                     default:
                         throw utils.exhausted(msg);
