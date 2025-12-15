@@ -30,6 +30,23 @@ class App {
     event_channel: utils.Channel<AppEvent> = new utils.Channel();
     logger: utils.Logger = new utils.Logger();
 
+    // NOTE(1006)
+    // this is a very ugly hack because browsers suck
+    // when ff restores windows using "Restore Last Session" tabs after a crash or whatever,
+    // the focused tab is always created first, but the session storage for it and it's window is empty for some time
+    // when the window event is received however - the window's session storage is preserved. (same for all other tabs)
+    // so we have to write special code to handle just this one annoying condition
+    //
+    // here, we defer the event for that tab's creation event until we get the window's event.
+    // then we read that restored window's active tab - and assign it to this new tab before sending the event.
+    //
+    // TODO: there's probably also a bug that could be handled here.
+    //  it is assumed that window restores like these always restore *all* of the tabs in them, but in some special cases
+    //  the browser (ff) does not restore *all* of the tabs.
+    //  one such case is probably (i didn't make sure, but i expect it to do this (TODO)) when we have a url of some extension
+    //  that is no longer installed.
+    window_tab_defers: Map<WindowId, Extract<StateEffect, { type: 'tab_created' }>> = new Map();
+
     state: State;
 
     private session_pointer_key = "tabruh-bruh-id";
@@ -645,6 +662,7 @@ class App {
             }
         }
 
+        // OOF: this should be empty here anyway right?
         for (const [wbid, data] of this.state.pre_allocated_bids_for_non_pristine_restore.entries()) {
             this.state.pre_allocated_bids_for_non_pristine_restore.delete(wbid);
             const win = this.state.get_window(wbid);
@@ -805,7 +823,8 @@ class App {
                     case 'tab_created': {
                         const btab = msg.payload.tab;
                         if (btab.id === undefined || btab.windowId === undefined) return;
-                        const old_wbid = await this.read_session_pointer(btab.windowId as WindowId, "window");
+                        const wid = btab.windowId as WindowId;
+                        const old_wbid = await this.read_session_pointer(wid, "window");
                         const old_tbid = await this.read_session_pointer(btab.id as TabId, "tab");
 
                         const effect: StateEffect = {
@@ -813,7 +832,7 @@ class App {
                             payload: {
                                 old_wbid,
                                 old_tbid,
-                                wid: btab.windowId as WindowId,
+                                wid: wid,
                                 tid: btab.id as TabId,
                                 url: btab.url,
                                 favIconUrl: btab.favIconUrl,
@@ -823,8 +842,14 @@ class App {
                                 index: btab.index,
                             },
                         };
-                        state_effects.push_back(effect);
-                        this._broadcast_state_effect(effect);
+
+                        // NOTE:(1006)
+                        if (!(old_tbid && old_wbid) && !this.state.window_bids.has(wid) && !this.window_tab_defers.has(wid)) {
+                            this.window_tab_defers.set(wid, effect);
+                        } else {
+                            state_effects.push_back(effect);
+                            this._broadcast_state_effect(effect);
+                        }
                     } break;
                     case 'tab_removed': {
                         state_effects.push_back(msg);
@@ -864,8 +889,31 @@ class App {
                     case 'window_created': {
                         const bwin = msg.payload.win;
                         if (bwin.id === undefined) return;
-                        const old_wbid = await this.read_session_pointer(bwin.id as WindowId, "window");
-                        const effect: StateEffect = { type: 'window_created', payload: { old_wbid, wid: bwin.id as WindowId } };
+                        const wid = bwin.id as WindowId;
+                        const old_wbid = await this.read_session_pointer(wid, "window");
+                        const effect: StateEffect = { type: 'window_created', payload: { old_wbid, wid } };
+
+                        // NOTE:(1006)
+                        if (this.window_tab_defers.has(wid)) {
+                            const e = this.window_tab_defers.get(wid)!;
+                            this.window_tab_defers.delete(wid);
+
+                            if (old_wbid && this.state.nodes.has(old_wbid)) {
+                                const old_win = this.state.get_window(old_wbid)!;
+
+                                if (old_win.active && !e.payload.old_tbid) {
+                                    e.payload.old_tbid = old_win.active;
+                                }
+
+                                if (!e.payload.old_wbid) {
+                                    e.payload.old_wbid = old_wbid;
+                                }
+                            }
+
+                            state_effects.push_back(e);
+                            this._broadcast_state_effect(e);
+                        }
+
                         state_effects.push_back(effect);
                         this._broadcast_state_effect(effect);
                     } break;
