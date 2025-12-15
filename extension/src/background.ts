@@ -190,8 +190,25 @@ class App {
     }
 
     _post(port: browser.Runtime.Port, message: BruhUiEvent) {
+        function jsonCloneWithBigInt(value) {
+            return JSON.parse(
+                JSON.stringify(value, (_key, val) =>
+                    typeof val === 'bigint'
+                        ? { __bigint__: val.toString() }
+                        : typeof val === 'function' || typeof val === 'undefined'
+                            ? undefined
+                            : val
+                ),
+                (_key, val) =>
+                    val && typeof val === 'object' && '__bigint__' in val
+                        ? BigInt(val.__bigint__)
+                        : val
+            );
+        }
+
         try {
-            port.postMessage(message);
+            // TODO: without this clone we get a weird clone error when sending message :/
+            port.postMessage(jsonCloneWithBigInt(message));
         } catch (e) {
             this.ports.delete(port);
             this.log_err(e, "error sending msg via port");
@@ -967,8 +984,7 @@ class App {
                     } break;
                     case 'get_logs': {
                         const logs = this.logger.buf.map(log => log);
-                        // OOF: without this json clone we get a weird clone error when sending message :/
-                        this._post(event.payload.port, { type: 'logs', payload: { logs: JSON.parse(JSON.stringify(logs)) } });
+                        this._post(event.payload.port, { type: 'logs', payload: { logs } });
                         this.log_listeners.add(event.payload.port);
                     } break;
                     case 'reinit_from_storage': {
