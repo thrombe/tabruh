@@ -194,6 +194,7 @@ class App {
             port.postMessage(message);
         } catch (e) {
             this.ports.delete(port);
+            this.log_err(e, "error sending msg via port");
         }
     }
 
@@ -966,7 +967,8 @@ class App {
                     } break;
                     case 'get_logs': {
                         const logs = this.logger.buf.map(log => log);
-                        this._post(event.payload.port, { type: 'logs', payload: { logs } });
+                        // OOF: without this json clone we get a weird clone error when sending message :/
+                        this._post(event.payload.port, { type: 'logs', payload: { logs: JSON.parse(JSON.stringify(logs)) } });
                         this.log_listeners.add(event.payload.port);
                     } break;
                     case 'reinit_from_storage': {

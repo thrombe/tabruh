@@ -48,7 +48,7 @@ export function sleep(ms: number) {
 }
 
 export type Log = {
-    timestamp: Date,
+    timestamp: string, // iso string Date
     level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG',
     msg: string,
     trace: string,
@@ -65,7 +65,7 @@ export class Logger {
     }
 
     private logInternal(level: Log['level'], msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        const log: Log = { timestamp: new Date(), level, msg, extra, trace: get_trace(2) };
+        const log: Log = { timestamp: new Date().toISOString(), level, msg, extra, trace: get_trace(2) };
 
         if ("trace" in extra && !!extra["trace"]) {
             log.trace = extra["trace"];
@@ -78,7 +78,7 @@ export class Logger {
         }
 
         if (this.console ?? to_console ?? false) {
-            console.log(`${log.timestamp} [${log.level}] ${log.msg}\n${log.trace}`);
+            console.log(`${log.timestamp} [${log.level}] ${log.msg}`, log.trace, log.extra);
         }
 
         return log;
