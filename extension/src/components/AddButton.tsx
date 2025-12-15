@@ -1,6 +1,5 @@
-// components/AddButton.tsx
 import React, { useCallback, useState } from 'react';
-import type { BruhId, DragData, DropAction, SnapshotDragData } from '../types';
+import type { BruhId, DragData, DropAction } from '../types';
 import { useStateContext } from './StateProvider';
 
 type AddButtonProps = {
@@ -16,12 +15,22 @@ export const AddButton: React.FC<AddButtonProps> = ({ rootId }) => {
     const { sendAction } = useStateContext();
     const [isDragOver, setIsDragOver] = useState(false);
 
-    const handleClick = useCallback(() => {
-        sendAction({
-            type: 'create_tab',
-            payload: { parent_bid: rootId, action: 'inside' }
-        });
-    }, [sendAction, rootId]);
+    const handleClick = useCallback(
+        (event: React.MouseEvent) => {
+            // Check if middle-click (button 1)
+            const isMiddleClick = event.button === 1;
+
+            sendAction({
+                type: 'create_tab',
+                payload: {
+                  parent_bid: rootId,
+                  action: 'inside',
+                  switch: isMiddleClick,
+              },
+            });
+        },
+        [sendAction, rootId]
+    );
 
     const handleDragOver = useCallback((event: React.DragEvent) => {
         event.preventDefault();
@@ -74,7 +83,7 @@ export const AddButton: React.FC<AddButtonProps> = ({ rootId }) => {
     return (
         <div
             className={className}
-            onClick={handleClick}
+            onMouseUp={handleClick}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}

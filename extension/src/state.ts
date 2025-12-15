@@ -1937,8 +1937,16 @@ export class State {
                     create_effect = this.create_new_tab(parent.bid, { bid: bid, url: url, index: target.index, title });
                 }
 
+                if (action.payload.switch) {
+                    win.active = bid;
+                }
+
                 if (!win.closed) {
                     effects.push_back(create_effect);
+
+                    if (action.payload.switch) {
+                        effects.push_back({ type: 'tab_focused', payload: { bid } });
+                    }
                 }
             } break;
             case 'toggle_collapse': {

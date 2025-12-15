@@ -211,7 +211,7 @@ export type StateAction =
     | { type: 'unload_tabs', payload: { bid: BruhId, recursive: boolean } }
     | { type: 'reload_tree', payload: { bid: BruhId } }
     | { type: 'move_subtree_to_new_window', payload: { bid: BruhId } }
-    | { type: 'create_tab', payload: { url?: string, parent_bid: BruhId, action: DropAction } }
+    | { type: 'create_tab', payload: { url?: string, parent_bid: BruhId, action: DropAction, switch?: boolean } }
     | { type: 'close_window', payload: { wbid: BruhId } }
     | { type: 'restore_window', payload: { wbid: BruhId } }
     | { type: 'delete_window_state', payload: { wbid: BruhId } }
