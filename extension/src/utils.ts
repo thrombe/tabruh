@@ -64,8 +64,8 @@ export class Logger {
         this.cap = cap ?? 1000;
     }
 
-    private logInternal(level: Log['level'], msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        const log: Log = { timestamp: new Date().toISOString(), level, msg, extra, trace: get_trace(2) };
+    private logInternal(level: Log['level'], msg: string, extra: Record<string, any> = {}, skip?: number, to_console?: boolean) {
+        const log: Log = { timestamp: new Date().toISOString(), level, msg, extra, trace: get_trace(1 + (skip ?? 0)) };
 
         if ("trace" in extra && !!extra["trace"]) {
             log.trace = extra["trace"];
@@ -84,25 +84,25 @@ export class Logger {
         return log;
     }
 
-    err(e: any, msg?: string) {
+    err(e: any, msg?: string, skip?: number, to_console?: boolean) {
         const fullMsg = msg ? `${msg}: ${e}` : String(e);
-        return this.logInternal('ERROR', fullMsg, { trace: trace_from(e) });
+        return this.logInternal('ERROR', fullMsg, { trace: trace_from(e) }, 1 + (skip ?? 0), to_console);
     }
 
-    warn(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        return this.logInternal('WARN', msg, extra, to_console);
+    warn(msg: string, extra: Record<string, any> = {}, skip?: number, to_console?: boolean) {
+        return this.logInternal('WARN', msg, extra, 1 + (skip ?? 0), to_console);
     }
 
-    info(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        return this.logInternal('INFO', msg, extra, to_console);
+    info(msg: string, extra: Record<string, any> = {}, skip?: number, to_console?: boolean) {
+        return this.logInternal('INFO', msg, extra, 1 + (skip ?? 0), to_console);
     }
 
-    debug(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        return this.logInternal('DEBUG', msg, extra, to_console);
+    debug(msg: string, extra: Record<string, any> = {}, skip?: number, to_console?: boolean) {
+        return this.logInternal('DEBUG', msg, extra, 1 + (skip ?? 0), to_console);
     }
 
-    log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        return this.info(msg, extra, to_console); // Backwards compatibility
+    log(msg: string, extra: Record<string, any> = {}, skip?: number, to_console?: boolean) {
+        return this.info(msg, extra, 1 + (skip ?? 0), to_console);
     }
 }
 

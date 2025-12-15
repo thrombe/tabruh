@@ -240,7 +240,7 @@ class App {
     }
 
     log_err(e: any, msg?: string) {
-        const log = this.logger.err(e, msg);
+        const log = this.logger.err(e, msg, 1);
 
         for (const port of this.log_listeners) {
             this._post(port, { type: 'logs', payload: { logs: [log] } });
@@ -248,7 +248,7 @@ class App {
     }
 
     log(msg: string, extra: Record<string, any> = {}, to_console?: boolean) {
-        const log = this.logger.log(msg, extra, to_console);
+        const log = this.logger.log(msg, extra, 1, to_console);
 
         for (const port of this.log_listeners) {
             this._post(port, { type: 'logs', payload: { logs: [log] } });
